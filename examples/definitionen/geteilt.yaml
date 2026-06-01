@@ -1,0 +1,33 @@
+# Beispiel: GETEILTE (kanonische) Berater-Definitionen (Erweiterung §4.2).
+# Nur freigegebene Einträge wirken kanonisch (review_status: freigegeben).
+# Persönliche Definitionen gehören in personal.yaml (NICHT eingecheckt – kann
+# mandantenbezogene Notizen enthalten; siehe .gitignore).
+
+- id: betriebsaufspaltung
+  begriff: "Betriebsaufspaltung"
+  definition_text: >
+    Aufteilung eines wirtschaftlich einheitlichen Unternehmens in ein Besitz-
+    und ein Betriebsunternehmen; setzt eine sachliche (Überlassung wesentlicher
+    Betriebsgrundlage) und personelle Verflechtung (einheitlicher geschäftlicher
+    Betätigungswille) voraus. Rechtsfolge: gewerbliche Einkünfte des Besitzunternehmens.
+  norm_anker:
+    - "§ 15 EStG"
+  definitionsquelle:
+    - typ: "Rspr"
+      fundstelle: "ständige BFH-Rspr. zur Betriebsaufspaltung"
+  governance_typ: "IN"
+  schadensintensitaet: "hoch"
+  kaskadenreichweite: 2
+  trigger_ereignisse:
+    - "Beendigung der personellen Verflechtung"
+    - "Wegfall der sachlichen Verflechtung"
+  scope: "geteilt"
+  autor: "rey"
+  eingetragen_am: "2026-05-31"
+  review_status: "freigegeben"
+  reviewer: "hirschmann"
+  konfidenz: "hoch"
+  geankert_an:
+    - "norm:EStG:15"
+  zuletzt_geprueft_gegen_rspr_am: null
+  abgleich_status: "aktuell"

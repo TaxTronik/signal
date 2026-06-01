@@ -1,0 +1,978 @@
+{
+  "text": "Die Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal verfügt und nur Zahlungen weiterleitet. Außerdem fehlen Belege und die Kassenführung ist nicht nachvollziehbar, sodass eine Schätzung droht.",
+  "katalog_version": "0.3.0",
+  "erzeugt_am": "2026-06-01T15:27:17+00:00",
+  "text_hash": "4cde3550027e46f0e716fc8ca1aa3bdb86815b988fc7cb54b8a999ea95e47ce8",
+  "summary": {
+    "markierungen_gesamt": 6,
+    "treffer": 4,
+    "luecken": 0,
+    "kandidaten": 5,
+    "unknown_risiko": 2,
+    "berater_definiert": 0,
+    "nach_governance_typ": {
+      "FF": 2,
+      "IN": 2
+    },
+    "nach_schadensintensitaet": {
+      "hoch": 3,
+      "mittel": 1
+    }
+  },
+  "spans": [
+    {
+      "start": 213,
+      "end": 226,
+      "status": "treffer",
+      "cls": "gov-ff",
+      "titel": "Mängel der Buchführung / Kassenführung",
+      "layer": "schicht1",
+      "via": "wörtlich",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 0
+      }
+    },
+    {
+      "start": 266,
+      "end": 275,
+      "status": "treffer",
+      "cls": "gov-ff",
+      "titel": "Schätzung der Besteuerungsgrundlagen",
+      "layer": "schicht1",
+      "via": "wörtlich",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 1
+      }
+    },
+    {
+      "start": 4,
+      "end": 141,
+      "status": "treffer",
+      "cls": "gov-in",
+      "titel": "Missbrauch von rechtlichen Gestaltungsmöglichkeiten",
+      "layer": "muster",
+      "via": "muster",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 2
+      }
+    },
+    {
+      "start": 4,
+      "end": 141,
+      "status": "treffer",
+      "cls": "gov-in",
+      "titel": "Hinzurechnungsbesteuerung / Funktions- und Substanzfrage (AStG)",
+      "layer": "muster",
+      "via": "muster",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 3
+      }
+    },
+    {
+      "start": 154,
+      "end": 180,
+      "status": "unknown_risiko",
+      "cls": "unknown",
+      "titel": "Gestaltungsmissbrauch",
+      "layer": "llm",
+      "streitig": false,
+      "ref": {
+        "type": "risiko",
+        "index": 0
+      }
+    },
+    {
+      "start": 191,
+      "end": 204,
+      "status": "unknown_risiko",
+      "cls": "unknown",
+      "titel": "Buchführungsmangel",
+      "layer": "llm",
+      "streitig": false,
+      "ref": {
+        "type": "risiko",
+        "index": 1
+      }
+    }
+  ],
+  "semantik": [
+    {
+      "start": 0,
+      "end": 180,
+      "satz": "Die Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal verfügt und nur Zahlungen weiterleitet",
+      "normen": [
+        {
+          "zitat": "§ 7 AStG",
+          "id": "norm:AStG:7",
+          "titel": "Beteiligung an ausländischer Zwischengesellschaft",
+          "sim": 0.636,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 7 AStG",
+                "§ 8 AStG",
+                "§ 1 AStG"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Hinzurechnung passiver Einkünfte (§§ 7, 8); bei der Rechteübertragung zusätzlich Verrechnungspreis-Korrektur (§ 1).",
+              "anzeige": "§ 7 AStG iVm § 8 AStG iVm § 1 AStG"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 42 AO",
+          "id": "norm:AO:42",
+          "titel": "Missbrauch von rechtlichen Gestaltungsmöglichkeiten",
+          "sim": 0.629,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 42 AO",
+                "§ 39 Abs. 2 AO",
+                "§ 7 AStG"
+              ],
+              "verknuepfung": "→ ggf.",
+              "hinweis": "Gestaltungsmissbrauch (§ 42), wirtschaftliche Zurechnung (§ 39) und Hinzurechnungsbesteuerung (§§ 7 ff. AStG) greifen bei substanzlosen Auslandsgesellschaften ineinander.",
+              "anzeige": "§ 42 AO → ggf. § 39 Abs. 2 AO → ggf. § 7 AStG"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 39 AO",
+          "id": "norm:AO:39",
+          "titel": "Zurechnung",
+          "sim": 0.55,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 15 EStG",
+          "id": "norm:EStG:15",
+          "titel": "Einkünfte aus Gewerbebetrieb",
+          "sim": 0.542,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 71b AktG",
+          "id": "norm:AktG:71b",
+          "titel": "Rechte aus eigenen Aktien",
+          "sim": 0.529,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        }
+      ]
+    },
+    {
+      "start": 182,
+      "end": 281,
+      "satz": "Außerdem fehlen Belege und die Kassenführung ist nicht nachvollziehbar, sodass eine Schätzung droht",
+      "normen": [
+        {
+          "zitat": "§ 69 AO",
+          "id": "norm:AO:69",
+          "titel": "Haftung der Vertreter",
+          "sim": 0.642,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 69 AO",
+                "§ 34 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Die Haftung (§ 69) knüpft an die Vertreterpflichten (§ 34) an – Grundsatz der anteiligen Tilgung.",
+              "anzeige": "§ 69 AO iVm § 34 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 162 AO",
+          "id": "norm:AO:162",
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "sim": 0.64,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 162 AO",
+                "§ 90 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162).",
+              "anzeige": "§ 162 AO iVm § 90 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 173 AO",
+          "id": "norm:AO:173",
+          "titel": "Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel",
+          "sim": 0.619,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 173 Abs. 1 AO",
+                "§ 169 Abs. 2 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Änderung nach § 173 nur innerhalb der Festsetzungsfrist (§ 169).",
+              "anzeige": "§ 173 Abs. 1 AO iVm § 169 Abs. 2 AO"
+            },
+            {
+              "glieder": [
+                "§ 173 Abs. 2 AO",
+                "§ 169 Abs. 2 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Verschuldensgrad bestimmt Änderungssperre (§ 173 II) UND verlängerte Festsetzungsfrist (§ 169 II: 5/10 Jahre).",
+              "anzeige": "§ 173 Abs. 2 AO iVm § 169 Abs. 2 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 129 AO",
+          "id": "norm:AO:129",
+          "titel": "Offenbare Unrichtigkeiten beim Erlass eines Verwaltungsakts",
+          "sim": 0.603,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 146 AO",
+          "id": "norm:AO:146",
+          "titel": "Ordnungsvorschriften für die Buchführung und für Aufzeichnungen",
+          "sim": 0.596,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 146 AO",
+                "§ 158 AO",
+                "§ 162 AO"
+              ],
+              "verknuepfung": "→",
+              "hinweis": "Ordnungsmangel (§ 146) lässt die Beweiskraft (§ 158) entfallen und eröffnet die Schätzung (§ 162).",
+              "anzeige": "§ 146 AO → § 158 AO → § 162 AO"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "karten": [
+    {
+      "begriff_id": "ao_buchfuehrungs_kassenmangel",
+      "begriff": "Mängel der Buchführung / Kassenführung",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① wörtlich · Katalog",
+        "art": "wörtlicher Katalogtreffer",
+        "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+      },
+      "matched_text": "Kassenführung",
+      "start": 213,
+      "end": 226,
+      "norm_anker": [
+        {
+          "zitat": "§ 146 AO",
+          "ids": [
+            "norm:AO:146"
+          ]
+        },
+        {
+          "zitat": "§ 146a AO",
+          "ids": [
+            "norm:AO:146a"
+          ]
+        },
+        {
+          "zitat": "§ 158 AO",
+          "ids": [
+            "norm:AO:158"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 146 AO",
+            "§ 158 AO",
+            "§ 162 AO"
+          ],
+          "verknuepfung": "→",
+          "hinweis": "Ordnungsmangel (§ 146) lässt die Beweiskraft (§ 158) entfallen und eröffnet die Schätzung (§ 162).",
+          "anzeige": "§ 146 AO → § 158 AO → § 162 AO"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Gesetz",
+          "fundstelle": "§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)",
+          "id": null
+        },
+        {
+          "typ": "Verwaltung",
+          "fundstelle": "AEAO zu § 146",
+          "id": "verw:AEAO:zu§146"
+        }
+      ],
+      "governance_typ": "FF",
+      "schadensintensitaet": "hoch",
+      "kaskadenreichweite": 3,
+      "gefaehrdungsnotiz": "Nicht nachvollziehbare oder unvollständige (Kassen-)Aufzeichnungen verletzen die Ordnungsvorschriften (§ 146 AO; Einzelaufzeichnung/Registrierkasse § 146a AO). Folge: Die Beweiskraft der Buchführung (§ 158 AO) entfällt, womit die Schätzungsbefugnis (§ 162 AO) dem Grunde nach eröffnet wird.",
+      "rechercheauftrag": null,
+      "surface": "Kassenführung",
+      "gesetzestext": [
+        {
+          "id": "norm:AO:146",
+          "verwendet": "norm:AO:146",
+          "titel": "Ordnungsvorschriften für die Buchführung und für Aufzeichnungen",
+          "text": "(1) Die Buchungen und die sonst erforderlichen Aufzeichnungen sind einzeln, vollständig, richtig, zeitgerecht und geordnet vorzunehmen. Kasseneinnahmen und Kassenausgaben sind täglich festzuhalten. Die Pflicht zur Einzelaufzeichnung nach Satz 1 besteht aus Zumutbarkeitsgründen bei Verkauf von Waren an eine Vielzahl von nicht bekannten Personen gegen Barzahlung nicht. Das gilt nicht, wenn der Steuerpflichtige ein elektronisches Aufzeichnungssystem im Sinne des § 146a verwendet.(2) Bücher und die sonst erforderlichen Aufzeichnungen sind im Geltungsbereich dieses Gesetzes zu führen und aufzubewahren. Dies gilt nicht, soweit für Betriebstätten außerhalb des Geltungsbereichs dieses Gesetzes nach dortigem Recht eine Verpflichtung besteht, Bücher und Aufzeichnungen zu führen, und diese Verpflichtung erfüllt wird. In diesem Fall sowie bei Organgesellschaften außerhalb des Geltungsbereichs dieses Gesetzes müssen die Ergebnisse der dortigen Buchführung in die Buchführung des hiesigen Unternehmens übernommen werden, soweit sie für die Besteuerung von Bedeutung sind. Dabei sind die erforderlichen Anpassungen an die steuerrechtlichen Vorschriften im Geltungsbereich dieses Gesetzes vorzunehmen und kenntlich zu machen.(2a) Abweichend von Absatz 2 Satz 1 kann der Steuerpflichtige elektronische Bücher und sonstige erforderliche elektronische Aufzeichnungen oder Teile davon in einem anderen Mitgliedstaat oder in mehreren Mitgliedstaaten der Europäischen Union führen und aufbewahren. Macht der Steuerpflichtige von dieser Befugnis Gebrauch, hat er sicherzustellen, dass der Datenzugriff nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes in vollem Umfang möglich ist.(2b) Abweichend von Absatz 2 Satz 1 kann die zuständige Finanzbehörde auf schriftlichen oder elektronischen Antrag des Steuerpflichtigen bewilligen, dass elektronische Bücher und sonstige erforderliche elektronische Aufzeichnungen oder Teile davon in einem Drittstaat oder in mehreren Drittstaaten geführt und aufbewahrt werden können. Voraussetzung ist, dass 1.der Steuerpflichtige der zuständigen Finanzbehörde den Standort oder die Standorte des Datenverarbeitungssystems oder bei Beauftragung eines Dritten dessen Namen und Anschrift mitteilt,2.der Steuerpflichtige seinen sich aus den §§ 90, 93, 97, 140 bis 147 und 200 Absatz 1 und 2 ergebenden Pflichten ordnungsgemäß nachgekommen ist,3.der Datenzugriff nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes in vollem Umfang möglich ist und4.die Besteuerung hierdurch nicht beeinträchtigt wird.Werden der Finanzbehörde Umstände bekannt, die zu einer Beeinträchtigung der Besteuerung führen, hat sie die Bewilligung zu widerrufen und die unverzügliche Rückverlagerung der elektronischen Bücher und sonstigen erforderlichen elektronischen Aufzeichnungen in einen oder mehrere Mitgliedstaaten der Europäischen Union zu verlangen. Eine Änderung der unter Satz 2 Nummer 1 benannten Umstände ist der zuständigen Finanzbehörde unverzüglich mitzuteilen.(2c) Kommt der Steuerpflichtige der Aufforderung zur Rückverlagerung seiner elektronischen Buchführung oder seinen Pflichten nach Absatz 2b Satz 4, zur Einräumung des Datenzugriffs nach § 147 Absatz 6 nicht nach oder hat er seine elektronische Buchführung ohne Bewilligung der zuständigen Finanzbehörde in einen Drittstaat oder mehrere Drittstaaten verlagert, kann ein Verzögerungsgeld von 2 500 Euro bis 250 000 Euro festgesetzt werden.(3) Die Buchungen und die sonst erforderlichen Aufzeichnungen sind in einer lebenden Sprache vorzunehmen. Wird eine andere als die deutsche Sprache verwendet, so kann die Finanzbehörde Übersetzungen verlangen. Werden Abkürzungen, Ziffern, Buchstaben oder Symbole verwendet, muss im Einzelfall deren Bedeutung eindeutig festliegen.(4) Eine Buchung oder eine Aufzeichnung darf nicht in einer Weise verändert werden, dass der ursprüngliche Inhalt nicht mehr feststellbar ist. Auch solche Veränderungen dürfen nicht vorgenommen werden, deren Beschaffenheit es ungewiss lässt, ob sie ursprünglich oder erst später gemacht worden sind.(5) Die Bücher und die sonst erforderlichen Aufzeichnungen können auch in der geordneten Ablage von Belegen bestehen oder auf Datenträgern geführt werden, soweit diese Formen der Buchführung einschließlich des dabei angewandten Verfahrens den Grundsätzen ordnungsmäßiger Buchführung entsprechen; bei Aufzeichnungen, die allein nach den Steuergesetzen vorzunehmen sind, bestimmt sich die Zulässigkeit des angewendeten Verfahrens nach dem Zweck, den die Aufzeichnungen für die Besteuerung erfüllen sollen. Bei der Führung der Bücher und der sonst erforderlichen Aufzeichnungen auf Datenträgern muss insbesondere sichergestellt sein, dass während der Dauer der Aufbewahrungsfrist die Daten jederzeit verfügbar sind und unverzüglich lesbar gemacht werden können. Dies gilt auch für die Befugnisse der Finanzbehörde nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes. Absätze 1 bis 4 gelten sinngemäß.(6) Die Ordnungsvorschriften gelten auch dann, wenn der Unternehmer Bücher und Aufzeichnungen, die für die Besteuerung von Bedeutung sind, führt, ohne hierzu verpflichtet zu sein.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        },
+        {
+          "id": "norm:AO:146a",
+          "verwendet": "norm:AO:146a",
+          "titel": "Ordnungsvorschrift für die Buchführung und für Aufzeichnungen mittels elektronischer Aufzeichnungssysteme; Verordnungsermächtigung",
+          "text": "(1) Wer aufzeichnungspflichtige Geschäftsvorfälle oder andere Vorgänge mit Hilfe eines elektronischen Aufzeichnungssystems erfasst, hat ein elektronisches Aufzeichnungssystem zu verwenden, das jeden aufzeichnungspflichtigen Geschäftsvorfall und anderen Vorgang einzeln, vollständig, richtig, zeitgerecht und geordnet aufzeichnet. Das elektronische Aufzeichnungssystem und die digitalen Aufzeichnungen nach Satz 1 sind durch eine zertifizierte technische Sicherheitseinrichtung zu schützen. Diese zertifizierte technische Sicherheitseinrichtung muss aus einem Sicherheitsmodul, einem Speichermedium und einer einheitlichen digitalen Schnittstelle bestehen. Die digitalen Aufzeichnungen sind auf dem Speichermedium zu sichern und für Nachschauen sowie Außenprüfungen durch elektronische Aufbewahrung verfügbar zu halten. Es ist verboten, innerhalb des Geltungsbereichs dieses Gesetzes solche elektronischen Aufzeichnungssysteme, Software für elektronische Aufzeichnungssysteme und zertifizierte technische Sicherheitseinrichtungen, die den in den Sätzen 1 bis 3 beschriebenen Anforderungen nicht entsprechen, zur Verwendung im Sinne der Sätze 1 bis 3 gewerbsmäßig zu bewerben oder gewerbsmäßig in den Verkehr zu bringen.(2) Wer aufzeichnungspflichtige Geschäftsvorfälle im Sinne des Absatzes 1 Satz 1 erfasst, hat dem an diesem Geschäftsvorfall Beteiligten in unmittelbarem zeitlichem Zusammenhang mit dem Geschäftsvorfall unbeschadet anderer gesetzlicher Vorschriften einen Beleg über den Geschäftsvorfall auszustellen und dem an diesem Geschäftsvorfall Beteiligten zur Verfügung zu stellen (Belegausgabepflicht). Bei Verkauf von Waren an eine Vielzahl von nicht bekannten Personen können die Finanzbehörden nach § 148 aus Zumutbarkeitsgründen nach pflichtgemäßem Ermessen von einer Belegausgabepflicht nach Satz 1 befreien. Die Befreiung kann widerrufen werden.(3) Das Bundesministerium der Finanzen wird ermächtigt, durch Rechtsverordnung mit Zustimmung des Bundestages und des Bundesrates und im Einvernehmen mit dem Bundesministerium des Innern und für Heimat und dem Bundesministerium für Wirtschaft und Klimaschutz Folgendes zu bestimmen: 1.die elektronischen Aufzeichnungssysteme, die über eine zertifizierte technische Sicherheitseinrichtung verfügen müssen, und2.die Anforderungen an a)das Sicherheitsmodul,b)das Speichermedium,c)die einheitliche digitale Schnittstelle,d)die elektronische Aufbewahrung der Aufzeichnungen,e)die Protokollierung von digitalen Grundaufzeichnungen zur Sicherstellung der Integrität und Authentizität sowie der Vollständigkeit der elektronischen Aufzeichnung,f)den Beleg undg)die Zertifizierung der technischen Sicherheitseinrichtung.Die Erfüllung der Anforderungen nach Satz 1 Nummer 2 Buchstabe a bis c ist durch eine Zertifizierung des Bundesamts für Sicherheit in der Informationstechnik nachzuweisen, die fortlaufend aufrechtzuerhalten ist. Das Bundesamt für Sicherheit in der Informationstechnik kann mit der Festlegung von Anforderungen an die technische Sicherheitseinrichtung im Sinne des Satzes 1 Nummer 2 Buchstabe a bis c beauftragt werden. Die Rechtsverordnung nach Satz 1 ist dem Bundestag zuzuleiten. Die Zuleitung erfolgt vor der Zuleitung an den Bundesrat. Der Bundestag kann der Rechtsverordnung durch Beschluss zustimmen oder sie durch Beschluss ablehnen. Der Beschluss des Bundestages wird dem Bundesministerium der Finanzen zugeleitet. Hat sich der Bundestag nach Ablauf von drei Sitzungswochen seit Eingang der Rechtsverordnung nicht mit ihr befasst, so gilt die Zustimmung nach Satz 1 als erteilt und die Rechtsverordnung wird dem Bundesrat zugeleitet.(4) Wer aufzeichnungspflichtige Geschäftsvorfälle oder andere Vorgänge mit Hilfe eines elektronischen Aufzeichnungssystems im Sinne des Absatzes 1 erfasst, hat dem nach den §§ 18 bis 20 zuständigen Finanzamt nach amtlich vorgeschriebenen Datensatz durch Datenfernübertragung mitzuteilen: 1.Name des Steuerpflichtigen,2.Steuernummer des Steuerpflichtigen,3.Art der zertifizierten technischen Sicherheitseinrichtung,4.Art des verwendeten elektronischen Aufzeichnungssystems,5.Anzahl der verwendeten elektronischen Aufzeichnungssysteme,6.Seriennummer des verwendeten elektronischen Aufzeichnungssystems,7.Datum der Anschaffung des verwendeten elektronischen Aufzeichnungssystems,8.Datum der Außerbetriebnahme des verwendeten elektronischen Aufzeichnungssystems.Die Mitteilung nach Satz 1 ist innerhalb eines Monats nach Anschaffung oder Außerbetriebnahme des elektronischen Aufzeichnungssystems zu erstatten.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        },
+        {
+          "id": "norm:AO:158",
+          "verwendet": "norm:AO:158",
+          "titel": "Beweiskraft der Buchführung",
+          "text": "(1) Die Buchführung und die Aufzeichnungen des Steuerpflichtigen, die den Vorschriften der §§ 140 bis 148 entsprechen, sind der Besteuerung zugrunde zu legen.(2) Absatz 1 gilt nicht, 1.soweit nach den Umständen des Einzelfalls Anlass besteht, die sachliche Richtigkeit zu beanstanden oder2.soweit die elektronischen Daten nicht nach der Vorgabe der einheitlichen digitalen Schnittstellen des § 41 Absatz 1 Satz 7 des Einkommensteuergesetzes in Verbindung mit § 4 Absatz 2a der Lohnsteuer-Durchführungsverordnung, des § 146a oder des § 147b in Verbindung mit der jeweiligen Rechtsverordnung zur Verfügung gestellt werden.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "wörtlich",
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "begriff_id": "ao_schaetzung",
+      "begriff": "Schätzung der Besteuerungsgrundlagen",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① wörtlich · Katalog",
+        "art": "wörtlicher Katalogtreffer",
+        "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+      },
+      "matched_text": "Schätzung",
+      "start": 266,
+      "end": 275,
+      "norm_anker": [
+        {
+          "zitat": "§ 162 AO",
+          "ids": [
+            "norm:AO:162"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 162 AO",
+            "§ 90 AO"
+          ],
+          "verknuepfung": "iVm",
+          "hinweis": "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162).",
+          "anzeige": "§ 162 AO iVm § 90 AO"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Verwaltung",
+          "fundstelle": "AEAO zu § 162",
+          "id": "verw:AEAO:zu§162"
+        }
+      ],
+      "governance_typ": "FF",
+      "schadensintensitaet": "mittel",
+      "kaskadenreichweite": 1,
+      "gefaehrdungsnotiz": "Schätzung, soweit Besteuerungsgrundlagen nicht ermittelt/berechnet werden können. Ergebnis muss schlüssig, wirtschaftlich möglich und vernünftig sein; \"allgemeine Erfahrungssätze\" umschreibt Schätzungsmethoden (Richtsatz, äußerer Betriebsvergleich). Schätzungsrahmen ist wertungsoffen.",
+      "rechercheauftrag": null,
+      "surface": "Schätzung",
+      "gesetzestext": [
+        {
+          "id": "norm:AO:162",
+          "verwendet": "norm:AO:162",
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine Angaben keine ausreichenden Aufklärungen zu geben vermag oder weitere Auskunft oder eine Versicherung an Eides statt verweigert oder seine Mitwirkungspflicht nach § 90 Absatz 2 verletzt. Das Gleiche gilt, wenn der Steuerpflichtige Bücher oder Aufzeichnungen, die er nach den Steuergesetzen zu führen hat, nicht vorlegen kann, wenn die Buchführung oder die Aufzeichnungen nach § 158 Absatz 2 nicht der Besteuerung zugrunde gelegt werden oder wenn tatsächliche Anhaltspunkte für die Unrichtigkeit oder Unvollständigkeit der vom Steuerpflichtigen gemachten Angaben zu steuerpflichtigen Einnahmen oder Betriebsvermögensmehrungen bestehen und der Steuerpflichtige die Zustimmung nach § 93 Absatz 7 Satz 1 Nummer 5 nicht erteilt. Hat der Steuerpflichtige seine Mitwirkungspflichten nach § 12 des Gesetzes zur Abwehr von Steuervermeidung und unfairem Steuerwettbewerb verletzt, so wird widerlegbar vermutet, dass in Deutschland steuerpflichtige Einkünfte in Bezug zu Staaten oder Gebieten im Sinne des § 3 Absatz 1 des Gesetzes zur Abwehr von Steuervermeidung und unfairem Steuerwettbewerb 1.bisher nicht erklärt wurden, tatsächlich aber vorhanden sind, oder2.bisher zwar erklärt wurden, tatsächlich aber höher sind als erklärt.(3) Verletzt ein Steuerpflichtiger seine Mitwirkungspflichten nach § 90 Absatz 3 dadurch, dass er keine Aufzeichnungen über einen Geschäftsvorfall vorlegt, oder sind die über einen Geschäftsvorfall vorgelegten Aufzeichnungen im Wesentlichen unverwertbar oder wird festgestellt, dass der Steuerpflichtige Aufzeichnungen im Sinne des § 90 Absatz 3 Satz 5 nicht zeitnah erstellt hat, so wird widerlegbar vermutet, dass seine im Inland steuerpflichtigen Einkünfte, zu deren Ermittlung die Aufzeichnungen im Sinne des § 90 Absatz 3 dienen, höher als die von ihm erklärten Einkünfte sind. Hat in solchen Fällen die Finanzbehörde eine Schätzung vorzunehmen und können diese Einkünfte nur innerhalb eines bestimmten Rahmens, insbesondere nur auf Grund von Preisspannen bestimmt werden, kann dieser Rahmen zu Lasten des Steuerpflichtigen ausgeschöpft werden. Bestehen trotz Vorlage verwertbarer Aufzeichnungen durch den Steuerpflichtigen Anhaltspunkte dafür, dass seine Einkünfte bei Beachtung des Fremdvergleichsgrundsatzes höher wären als die auf Grund der Aufzeichnungen erklärten Einkünfte, und können entsprechende Zweifel deswegen nicht aufgeklärt werden, weil eine ausländische, nahe stehende Person ihre Mitwirkungspflichten nach § 90 Absatz 2 oder ihre Auskunftspflichten nach § 93 Absatz 1 nicht erfüllt, ist Satz 2 entsprechend anzuwenden.(4) Legt ein Steuerpflichtiger über einen Geschäftsvorfall keine Aufzeichnungen im Sinne des § 90 Absatz 3 vor oder sind die über einen Geschäftsvorfall vorgelegten Aufzeichnungen im Wesentlichen unverwertbar oder wird die Transaktionsmatrix gemäß § 90 Absatz 3 Satz 2 Nummer 1 nicht vorgelegt, ist ein Zuschlag von 5 000 Euro festzusetzen. Der Zuschlag beträgt mindestens 5 Prozent und höchstens 10 Prozent des Mehrbetrags der Einkünfte, der sich nach einer Berichtigung auf Grund der Anwendung des Absatzes 3 ergibt, wenn sich danach ein Zuschlag von mehr als 5 000 Euro ergibt. Der Zuschlag ist regelmäßig nach Abschluss der Außenprüfung festzusetzen. Bei verspäteter Vorlage von verwertbaren Aufzeichnungen beträgt der Zuschlag bis zu 1 000 000 Euro, mindestens jedoch 100 Euro für jeden vollen Tag der Fristüberschreitung; er kann für volle Wochen und Monate der verspäteten Vorlage in Teilbeträgen festgesetzt werden. Soweit den Finanzbehörden Ermessen hinsichtlich der Höhe des jeweiligen Zuschlags eingeräumt ist, sind neben dem Zweck dieses Zuschlags, den Steuerpflichtigen zur Erstellung und fristgerechten Vorlage der Aufzeichnungen nach § 90 Absatz 3 anzuhalten, insbesondere die von ihm gezogenen Vorteile und bei verspäteter Vorlage auch die Dauer der Fristüberschreitung zu berücksichtigen. Von der Festsetzung eines Zuschlags ist abzusehen, wenn die Nichterfüllung der Pflichten nach § 90 Absatz 3 entschuldbar erscheint oder ein Verschulden nur geringfügig ist. Das Verschulden eines gesetzlichen Vertreters oder eines Erfüllungsgehilfen steht dem eigenen Verschulden gleich.(4a) Verletzt der Steuerpflichtige seine Mitwirkungspflichten nach § 12 des Steueroasen-Abwehrgesetzes, ist Absatz 4 entsprechend anzuwenden. Von der Festsetzung eines Zuschlags ist abzusehen, wenn die Nichterfüllung der Mitwirkungspflichten entschuldbar erscheint oder das Verschulden nur geringfügig ist. Das Verschulden eines gesetzlichen Vertreters oder eines Erfüllungsgehilfen ist dem Steuerpflichtigen zuzurechnen.(5) In den Fällen des § 155 Absatz 2 können die in einem Grundlagenbescheid festzustellenden Besteuerungsgrundlagen geschätzt werden.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "wörtlich",
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "begriff_id": "ao_gestaltungsmissbrauch",
+      "begriff": "Missbrauch von rechtlichen Gestaltungsmöglichkeiten",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1b",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Katalog · Beschreibungsmuster",
+        "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+        "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+      },
+      "matched_text": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+      "start": 4,
+      "end": 141,
+      "norm_anker": [
+        {
+          "zitat": "§ 42 AO",
+          "ids": [
+            "norm:AO:42"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 42 AO",
+            "§ 39 Abs. 2 AO",
+            "§ 7 AStG"
+          ],
+          "verknuepfung": "→ ggf.",
+          "hinweis": "Gestaltungsmissbrauch (§ 42), wirtschaftliche Zurechnung (§ 39) und Hinzurechnungsbesteuerung (§§ 7 ff. AStG) greifen bei substanzlosen Auslandsgesellschaften ineinander.",
+          "anzeige": "§ 42 AO → ggf. § 39 Abs. 2 AO → ggf. § 7 AStG"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Verwaltung",
+          "fundstelle": "AEAO zu § 42",
+          "id": "verw:AEAO:zu§42"
+        }
+      ],
+      "governance_typ": "IN",
+      "schadensintensitaet": "hoch",
+      "kaskadenreichweite": 2,
+      "gefaehrdungsnotiz": "Unangemessene Gestaltung, die nur der Steuervermeidung dient und nicht durch beachtliche außersteuerliche Gründe gerechtfertigt ist. Personal-/substanzlose Auslandsgesellschaften sind ein typischer Anlass – Abgrenzung zu § 39 AO (wirtschaftliches Eigentum) und §§ 7 ff. AStG. Rechtsfolge: Steuer wie bei angemessener Gestaltung. Hochgradig wertungsoffen – IN-Begriff.",
+      "rechercheauftrag": null,
+      "surface": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+      "gesetzestext": [
+        {
+          "id": "norm:AO:42",
+          "verwendet": "norm:AO:42",
+          "titel": "Missbrauch von rechtlichen Gestaltungsmöglichkeiten",
+          "text": "(1) Durch Missbrauch von Gestaltungsmöglichkeiten des Rechts kann das Steuergesetz nicht umgangen werden. Ist der Tatbestand einer Regelung in einem Einzelsteuergesetz erfüllt, die der Verhinderung von Steuerumgehungen dient, so bestimmen sich die Rechtsfolgen nach jener Vorschrift. Anderenfalls entsteht der Steueranspruch beim Vorliegen eines Missbrauchs im Sinne des Absatzes 2 so, wie er bei einer den wirtschaftlichen Vorgängen angemessenen rechtlichen Gestaltung entsteht.(2) Ein Missbrauch liegt vor, wenn eine unangemessene rechtliche Gestaltung gewählt wird, die beim Steuerpflichtigen oder einem Dritten im Vergleich zu einer angemessenen Gestaltung zu einem gesetzlich nicht vorgesehenen Steuervorteil führt. Dies gilt nicht, wenn der Steuerpflichtige für die gewählte Gestaltung außersteuerliche Gründe nachweist, die nach dem Gesamtbild der Verhältnisse beachtlich sind.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "muster",
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "begriff_id": "astg_hinzurechnung",
+      "begriff": "Hinzurechnungsbesteuerung / Funktions- und Substanzfrage (AStG)",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1b",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Katalog · Beschreibungsmuster",
+        "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+        "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+      },
+      "matched_text": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+      "start": 4,
+      "end": 141,
+      "norm_anker": [
+        {
+          "zitat": "§ 7 AStG",
+          "ids": [
+            "norm:AStG:7"
+          ]
+        },
+        {
+          "zitat": "§ 8 AStG",
+          "ids": [
+            "norm:AStG:8"
+          ]
+        },
+        {
+          "zitat": "§ 1 AStG",
+          "ids": [
+            "norm:AStG:1"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 7 AStG",
+            "§ 8 AStG",
+            "§ 1 AStG"
+          ],
+          "verknuepfung": "iVm",
+          "hinweis": "Hinzurechnung passiver Einkünfte (§§ 7, 8); bei der Rechteübertragung zusätzlich Verrechnungspreis-Korrektur (§ 1).",
+          "anzeige": "§ 7 AStG iVm § 8 AStG iVm § 1 AStG"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Gesetz",
+          "fundstelle": "§§ 7, 8 AStG (Hinzurechnung); § 1 AStG (Verrechnungspreise)",
+          "id": null
+        }
+      ],
+      "governance_typ": "IN",
+      "schadensintensitaet": "hoch",
+      "kaskadenreichweite": 2,
+      "gefaehrdungsnotiz": "Eine niedrig besteuerte Auslandsgesellschaft ohne eigenes Personal/eigene Geschäftsräume zielt auf die Substanz-/Funktionsfrage: Hinzurechnung passiver Einkünfte (§§ 7 ff. AStG); bei der Rechteübertragung zusätzlich Verrechnungspreise (§ 1 AStG). Welche Norm trägt, ist Subsumtion – IN-Begriff.",
+      "rechercheauftrag": null,
+      "surface": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+      "gesetzestext": [
+        {
+          "id": "norm:AStG:7",
+          "verwendet": "norm:AStG:7",
+          "titel": "Beteiligung an ausländischer Zwischengesellschaft",
+          "text": "(1) Beherrscht ein unbeschränkt Steuerpflichtiger eine Körperschaft, Personenvereinigung oder Vermögensmasse im Sinne des Körperschaftsteuergesetzes, die weder Geschäftsleitung noch Sitz im Inland hat und die nicht gemäß § 3 Absatz 1 des Körperschaftsteuergesetzes von der Körperschaftsteuerpflicht ausgenommen ist (ausländische Gesellschaft), sind die Einkünfte, für die diese Gesellschaft Zwischengesellschaft ist, bei dem unbeschränkt Steuerpflichtigen entsprechend seiner unmittelbaren und mittelbaren Beteiligung am Nennkapital steuerpflichtig. Mittelbare Beteiligungen sind für die Steuerpflicht nach Satz 1 unbeachtlich, soweit bei einer die Beteiligung vermittelnden Person hinsichtlich der Beteiligung an dieser ausländischen Gesellschaft eine Hinzurechnungsbesteuerung nach diesem Gesetz oder einer vergleichbaren ausländischen Regelung erfolgt ist und die danach hinzugerechneten Einkünfte dadurch insgesamt keiner niedrigen Besteuerung im Sinne des § 8 Absatz 5 unterliegen. Ist für die Gewinnverteilung der ausländischen Gesellschaft nicht die Beteiligung am Nennkapital maßgebend oder hat die Gesellschaft kein Nennkapital, so ist für die Steuerpflicht der Einkünfte nach Satz 1 der Maßstab für die Gewinnverteilung zugrunde zu legen. Die Sätze 1 bis 3 sind auch auf einen beschränkt Steuerpflichtigen anzuwenden, soweit die Beteiligung an der ausländischen Gesellschaft unmittelbar oder mittelbar einer inländischen Betriebsstätte des Steuerpflichtigen zuzuordnen ist, durch die eine Tätigkeit im Sinne des § 15 Absatz 2 des Einkommensteuergesetzes ausgeübt wird.(2) Eine Beherrschung im Sinne des Absatzes 1 liegt vor, wenn dem Steuerpflichtigen allein oder zusammen mit ihm nahestehenden Personen am Ende des Wirtschaftsjahres der ausländischen Gesellschaft, in dem diese die Einkünfte nach Absatz 1 erzielt hat (maßgebendes Wirtschaftsjahr), mehr als die Hälfte der Stimmrechte oder mehr als die Hälfte der Anteile am Nennkapital unmittelbar oder mittelbar zuzurechnen sind oder unmittelbar oder mittelbar ein Anspruch auf mehr als die Hälfte des Gewinns oder des Liquidationserlöses dieser Gesellschaft zusteht.(3) Für Zwecke der §§ 7 bis 12 ist eine Person dem Steuerpflichtigen unter den Voraussetzungen des § 1 Absatz 2 nahestehend. Eine Personengesellschaft oder Mitunternehmerschaft ist selbst nahestehende Person, wenn sie die Voraussetzungen des § 1 Absatz 2 erfüllt.(4) Unbeschadet des Absatzes 3 gelten Personen als dem Steuerpflichtigen nahestehend, wenn sie mit ihm in Bezug auf die Zwischengesellschaft durch abgestimmtes Verhalten zusammenwirken. Bei den unmittelbaren oder mittelbaren Gesellschaftern einer Personengesellschaft oder Mitunternehmerschaft, die an einer Zwischengesellschaft unmittelbar oder mittelbar beteiligt ist, wird ein Zusammenwirken durch abgestimmtes Verhalten widerlegbar unterstellt.(5) Die Absätze 1 bis 4 sind nicht anzuwenden, wenn auf die Einkünfte, für die die ausländische Gesellschaft Zwischengesellschaft ist, die Vorschriften des Investmentsteuergesetzes in der jeweils geltenden Fassung anzuwenden sind. Satz 1 gilt nicht, wenn die den Einkünften zugrunde liegenden Geschäfte zu mehr als einem Drittel mit dem Steuerpflichtigen oder ihm nahestehenden Personen betrieben werden.",
+          "law": "AStG",
+          "gueltig_ab": "1972-09-08"
+        },
+        {
+          "id": "norm:AStG:8",
+          "verwendet": "norm:AStG:8",
+          "titel": "Einkünfte von Zwischengesellschaften",
+          "text": "(1) Eine ausländische Gesellschaft ist Zwischengesellschaft für Einkünfte, einschließlich Veräußerungsgewinnen, die einer niedrigen Besteuerung im Sinne des Absatzes 5 unterliegen und nicht stammen aus: 1.der Land- und Forstwirtschaft,2.der Herstellung, Bearbeitung, Verarbeitung oder Montage von Sachen, der Erzeugung von Energie sowie dem Aufsuchen und der Gewinnung von Bodenschätzen,3.dem Betrieb von Versicherungsunternehmen, Kreditinstituten und Finanzdienstleistungsinstituten, die einer wesentlichen wirtschaftlichen Tätigkeit im Sinne des Absatzes 2 nachgehen; es sei denn, die diesen Einkünften zugrunde liegenden Geschäfte werden zu mehr als einem Drittel mit dem Steuerpflichtigen oder ihm nahestehenden Personen betrieben. Gleiches gilt für Finanzunternehmen im Sinne des Kreditwesengesetzes, an denen Kreditinstitute oder Finanzdienstleistungsinstitute unmittelbar oder mittelbar zu mehr als 50 Prozent beteiligt sind,4.dem Handel, soweit nicht a)ein Steuerpflichtiger, der gemäß § 7 an der ausländischen Gesellschaft beteiligt ist, oder eine einem solchen Steuerpflichtigen im Sinne des § 1 Absatz 2 nahestehende Person, die mit ihren Einkünften hieraus im Geltungsbereich dieses Gesetzes steuerpflichtig ist, der ausländischen Gesellschaft die Verfügungsmacht an den gehandelten Gütern oder Waren verschafft, oderb)die ausländische Gesellschaft einem solchen Steuerpflichtigen oder einer solchen nahestehenden Person die Verfügungsmacht an den Gütern oder Waren verschafft,es sei denn, der Steuerpflichtige weist nach, dass die ausländische Gesellschaft einen für derartige Handelsgeschäfte in kaufmännischer Weise eingerichteten Geschäftsbetrieb unter Teilnahme am allgemeinen wirtschaftlichen Verkehr unterhält und die zur Vorbereitung, dem Abschluss und der Ausführung der Geschäfte gehörenden Tätigkeiten ohne Mitwirkung eines solchen Steuerpflichtigen oder einer solchen nahestehenden Person ausübt,5.Dienstleistungen, soweit nicht a)die ausländische Gesellschaft für die Dienstleistung sich eines Steuerpflichtigen, der gemäß § 7 an ihr beteiligt ist, oder einer einem solchen Steuerpflichtigen im Sinne des § 1 Absatz 2 nahestehenden Person bedient, die mit ihren Einkünften aus der von ihr beigetragenen Leistung im Geltungsbereich dieses Gesetzes steuerpflichtig ist, oderb)die ausländische Gesellschaft die Dienstleistung einem solchen Steuerpflichtigen oder einer solchen nahestehenden Person erbringt, es sei denn, der Steuerpflichtige weist nach, dass die ausländische Gesellschaft einen für das Bewirken derartiger Dienstleistungen eingerichteten Geschäftsbetrieb unter Teilnahme am allgemeinen wirtschaftlichen Verkehr unterhält und die zu der Dienstleistung gehörenden Tätigkeiten ohne Mitwirkung eines solchen Steuerpflichtigen oder einer solchen nahestehenden Person ausübt,6.der Vermietung und Verpachtung, ausgenommen a)die Überlassung der Nutzung von Rechten, Plänen, Mustern, Verfahren, Erfahrungen und Kenntnissen, es sei denn, der Steuerpflichtige weist nach, dass die ausländische Gesellschaft die Ergebnisse eigener Forschungs- oder Entwicklungsarbeit auswertet, die ohne Mitwirkung eines Steuerpflichtigen, der gemäß § 7 an der Gesellschaft beteiligt ist, oder einer einem solchen Steuerpflichtigen im Sinne des § 1 Absatz 2 nahestehenden Person unternommen worden ist,b)die Vermietung oder Verpachtung von Grundstücken, es sei denn, der Steuerpflichtige weist nach, dass die Einkünfte daraus nach einem Abkommen zur Vermeidung der Doppelbesteuerung steuerbefreit wären, wenn sie von den unbeschränkt Steuerpflichtigen, die gemäß § 7 an der ausländischen Gesellschaft beteiligt sind, unmittelbar bezogen worden wären, undc)die Vermietung oder Verpachtung von beweglichen Sachen, es sei denn, der Steuerpflichtige weist nach, dass die ausländische Gesellschaft einen Geschäftsbetrieb gewerbsmäßiger Vermietung oder Verpachtung unter Teilnahme am allgemeinen wirtschaftlichen Verkehr unterhält und alle zu einer solchen gewerbsmäßigen Vermietung oder Verpachtung gehörenden Tätigkeiten ohne Mitwirkung eines unbeschränkt Steuerpflichtigen, der gemäß § 7 an ihr beteiligt ist, oder einer einem solchen Steuerpflichtigen im Sinne des § 1 Absatz 2 nahestehenden Person ausübt,7.Bezügen im Sinne des § 8b Absatz 1 des Körperschaftsteuergesetzes, ausgenommen a)Bezüge, soweit diese das Einkommen der leistenden Körperschaft gemindert haben; dies gilt auch dann, wenn die ausländische Gesellschaft hinsichtlich dieser Bezüge gemäß den Nummern 1 bis 6 nicht Zwischengesellschaft ist. Dies gilt nicht, soweit aa)die leistende Körperschaft mit den diesen Bezügen zugrunde liegenden Einkünften Zwischengesellschaft ist oderbb)eine verdeckte Gewinnausschüttung das Einkommen der ausländischen Gesellschaft oder einer ihr nahestehenden Person erhöht hat und dieses Einkommen keiner niedrigen Besteuerung im Sinne des Absatzes 5 unterliegt,b)Bezüge, die bei der ausländischen Gesellschaft nach § 8b Absatz 4 des Körperschaftsteuergesetzes zu berücksichtigen wären, wenn diese unbeschränkt körperschaftsteuerpflichtig wäre; dies gilt auch dann, wenn die ausländische Gesellschaft hinsichtlich dieser Bezüge gemäß den Nummern 1 bis 6 oder 7 Buchstabe a Doppelbuchstabe aa und bb nicht Zwischengesellschaft ist, undc)Bezüge, die bei der ausländischen Gesellschaft nach § 8b Absatz 7 des Körperschaftsteuergesetzes nicht steuerbefreit wären, wenn diese unbeschränkt körperschaftsteuerpflichtig wäre; dies gilt auch dann, wenn die ausländische Gesellschaft hinsichtlich dieser Bezüge gemäß den Nummern 1 bis 6 oder 7 Buchstabe a Doppelbuchstabe aa und bb nicht Zwischengesellschaft ist,8.der Veräußerung eines Anteils an einer anderen Gesellschaft sowie aus deren Auflösung oder der Herabsetzung ihres Kapitals, ausgenommen Veräußerungsgewinne, die bei der ausländischen Gesellschaft nach § 8b Absatz 7 des Körperschaftsteuergesetzes nicht steuerbefreit wären, wenn diese unbeschränkt körperschaftsteuerpflichtig wäre; dies gilt auch dann, wenn die ausländische Gesellschaft hinsichtlich dieser Veräußerungsgewinne gemäß Nummer 3 nicht Zwischengesellschaft ist,9.Umwandlungen; dies gilt nicht, soweit die Einkünfte auf der Übertragung von Wirtschaftsgütern beruhen, die nicht der Erzielung von Einkünften im Sinne der Nummern 1 bis 8 dienen, es sei denn, der Steuerpflichtige weist nach, dass die Umwandlung im Inland ungeachtet des § 1 Absatz 4 des Umwandlungssteuergesetzes zu Buchwerten hätte erfolgen können und im Ausland tatsächlich zu Buchwerten erfolgt ist.(2) Ungeachtet des Absatzes 1 ist eine ausländische Gesellschaft nicht Zwischengesellschaft für Einkünfte, für die nachgewiesen wird, dass die Gesellschaft in dem Staat, in dem sie ihren Sitz oder ihre Geschäftsleitung hat, insoweit einer wesentlichen wirtschaftlichen Tätigkeit nachgeht. Dies setzt insbesondere den Einsatz der für die Ausübung der Tätigkeit erforderlichen sachlichen und personellen Ausstattung in diesem Staat voraus. Die Tätigkeit muss durch hinreichend qualifiziertes Personal selbständig und eigenverantwortlich ausgeübt werden. Der wesentlichen wirtschaftlichen Tätigkeit der Gesellschaft sind nur Einkünfte der Gesellschaft zuzuordnen, die durch diese Tätigkeit erzielt werden und dies nur insoweit, als der Fremdvergleichsgrundsatz (§ 1) beachtet worden ist. Die Sätze 1 bis 3 gelten nicht, wenn die Gesellschaft ihre wesentliche wirtschaftliche Tätigkeit überwiegend durch Dritte besorgen lässt.(3) Absatz 2 gilt nur, wenn die ausländische Gesellschaft ihren Sitz oder ihre Geschäftsleitung in einem Mitgliedstaat der Europäischen Union oder einem Vertragsstaat des EWR-Abkommens hat.(4) Die Absätze 2 und 3 gelten nicht, wenn der Staat, in dem die Gesellschaft ihren Sitz oder ihre Geschäftsleitung hat, im Wege des zwischenstaatlichen Informationsaustausches keine Auskünfte erteilt, die zur Durchführung der Besteuerung erforderlich sind.(5) Eine niedrige Besteuerung liegt vor, wenn die nach Maßgabe des § 10 Absatz 3 ermittelten Einkünfte, für die die ausländische Gesellschaft Zwischengesellschaft ist, einer Belastung durch Ertragsteuern von weniger als 15 Prozent unterliegen, ohne dass dies auf einem Ausgleich mit Einkünften aus anderen Quellen beruht. In die Belastungsberechnung sind Ansprüche einzubeziehen, die der Staat oder das Gebiet der ausländischen Gesellschaft im Fall einer Gewinnausschüttung der ausländischen Gesellschaft dem Steuerpflichtigen oder einer anderen Gesellschaft, an der der Steuerpflichtige unmittelbar oder mittelbar beteiligt ist, gewährt. Einkünfte unterliegen im Sinne des Satzes 1 auch dann einer Belastung durch Ertragsteuern von weniger als 15 Prozent, wenn Ertragsteuern von mindestens 15 Prozent zwar rechtlich geschuldet, jedoch nicht tatsächlich erhoben werden.",
+          "law": "AStG",
+          "gueltig_ab": "1972-09-08"
+        },
+        {
+          "id": "norm:AStG:1",
+          "verwendet": "norm:AStG:1",
+          "titel": "Berichtigung von Einkünften",
+          "text": "(1) Werden Einkünfte eines Steuerpflichtigen aus einer Geschäftsbeziehung zum Ausland mit einer ihm nahestehenden Person dadurch gemindert, dass er seiner Einkünfteermittlung andere Bedingungen, insbesondere Preise (Verrechnungspreise), zugrunde legt, als sie voneinander unabhängige Dritte unter gleichen oder vergleichbaren Verhältnissen vereinbart hätten (Fremdvergleichsgrundsatz), sind seine Einkünfte unbeschadet anderer Vorschriften so anzusetzen, wie sie unter den zwischen voneinander unabhängigen Dritten vereinbarten Bedingungen angefallen wären. Steuerpflichtiger im Sinne dieser Vorschrift sowie im Sinne des § 1a ist auch eine Personengesellschaft oder eine Mitunternehmerschaft; eine Personengesellschaft oder Mitunternehmerschaft ist selbst nahestehende Person, wenn sie die Voraussetzungen des Absatzes 2 erfüllt. Für die Anwendung des Fremdvergleichsgrundsatzes ist davon auszugehen, dass die voneinander unabhängigen Dritten alle wesentlichen Umstände der Geschäftsbeziehung kennen und nach den Grundsätzen ordentlicher und gewissenhafter Geschäftsleiter handeln. Führt die Anwendung des Fremdvergleichsgrundsatzes zu weitergehenden Berichtigungen als die anderen Vorschriften, sind die weitergehenden Berichtigungen neben den Rechtsfolgen der anderen Vorschriften durchzuführen.(2) Dem Steuerpflichtigen ist eine Person nahestehend, wenn 1.die Person a)an dem Steuerpflichtigen oder der Steuerpflichtige an dieser Person mindestens zu einem Viertel unmittelbar oder mittelbar an dem gezeichneten Kapital, den Mitgliedschaftsrechten, den Beteiligungsrechten, den Stimmrechten oder dem Gesellschaftsvermögen beteiligt (wesentlich beteiligt) ist oderb)gegenüber dem Steuerpflichtigen oder der Steuerpflichtige gegenüber dieser Person Anspruch auf mindestens ein Viertel des Gewinns oder des Liquidationserlöses hat; oder2.die Person auf den Steuerpflichtigen oder der Steuerpflichtige auf diese Person unmittelbar oder mittelbar beherrschenden Einfluss ausüben kann; oder3.eine dritte Person a)sowohl an der Person als auch an dem Steuerpflichtigen wesentlich beteiligt ist,b)sowohl gegenüber der Person als auch gegenüber dem Steuerpflichtigen Anspruch auf mindestens ein Viertel des Gewinns oder des Liquidationserlöses hat oderc)auf die Person als auch auf den Steuerpflichtigen unmittelbar oder mittelbar beherrschenden Einfluss ausüben kann; oder4.die Person oder der Steuerpflichtige imstande ist, bei der Vereinbarung der Bedingungen einer Geschäftsbeziehung auf den Steuerpflichtigen oder die Person einen außerhalb dieser Geschäftsbeziehung begründeten Einfluss auszuüben oder wenn einer von ihnen ein eigenes Interesse an der Erzielung der Einkünfte des anderen hat.Satz 1 Nummer 3 Buchstabe a bis c gilt auch, soweit im Verhältnis der dritten Person zu der Person und dem Steuerpflichtigen jeweils eines der in Satz 1 Nummer 3 Buchstabe a bis c genannten Merkmale erfüllt ist.(3) Für die Bestimmung der dem Fremdvergleichsgrundsatz entsprechenden Verrechnungspreise (Fremdvergleichspreise) für eine Geschäftsbeziehung im Sinne des Absatzes 1 Satz 1 sind die tatsächlichen Verhältnisse maßgebend, die dem jeweiligen Geschäftsvorfall zugrunde liegen. Insbesondere ist zu berücksichtigen, von welcher an dem Geschäftsvorfall beteiligten Person welche Funktionen in Bezug auf den jeweiligen Geschäftsvorfall ausgeübt, welche Risiken diesbezüglich jeweils übernommen und welche Vermögenswerte hierfür eingesetzt werden (Funktions- und Risikoanalyse). Die Verhältnisse im Sinne der Sätze 1 und 2 bilden den Maßstab für die Feststellung der Vergleichbarkeit des zu untersuchenden Geschäftsvorfalls mit Geschäftsvorfällen zwischen voneinander unabhängigen Dritten (Vergleichbarkeitsanalyse); die diesen Geschäftsvorfällen zugrunde liegenden Verhältnisse sind in entsprechender Anwendung der Sätze 1 und 2 maßgebend, soweit dies möglich ist. Abzustellen ist auf die Verhältnisse zum Zeitpunkt der Vereinbarung des Geschäftsvorfalls. Der Fremdvergleichspreis ist grundsätzlich nach der im Hinblick auf die Vergleichbarkeitsanalyse und die Verfügbarkeit von Werten zu vergleichbaren Geschäftsvorfällen voneinander unabhängiger Dritter am besten geeigneten Verrechnungspreismethode zu bestimmen. Unterschiede zwischen den Verhältnissen der zum Vergleich herangezogenen Geschäftsvorfälle zwischen voneinander unabhängigen Dritten und den dem zu untersuchenden Geschäftsvorfall zugrunde liegenden Verhältnissen, die die Anwendung der Verrechnungspreismethode beeinflussen können, sind durch sachgerechte Anpassungen zu beseitigen, sofern dies möglich ist; dies gilt nur, wenn dadurch die Vergleichbarkeit erhöht wird. Können keine Vergleichswerte festgestellt werden, ist für die Bestimmung des Fremdvergleichspreises ein hypothetischer Fremdvergleich unter Beachtung des Absatzes 1 Satz 3 aus Sicht des Leistenden und des jeweiligen Leistungsempfängers anhand ökonomisch anerkannter Bewertungsmethoden durchzuführen.(3a) Die Anwendung des Fremdvergleichsgrundsatzes führt regelmäßig zu einer Bandbreite von Werten. Diese Bandbreite ist einzuengen, wenn nach Anwendung von Absatz 3 Satz 6 Unterschiede in der Vergleichbarkeit verbleiben. Bieten diese Werte selbst keine Anhaltspunkte für eine bestimmte Einengung, so bleiben aus dieser Bandbreite das Viertel der kleinsten und das Viertel der größten Werte unberücksichtigt. Liegt der vom Steuerpflichtigen für seine Einkünfteermittlung verwendete Wert außerhalb der Bandbreite gemäß Satz 1 oder der eingeengten Bandbreite, ist der Median maßgeblich, wenn der Steuerpflichtige nicht glaubhaft macht, dass ein anderer Wert innerhalb der Bandbreite dem Fremdvergleichsgrundsatz besser entspricht. Bei der Anwendung des hypothetischen Fremdvergleichs nach Absatz 3 Satz 7 ergibt sich regelmäßig aus dem Mindestpreis des Leistenden und dem Höchstpreis des Leistungsempfängers ein Einigungsbereich. In den Fällen des Satzes 5 ist der Mittelwert des Einigungsbereichs zugrunde zu legen, wenn der Steuerpflichtige nicht glaubhaft macht, dass ein anderer Wert innerhalb des Einigungsbereichs dem Fremdvergleichsgrundsatz entspricht.(3b) Wird eine Funktion einschließlich der dazugehörigen Chancen und Risiken sowie der mitübertragenen oder mitüberlassenen Wirtschaftsgüter oder sonstigen Vorteile verlagert und ist auf die verlagerte Funktion Absatz 3 Satz 7 anzuwenden, weil für die Verlagerung der Funktion als Ganzes (Transferpaket) keine Vergleichsdaten festgestellt werden können, ist der Einigungsbereich auf der Grundlage des Transferpakets zu bestimmen. Hiervon kann abgesehen werden, wenn der Steuerpflichtige glaubhaft macht, dass weder wesentliche immaterielle Wirtschaftsgüter noch sonstige Vorteile Gegenstand der Funktionsverlagerung waren. Dies gilt dann, wenn das übernehmende Unternehmen die übergehende Funktion ausschließlich gegenüber dem verlagernden Unternehmen ausübt und das Entgelt, das für die Ausübung der Funktion und die Erbringung der entsprechenden Leistungen anzusetzen ist, nach der Kostenaufschlagsmethode zu ermitteln ist.(3c) Die Übertragung oder Überlassung zur Nutzung eines immateriellen Werts ist zu vergüten, wenn diese auf der Grundlage einer Geschäftsbeziehung im Sinne des Absatzes 4 erfolgt und hiermit eine finanzielle Auswirkung für den Übernehmer, den Nutzenden, den Übertragenden oder den Überlassenden verbunden ist. Immaterielle Werte sind Vermögenswerte, 1.die weder materielle Wirtschaftsgüter oder Beteiligungen noch Finanzanlagen sind,2.die Gegenstand eines Geschäftsvorfalls sein können, ohne einzeln übertragbar sein zu müssen, und3.die einer Person eine tatsächliche oder rechtliche Position über diesen Vermögenswert vermitteln können.Die Feststellung des Eigentums oder der Inhaberschaft an einem immateriellen Wert, einschließlich aus einem solchen abgeleiteter Rechte, ist Ausgangspunkt für die Bestimmung, welchem an dem Geschäftsvorfall beteiligten Unternehmen der Ertrag zusteht, der sich aus jedweder Art der Verwertung dieses immateriellen Werts ergibt. Soweit eine dem Eigentümer oder dem Inhaber des immateriellen Werts nahestehende Person Funktionen im Zusammenhang mit der Entwicklung oder Erschaffung, der Verbesserung, dem Erhalt, dem Schutz oder jedweder Art der Verwertung des immateriellen Werts ausübt, hierzu Vermögenswerte einsetzt und Risiken übernimmt, sind diese Funktionen vom Eigentümer oder Inhaber der nahestehenden Person angemessen zu vergüten. Die Finanzierung der Entwicklung oder Erschaffung, des Erhalts oder des Schutzes eines immateriellen Werts ist angemessen zu vergüten und berechtigt nicht zum Ertrag aus dem finanzierten immateriellen Wert.(3d) Es entspricht nicht dem Fremdvergleichsgrundsatz, wenn ein aus einer grenzüberschreitenden Finanzierungsbeziehung innerhalb einer multinationalen Unternehmensgruppe resultierender Aufwand die Einkünfte des Steuerpflichtigen gemindert hat und 1.der Steuerpflichtige nicht glaubhaft machen kann, dass er a)den Kapitaldienst für die gesamte Laufzeit dieser Finanzierungsbeziehung von Anfang an hätte erbringen können undb)die Finanzierung wirtschaftlich benötigt und für den Unternehmenszweck verwendetoder 2.soweit der seitens des Steuerpflichtigen zu entrichtende Zinssatz für eine grenzüberschreitende Finanzierungsbeziehung mit einer ihm nahestehenden Person den Zinssatz übersteigt, zu dem sich das Unternehmen unter Zugrundelegung des Ratings für die Unternehmensgruppe gegenüber fremden Dritten finanzieren könnte. Wird im Einzelfall nachgewiesen, dass ein aus dem Unternehmensgruppenrating abgeleitetes Rating dem Fremdvergleichsgrundsatz entspricht, ist dieses bei der Bemessung des Zinssatzes zu berücksichtigen.Als Finanzierungsbeziehung gelten insbesondere ein Darlehensverhältnis sowie die Nutzung oder die Bereitstellung von Fremdkapital und fremdkapitalähnlichen Instrumenten.(3e) Es handelt sich regelmäßig um eine funktions- und risikoarme Dienstleistung, wenn 1.eine Finanzierungsbeziehung von einem Unternehmen gegenüber einem anderen Unternehmen innerhalb einer multinationalen Unternehmensgruppe vermittelt wird oder2.eine Finanzierungsbeziehung von einem Unternehmen an ein anderes Unternehmen innerhalb einer multinationalen Unternehmensgruppe weitergeleitet wird.Hiervon ist auch regelmäßig dann auszugehen, wenn ein Unternehmen in der Unternehmensgruppe für ein oder mehrere Unternehmen der Unternehmensgruppe die Steuerung von Finanzmitteln, wie etwa ein Liquiditätsmanagement, ein Finanzrisikomanagement, ein Währungsrisikomanagement oder die Tätigkeit als Finanzierungsgesellschaft, übernimmt. Die Sätze 1 und 2 gelten nicht, wenn anhand einer Funktions- und Risikoanalyse nachgewiesen wird, dass es sich nicht um eine funktions- und risikoarme Dienstleistung handelt.(4) Geschäftsbeziehungen im Sinne dieser Vorschrift sind 1.einzelne oder mehrere zusammenhängende wirtschaftliche Vorgänge (Geschäftsvorfälle) zwischen einem Steuerpflichtigen und einer ihm nahestehenden Person, a)die Teil einer Tätigkeit des Steuerpflichtigen oder der nahestehenden Person sind, auf die die §§ 13, 15, 18 oder 21 des Einkommensteuergesetzes anzuwenden sind oder anzuwenden wären, wenn sich der Geschäftsvorfall im Inland unter Beteiligung eines unbeschränkt Steuerpflichtigen und einer inländischen nahestehenden Person ereignet hätte, undb)denen keine gesellschaftsvertragliche Vereinbarung zugrunde liegt; eine gesellschaftsvertragliche Vereinbarung ist eine Vereinbarung, die unmittelbar zu einer rechtlichen Änderung der Gesellschafterstellung führt;2.Geschäftsvorfälle zwischen einem Unternehmen eines Steuerpflichtigen und seiner in einem anderen Staat gelegenen Betriebsstätte (anzunehmende schuldrechtliche Beziehungen).Liegt einem Geschäftsvorfall keine schuldrechtliche Vereinbarung zugrunde, ist davon auszugehen, dass voneinander unabhängige ordentliche und gewissenhafte Geschäftsleiter eine schuldrechtliche Vereinbarung getroffen hätten oder eine bestehende Rechtsposition geltend machen würden, die der Besteuerung zugrunde zu legen ist, es sei denn, der Steuerpflichtige macht im Einzelfall etwas anderes glaubhaft.(5) Die Absätze 1, 3 bis 4 sind entsprechend anzuwenden, wenn für eine Geschäftsbeziehung im Sinne des Absatzes 4 Satz 1 Nummer 2 die Bedingungen, insbesondere die Verrechnungspreise, die der Aufteilung der Einkünfte zwischen einem inländischen Unternehmen und seiner ausländischen Betriebsstätte oder der Ermittlung der Einkünfte der inländischen Betriebsstätte eines ausländischen Unternehmens steuerlich zugrunde gelegt werden, nicht dem Fremdvergleichsgrundsatz entsprechen und dadurch die inländischen Einkünfte eines beschränkt Steuerpflichtigen gemindert oder die ausländischen Einkünfte eines unbeschränkt Steuerpflichtigen erhöht werden. Zur Anwendung des Fremdvergleichsgrundsatzes ist eine Betriebsstätte wie ein eigenständiges und unabhängiges Unternehmen zu behandeln, es sei denn, die Zugehörigkeit der Betriebsstätte zum Unternehmen erfordert eine andere Behandlung. Um die Betriebsstätte wie ein eigenständiges und unabhängiges Unternehmen zu behandeln, sind ihr in einem ersten Schritt zuzuordnen: 1.die Funktionen des Unternehmens, die durch ihr Personal ausgeübt werden (Personalfunktionen),2.die Vermögenswerte des Unternehmens, die sie zur Ausübung der ihr zugeordneten Funktionen benötigt,3.die Chancen und Risiken des Unternehmens, die sie auf Grund der ausgeübten Funktionen und zugeordneten Vermögenswerte übernimmt, sowie4.ein angemessenes Eigenkapital (Dotationskapital).Auf der Grundlage dieser Zuordnung sind in einem zweiten Schritt die Art der Geschäftsbeziehungen zwischen dem Unternehmen und seiner Betriebsstätte und die Verrechnungspreise für diese Geschäftsbeziehungen zu bestimmen. Die Sätze 1 bis 4 sind entsprechend auf ständige Vertreter anzuwenden. Die Möglichkeit, einen Ausgleichsposten nach § 4g des Einkommensteuergesetzes zu bilden, wird nicht eingeschränkt. Auf Geschäftsbeziehungen zwischen einem Gesellschafter und seiner Personengesellschaft oder zwischen einem Mitunternehmer und seiner Mitunternehmerschaft sind die Sätze 1 bis 4 nicht anzuwenden, unabhängig davon, ob die Beteiligung unmittelbar besteht oder ob sie nach § 15 Absatz 1 Satz 1 Nummer 2 Satz 2 des Einkommensteuergesetzes mittelbar besteht; für diese Geschäftsbeziehungen gilt Absatz 1. Ist ein Abkommen zur Vermeidung der Doppelbesteuerung anzuwenden und macht der Steuerpflichtige geltend, dass dessen Regelungen den Sätzen 1 bis 7 widersprechen, so hat das Abkommen nur Vorrang, soweit der Steuerpflichtige nachweist, dass der andere Staat sein Besteuerungsrecht entsprechend diesem Abkommen ausübt und deshalb die Anwendung der Sätze 1 bis 7 zu einer Doppelbesteuerung führen würde.(6) Das Bundesministerium der Finanzen wird ermächtigt, mit Zustimmung des Bundesrates durch Rechtsverordnung Einzelheiten des Fremdvergleichsgrundsatzes im Sinne der Absätze 1, 3 bis 3e und 5 und Einzelheiten zu dessen einheitlicher Anwendung zu regeln sowie Grundsätze zur Bestimmung des Dotationskapitals im Sinne des Absatzes 5 Satz 3 Nummer 4 festzulegen.",
+          "law": "AStG",
+          "gueltig_ab": "1972-09-08"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "muster",
+      "ist_streitig": false,
+      "streit_signal": ""
+    }
+  ],
+  "risiken": [
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "2",
+        "methode": "llm",
+        "interpretation": true,
+        "kurz": "② LLM-Interpretation",
+        "art": "LLM-Interpretation (ggf. umschrieben)",
+        "konfidenz": "hoch",
+        "hinweis": "Das Modell INTERPRETIERT diese – evtl. nur umschriebene – Stelle als definitionsbedürftig. Wörtlich im Text belegt, inhaltlich vom Berufsträger zu prüfen. Keine Definition aus dem Modell."
+      },
+      "quelle": "llm",
+      "matched_text": "nur Zahlungen weiterleitet",
+      "start": 154,
+      "end": 180,
+      "titel": "Gestaltungsmissbrauch",
+      "score": 1.0,
+      "signale": {
+        "quelle": "llm",
+        "konfidenz": "hoch",
+        "begruendung": "Gestaltungsmissbrauch"
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 162 AO",
+          "id": "norm:AO:162",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine "
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "2",
+        "methode": "llm",
+        "interpretation": true,
+        "kurz": "② LLM-Interpretation",
+        "art": "LLM-Interpretation (ggf. umschrieben)",
+        "konfidenz": "hoch",
+        "hinweis": "Das Modell INTERPRETIERT diese – evtl. nur umschriebene – Stelle als definitionsbedürftig. Wörtlich im Text belegt, inhaltlich vom Berufsträger zu prüfen. Keine Definition aus dem Modell."
+      },
+      "quelle": "llm",
+      "matched_text": "fehlen Belege",
+      "start": 191,
+      "end": 204,
+      "titel": "Buchführungsmangel",
+      "score": 1.0,
+      "signale": {
+        "quelle": "llm",
+        "konfidenz": "hoch",
+        "begruendung": "Buchführungsmangel"
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 162 AO",
+          "id": "norm:AO:162",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine "
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": false,
+      "streit_signal": ""
+    }
+  ],
+  "audit": {
+    "schema": "risk-layer/audit/v1",
+    "erzeugt_am": "2026-06-01T15:27:17+00:00",
+    "eingabe_hash": "4cde3550027e46f0e716fc8ca1aa3bdb86815b988fc7cb54b8a999ea95e47ce8",
+    "katalog_version": "0.3.0",
+    "schicht1": {
+      "engine": "deterministic-catalog-matcher",
+      "deterministisch": true
+    },
+    "schicht2": {
+      "aktiv": true,
+      "engine": "llama-server",
+      "modell": "unbekannt",
+      "quantisierung": "unbekannt",
+      "seed": 0,
+      "temperatur": 0.0
+    },
+    "zusammenfassung": {
+      "markierungen_gesamt": 6,
+      "treffer": 4,
+      "luecken": 0,
+      "kandidaten": 5,
+      "unknown_risiko": 2,
+      "berater_definiert": 0,
+      "nach_governance_typ": {
+        "FF": 2,
+        "IN": 2
+      },
+      "nach_schadensintensitaet": {
+        "hoch": 3,
+        "mittel": 1
+      }
+    },
+    "treffer": [
+      {
+        "begriff_id": "ao_buchfuehrungs_kassenmangel",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① wörtlich · Katalog",
+          "art": "wörtlicher Katalogtreffer",
+          "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+        },
+        "start": 213,
+        "end": 226,
+        "matched_text": "Kassenführung",
+        "surface_beleg": "Kassenführung",
+        "norm_anker": [
+          "§ 146 AO",
+          "§ 146a AO",
+          "§ 158 AO"
+        ],
+        "norm_anker_ids": [
+          "norm:AO:146",
+          "norm:AO:146a",
+          "norm:AO:158"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Gesetz",
+            "fundstelle": "§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)",
+            "id": null
+          },
+          {
+            "typ": "Verwaltung",
+            "fundstelle": "AEAO zu § 146",
+            "id": "verw:AEAO:zu§146"
+          }
+        ],
+        "ist_luecke": false
+      },
+      {
+        "begriff_id": "ao_schaetzung",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① wörtlich · Katalog",
+          "art": "wörtlicher Katalogtreffer",
+          "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+        },
+        "start": 266,
+        "end": 275,
+        "matched_text": "Schätzung",
+        "surface_beleg": "Schätzung",
+        "norm_anker": [
+          "§ 162 AO"
+        ],
+        "norm_anker_ids": [
+          "norm:AO:162"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Verwaltung",
+            "fundstelle": "AEAO zu § 162",
+            "id": "verw:AEAO:zu§162"
+          }
+        ],
+        "ist_luecke": false
+      },
+      {
+        "begriff_id": "ao_gestaltungsmissbrauch",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1b",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Katalog · Beschreibungsmuster",
+          "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+          "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+        },
+        "start": 4,
+        "end": 141,
+        "matched_text": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+        "surface_beleg": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+        "norm_anker": [
+          "§ 42 AO"
+        ],
+        "norm_anker_ids": [
+          "norm:AO:42"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Verwaltung",
+            "fundstelle": "AEAO zu § 42",
+            "id": "verw:AEAO:zu§42"
+          }
+        ],
+        "ist_luecke": false
+      },
+      {
+        "begriff_id": "astg_hinzurechnung",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1b",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Katalog · Beschreibungsmuster",
+          "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+          "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+        },
+        "start": 4,
+        "end": 141,
+        "matched_text": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+        "surface_beleg": "Gesellschaft hat ihre Lizenzrechte auf eine eigens gegründete Firma in einem Niedrigsteuerland übertragen, die über kein eigenes Personal",
+        "norm_anker": [
+          "§ 7 AStG",
+          "§ 8 AStG",
+          "§ 1 AStG"
+        ],
+        "norm_anker_ids": [
+          "norm:AStG:7",
+          "norm:AStG:8",
+          "norm:AStG:1"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Gesetz",
+            "fundstelle": "§§ 7, 8 AStG (Hinzurechnung); § 1 AStG (Verrechnungspreise)",
+            "id": null
+          }
+        ],
+        "ist_luecke": false
+      }
+    ],
+    "kandidaten": [
+      {
+        "span_text": "eigens gegründete Firma in einem Niedrigsteuerland",
+        "char_offset": 48,
+        "begruendung_kurz": "Gestaltungsmissbrauch",
+        "konfidenz": "hoch",
+        "norm_vorschlag": "§ 162 AO",
+        "status": "kandidat"
+      },
+      {
+        "span_text": "über kein eigenes Personal verfügt",
+        "char_offset": 115,
+        "begruendung_kurz": "Funktionslosigkeit",
+        "konfidenz": "hoch",
+        "norm_vorschlag": "§ 162 AO",
+        "status": "kandidat"
+      },
+      {
+        "span_text": "nur Zahlungen weiterleitet",
+        "char_offset": 154,
+        "begruendung_kurz": "Gestaltungsmissbrauch",
+        "konfidenz": "hoch",
+        "norm_vorschlag": "§ 162 AO",
+        "status": "kandidat"
+      },
+      {
+        "span_text": "fehlen Belege",
+        "char_offset": 191,
+        "begruendung_kurz": "Buchführungsmangel",
+        "konfidenz": "hoch",
+        "norm_vorschlag": "§ 162 AO",
+        "status": "kandidat"
+      },
+      {
+        "span_text": "Kassenführung ist nicht nachvollziehbar",
+        "char_offset": 213,
+        "begruendung_kurz": "Kassenmangel",
+        "konfidenz": "hoch",
+        "norm_vorschlag": "§ 162 AO",
+        "status": "kandidat"
+      }
+    ],
+    "risiken": [
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "2",
+          "methode": "llm",
+          "interpretation": true,
+          "kurz": "② LLM-Interpretation",
+          "art": "LLM-Interpretation (ggf. umschrieben)",
+          "konfidenz": "hoch",
+          "hinweis": "Das Modell INTERPRETIERT diese – evtl. nur umschriebene – Stelle als definitionsbedürftig. Wörtlich im Text belegt, inhaltlich vom Berufsträger zu prüfen. Keine Definition aus dem Modell."
+        },
+        "quelle": "llm",
+        "matched_text": "nur Zahlungen weiterleitet",
+        "start": 154,
+        "end": 180,
+        "titel": "Gestaltungsmissbrauch",
+        "score": 1.0,
+        "signale": {
+          "quelle": "llm",
+          "konfidenz": "hoch",
+          "begruendung": "Gestaltungsmissbrauch"
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 162 AO",
+            "id": "norm:AO:162",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "titel": "Schätzung von Besteuerungsgrundlagen",
+            "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine "
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": false,
+        "streit_signal": ""
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "2",
+          "methode": "llm",
+          "interpretation": true,
+          "kurz": "② LLM-Interpretation",
+          "art": "LLM-Interpretation (ggf. umschrieben)",
+          "konfidenz": "hoch",
+          "hinweis": "Das Modell INTERPRETIERT diese – evtl. nur umschriebene – Stelle als definitionsbedürftig. Wörtlich im Text belegt, inhaltlich vom Berufsträger zu prüfen. Keine Definition aus dem Modell."
+        },
+        "quelle": "llm",
+        "matched_text": "fehlen Belege",
+        "start": 191,
+        "end": 204,
+        "titel": "Buchführungsmangel",
+        "score": 1.0,
+        "signale": {
+          "quelle": "llm",
+          "konfidenz": "hoch",
+          "begruendung": "Buchführungsmangel"
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 162 AO",
+            "id": "norm:AO:162",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "titel": "Schätzung von Besteuerungsgrundlagen",
+            "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine "
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": false,
+        "streit_signal": ""
+      }
+    ]
+  },
+  "engineVersion": "1.0.0"
+}

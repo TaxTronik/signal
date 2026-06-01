@@ -1,0 +1,367 @@
+"""Semantischer Korpus-Index (Embedding) – Schicht 1.7.
+
+Lexische Suche (Trigger/Muster) greift nur, wo der Sachverhalt Fachvokabular mit
+dem Gesetz teilt. Echte PARAPHRASEN ("Bareinnahmen landen nicht in der Kasse" vs.
+gesetzlich "Aufzeichnungen") überbrückt sie nicht. Dieser Index schließt die
+Lücke semantisch – und bleibt dabei trainingsdaten-unabhängig im Sinne des
+Projekts: das Embedding-Modell liefert nur VEKTOREN; das Wissen, gegen das
+verglichen wird, sind ausschließlich die eingebetteten GESETZESTEXTE des Korpus.
+Es schlägt keine Norm aus dem Modellgedächtnis vor.
+
+Architektur (wie beim LLM-Provider, austauschbar + degradierend):
+  * ``Encoder`` – Protokoll ``encode(texts) -> np.ndarray`` (zeilen-L2-normiert).
+  * ``HashEncoder`` – deterministisch, ABHÄNGIGKEITSFREI (nur numpy). Bag-of-words
+    über stabiles Hashing; semantisch schwach, aber reproduzierbar und ohne Modell
+    lauffähig – Test- und Notpfad.
+  * ``BgeM3Encoder`` – echter semantischer Pfad (BAAI/bge-m3), lazy import von
+    sentence-transformers; lädt das Modell nur, wenn installiert.
+  * ``EmbeddingIndex`` – Matrix (N×D) + Metadaten (id/zitat/titel), in .npy/.json
+    persistiert. ``suche`` = Kosinus-Top-k (Vektoren sind normiert ⇒ Skalarprodukt).
+
+Der Index wird mit DEMSELBEN Encoder gebaut und abgefragt (im Index vermerkt).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import threading
+from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
+
+import numpy as np
+
+from .idschema import para_level
+from .muster import saetze_mit_offset
+
+DEFAULT_DIR = Path("corpus") / "embedding"
+_TOKEN = re.compile(r"[a-zäöüß]+")
+
+
+def _tokens(text: str) -> list[str]:
+    return [w for w in _TOKEN.findall(text.lower()) if len(w) >= 3]
+
+
+def _l2(matrix: np.ndarray) -> np.ndarray:
+    """Zeilenweise L2-Normierung (Nullzeilen bleiben Null)."""
+    norm = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norm[norm == 0] = 1.0
+    return matrix / norm
+
+
+# --- Encoder ----------------------------------------------------------------
+
+@runtime_checkable
+class Encoder(Protocol):
+    name: str
+    dim: int
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        ...
+
+
+class HashEncoder:
+    """Deterministischer, abhängigkeitsfreier Encoder (stabiles Token-Hashing).
+
+    Kein semantisches Modell – Bag-of-words im Hash-Raum, also etwa so stark wie
+    die lexische Suche, aber reproduzierbar und ohne Download lauffähig. Dient als
+    Testpfad und als Notfall, wenn kein Embedding-Modell installiert ist.
+    """
+
+    def __init__(self, dim: int = 512):
+        self.dim = dim
+        self.name = f"hash{dim}"
+
+    def _vec(self, text: str) -> np.ndarray:
+        v = np.zeros(self.dim, dtype=np.float32)
+        for tok in _tokens(text):
+            h = hashlib.md5(tok.encode("utf-8")).digest()
+            bucket = int.from_bytes(h[:4], "big") % self.dim
+            sign = 1.0 if h[4] & 1 else -1.0
+            v[bucket] += sign
+        return v
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        return _l2(np.vstack([self._vec(t) for t in texts]).astype(np.float32))
+
+
+class BgeM3Encoder:
+    """Echter semantischer Encoder (BAAI/bge-m3) über sentence-transformers.
+
+    Lazy: importiert/lädt das Modell erst bei Bedarf. Erfordert das optionale
+    Paket sentence-transformers (+ torch) und das Modell (Download beim 1. Mal).
+    """
+
+    name = "bge-m3"
+    dim = 1024
+
+    def __init__(self, modell: str = "BAAI/bge-m3", device: str | None = None):
+        self._modell_name = modell
+        self._device = device
+        self._modell = None
+        # Der Encoder ist im ThreadingHTTPServer prozessweit GETEILT. torch/das
+        # ST-Modell sind nicht thread-sicher (gemeinsamer CUDA/ROCm-Context). Ein
+        # Lock serialisiert sowohl den Lazy-Load (sonst doppelter VRAM-Load/Init-
+        # Crash bei gleichzeitigen Erst-Requests) als auch jeden forward-Pass.
+        self._lock = threading.Lock()
+
+    def _laden(self):
+        if self._modell is None:
+            with self._lock:
+                if self._modell is None:   # double-checked: nur EIN Thread lädt
+                    # ROCm-Workaround: sentence-transformers' get_device_name() ruft
+                    # torch.distributed.is_initialized() auf, das in diesem torch-ROCm-
+                    # Build fehlt (AttributeError). Wir patchen die EIGENTLICHE Ursache
+                    # an torch.distributed – aber NUR, wenn das Attribut wirklich fehlt,
+                    # damit echtes Multi-GPU (wo es existiert) unberührt bleibt.
+                    try:
+                        import torch.distributed as _dist
+                        if not hasattr(_dist, "is_initialized"):
+                            _dist.is_initialized = lambda: False
+                    except ImportError:
+                        pass
+                    from sentence_transformers import SentenceTransformer  # lazy
+                    self._modell = SentenceTransformer(self._modell_name, device=self._device)
+        return self._modell
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        m = self._laden()
+        # Forward-Pass serialisieren: parallele encode()-Aufrufe auf demselben
+        # Modell/CUDA-Context können abstürzen oder nichtdeterministische Vektoren
+        # liefern. Ein Encoder pro Prozess ⇒ Durchsatz unkritisch.
+        with self._lock:
+            vecs = m.encode(texts, normalize_embeddings=True, batch_size=32,
+                            show_progress_bar=False, convert_to_numpy=True)
+        return np.asarray(vecs, dtype=np.float32)
+
+
+def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
+                    device: str | None = None) -> Encoder:
+    """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash.
+
+    ``device`` wird an BGE-M3 durchgereicht. Für Einzelabfragen (Web-Request) ist
+    CPU sinnvoll: hält die GPU frei (z. B. fürs Spielen) und ist für einen Satz
+    schnell genug. Der Index-BUILD nutzt dagegen explizit die GPU.
+    """
+    if name in ("bge-m3", "auto"):
+        try:
+            import sentence_transformers  # noqa: F401
+            return BgeM3Encoder(device=device)
+        except Exception:
+            if name == "bge-m3":
+                raise
+    return HashEncoder(dim=dim)
+
+
+# --- Index ------------------------------------------------------------------
+
+class EmbeddingIndex:
+    """Semantischer Korpus-Index: §-Vektoren + Metadaten."""
+
+    def __init__(self, vectors: np.ndarray, ids: list[str], zitate: list[str],
+                 titel: list[str], encoder_name: str):
+        self.vectors = vectors
+        self.ids = ids
+        self.zitate = zitate
+        self.titel = titel
+        self.encoder_name = encoder_name
+        self.dim = int(vectors.shape[1]) if vectors.size else 0
+
+    # -- Bau ----------------------------------------------------------------
+    @classmethod
+    def build(cls, graph, encoder: Encoder, *, max_zeichen: int = 1500,
+              katalog=None) -> "EmbeddingIndex":
+        """Bettet alle §-Knoten (Paragraph-Ebene) des Normgraphen ein.
+
+        Ist ``katalog`` gesetzt, werden zusätzlich die kuratierten LAIEN-Paraphrasen
+        (Schicht-1.7-Anker) als eigene Vektoren eingebettet, die auf ihre §-Norm
+        zeigen. Eine alltagssprachliche Anfrage trifft dann den Anker im selben
+        Register hoch, statt den abstrakten Gesetzestext nur knapp – das hebt echte
+        Treffer, OHNE den Rauschboden zu senken (kuratiert, kein Modellwissen).
+        """
+        rows = graph.con.execute(
+            "SELECT id, titel, law, para, text FROM knoten "
+            "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
+        ids, zitate, titel, texte = [], [], [], []
+        para_meta: dict[str, tuple[str, str]] = {}   # node-id → (zitat, titel)
+        for r in rows:
+            roh_titel = (r["titel"] or "").strip()
+            roh_text = (r["text"] or "").strip()
+            # (1) Tote/leere Paragraphen ("(weggefallen)", "(gegenstandslos)", …)
+            # AUSSCHLIESSEN: ihr Vektor ist ein generischer Hub, der bei jeder Anfrage
+            # mittelhoch matcht und echte Normen verdrängt – keine sinnvollen Treffer.
+            inhalt = roh_text.lower().strip("() .")
+            if (inhalt in ("", "weggefallen", "gegenstandslos", "aufgehoben",
+                           "frei", "nicht belegt") or len(roh_text) < 15):
+                continue
+            # Titel-Platzhalter wie "§ 165" (nur die Nummer) zählen nicht als Titel.
+            echter_titel = "" if (not roh_titel or roh_titel.lstrip("§ ").strip() == str(r["para"])) else roh_titel
+            # (2) OHNE echten Titel fehlt der diskriminierende Konzept-Anker – solche
+            # Paragraphen werden zu Hubs. Sie bleiben in Graph/Trigger erhalten, aber
+            # NICHT im semantischen Index (sonst verrauschen sie jede Suche).
+            if not echter_titel:
+                continue
+            zitat = f"§ {r['para']} {r['law']}"
+            ids.append(r["id"])
+            zitate.append(zitat)
+            titel.append(echter_titel)
+            para_meta[r["id"]] = (zitat, echter_titel)
+            # Überschrift doppelt gewichten + Wortlautanfang: das Konzept der Norm.
+            kopf = (echter_titel + ". ") * 2
+            texte.append((kopf + roh_text[:max_zeichen]).strip())
+
+        # Schicht-1.7-Anker: kuratierte Laien-Paraphrasen je Katalog-Norm. Jede wird
+        # ein eigener Vektor mit demselben Ziel-§ (über den ersten auflösbaren
+        # norm_anker des Eintrags). Im Suchergebnis erscheinen sie als normale
+        # Treffer auf diese §-ID – mehrere Anker erhöhen die Trefferchance.
+        n_anker = 0
+        verlorene_anker: list[dict[str, Any]] = []   # tote Anker (laut melden!)
+        if katalog is not None:
+            from .zitate import parse_normzitat
+
+            def _erste_aufloesbare(zitate_liste) -> str | None:
+                # Der Index führt nur die PARAGRAPH-Ebene (norm:LAW:para). Ein Zitat
+                # mit Absatz/Nummer ("§ 173 Abs. 1 AO" → norm:AO:173:abs1) muss auf
+                # den §-Knoten reduziert werden, sonst findet der Anker kein Ziel.
+                for zit in zitate_liste:
+                    for a in parse_normzitat(zit):
+                        if not a.norm_id:
+                            continue
+                        voll = a.norm_id.to_id()
+                        if voll in para_meta:
+                            return voll
+                        para = para_level(voll)   # auf §-Ebene kürzen
+                        if para in para_meta:
+                            return para
+                return None
+
+            for eintrag in katalog:
+                phrasen = getattr(eintrag, "paraphrasen", ()) or ()
+                if not phrasen:
+                    continue
+                # Ziel = KOPF der ersten Normkette (Kaskaden-Spitze), sonst der erste
+                # auflösbare norm_anker. Die volle Kette wird beim Ausspielen über den
+                # Katalog-Lookup (norm_id → Normketten) angehängt – nicht hier gespeichert.
+                ketten = getattr(eintrag, "normketten", ()) or ()
+                ziel = None
+                if ketten:
+                    ziel = _erste_aufloesbare([k.primaer for k in ketten if k.primaer])
+                if not ziel:
+                    ziel = _erste_aufloesbare(eintrag.norm_anker)
+                if not ziel:
+                    # LAUTER Fehler statt stillem Überspringen: eine Paraphrase, die
+                    # kein Index-Ziel findet (z. B. Granularitäts-Mismatch Katalog
+                    # vs. Index, oder § im Korpus nicht vorhanden), ist ein toter
+                    # Anker – sie dämpft den Recall unsichtbar. Hier gesammelt und
+                    # von der CLI/Test als WARNUNG ausgespielt.
+                    kopf = (ketten[0].primaer if ketten else
+                            (eintrag.norm_anker[0] if eintrag.norm_anker else "?"))
+                    verlorene_anker.append({"begriff": eintrag.id, "ziel_zitat": kopf,
+                                            "n_paraphrasen": len(phrasen)})
+                    continue
+                for ph in phrasen:
+                    ids.append(ziel)
+                    zitate.append(zitat := para_meta[ziel][0])
+                    titel.append(para_meta[ziel][1])
+                    texte.append(ph.strip())
+                    n_anker += 1
+
+        vecs = encoder.encode(texte) if texte else np.zeros((0, encoder.dim), np.float32)
+        idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name)
+        idx.n_paraphrase_anker = n_anker
+        idx.verlorene_anker = verlorene_anker
+        return idx
+
+    # -- Persistenz ---------------------------------------------------------
+    def save(self, verzeichnis: str | Path = DEFAULT_DIR) -> None:
+        d = Path(verzeichnis)
+        d.mkdir(parents=True, exist_ok=True)
+        np.save(d / "vectors.npy", self.vectors)
+        (d / "meta.json").write_text(json.dumps({
+            "encoder": self.encoder_name, "dim": self.dim,
+            "ids": self.ids, "zitate": self.zitate, "titel": self.titel,
+        }, ensure_ascii=False), encoding="utf-8")
+
+    @classmethod
+    def load(cls, verzeichnis: str | Path = DEFAULT_DIR) -> "EmbeddingIndex | None":
+        d = Path(verzeichnis)
+        vp, mp = d / "vectors.npy", d / "meta.json"
+        if not vp.exists() or not mp.exists():
+            return None
+        meta = json.loads(mp.read_text(encoding="utf-8"))
+        return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"])
+
+    # -- Laufzeit -----------------------------------------------------------
+    def _sammeln(self, reihenfolge, sims: np.ndarray, k: int,
+                 min_sim: float) -> list[dict[str, Any]]:
+        """Läuft Indizes in der gegebenen (absteigenden) Reihenfolge ab und
+        sammelt je NORM-ID nur den besten Treffer, bis k erreicht/Schwelle unter."""
+        out: list[dict[str, Any]] = []
+        gesehen: set[str] = set()
+        for i in reihenfolge:
+            s = float(sims[i])
+            if s < min_sim or len(out) >= k:
+                break
+            nid = self.ids[i]
+            if nid in gesehen:
+                continue
+            gesehen.add(nid)
+            out.append({"norm_id": nid, "zitat": self.zitate[i],
+                        "titel": self.titel[i], "sim": round(s, 3)})
+        return out
+
+    def _topk(self, qvec: np.ndarray, k: int, min_sim: float) -> list[dict[str, Any]]:
+        if not self.vectors.size or k <= 0:
+            return []
+        sims = self.vectors @ qvec            # Kosinus (alles L2-normiert)
+        n = int(sims.shape[0])
+        # Je NORM nur der beste Treffer (Gesetzestext + Paraphrasen-Anker zeigen
+        # auf dieselbe §-ID). Statt voller argsort (O(n log n)) zuerst nur ein
+        # Top-Fenster via argpartition (O(n)) – mit Headroom über k, weil
+        # dedupliziert wird.
+        fenster = min(n, max(k * 8, k + 64))
+        if fenster >= n:
+            return self._sammeln(np.argsort(-sims), sims, k, min_sim)
+        cand = np.argpartition(-sims, fenster - 1)[:fenster]
+        cand = cand[np.argsort(-sims[cand])]
+        out = self._sammeln(cand, sims, k, min_sim)
+        # Fenster wider Erwarten zu klein für k distinkte IDs (sehr viele
+        # Duplikate)? Nur exakt nachziehen, wenn der Schwellwert nicht ohnehin
+        # schon geschnitten hat (kleinster Fenster-sim noch ≥ min_sim).
+        if len(out) < k and float(sims[cand[-1]]) >= min_sim:
+            out = self._sammeln(np.argsort(-sims), sims, k, min_sim)
+        return out
+
+    def suche(self, text: str, encoder: Encoder, *, k: int = 8,
+              min_sim: float = 0.5) -> list[dict[str, Any]]:
+        """Die k semantisch nächsten §§ zum gesamten Text."""
+        qvec = encoder.encode([text])[0]
+        return self._topk(qvec, k, min_sim)
+
+    def kandidaten_pro_satz(self, text: str, encoder: Encoder, *, k: int = 3,
+                            min_sim: float = 0.55) -> list[dict[str, Any]]:
+        """Je Satz die semantisch nächsten §§ – für satzgenaue Erdung/Marken.
+
+        Liefert pro Satz mit Treffern: Span (Originaloffsets) + Kandidaten-Normen.
+        Bewusst nur überschwellige Treffer; lieber nichts als themenfremdes Rauschen.
+        """
+        saetze = [s for s in saetze_mit_offset(text) if len(s.text.strip()) >= 12]
+        if not saetze:
+            return []
+        qv = encoder.encode([s.text for s in saetze])
+        out: list[dict[str, Any]] = []
+        for s, v in zip(saetze, qv):
+            treffer = self._topk(v, k, min_sim)
+            if not treffer:
+                continue
+            # Offsets auf den getrimmten Satz ziehen, damit text[start:end] == text gilt.
+            links = len(s.text) - len(s.text.lstrip())
+            rechts = len(s.text) - len(s.text.rstrip())
+            out.append({"start": s.start + links, "end": s.end - rechts,
+                        "text": s.text.strip(), "normen": treffer})
+        return out
+
+
+def index_oeffnen(verzeichnis: str | Path = DEFAULT_DIR) -> EmbeddingIndex | None:
+    return EmbeddingIndex.load(verzeichnis)

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<dokumente>
+  <norm>
+    <metadaten>
+      <jurabk>TestG 1990</jurabk>
+      <amtabk>TestG</amtabk>
+      <ausfertigung-datum>1990-01-01</ausfertigung-datum>
+      <gliederungseinheit/>
+      <titel>Inhaltsübersicht</titel>
+    </metadaten>
+  </norm>
+  <norm>
+    <metadaten>
+      <jurabk>TestG 1990</jurabk>
+      <enbez>§ 2</enbez>
+      <titel>Beispielnorm</titel>
+    </metadaten>
+    <textdaten>
+      <text format="XML">
+        <Content>
+          <P>(1) Erster Absatz mit Verweis auf § 3.</P>
+          <P>(2) Zweiter Absatz:
+            <DL Type="arabic">
+              <DT>1.</DT><DD><LA>erste Nummer.</LA></DD>
+              <DT>2.</DT><DD><LA>zweite Nummer, eingegliedert nach § 2 Abs. 1.</LA></DD>
+            </DL>
+          </P>
+        </Content>
+      </text>
+    </textdaten>
+  </norm>
+  <norm>
+    <metadaten>
+      <jurabk>TestG 1990</jurabk>
+      <enbez>§ 3</enbez>
+      <titel>Dritte Norm</titel>
+    </metadaten>
+    <textdaten>
+      <text format="XML">
+        <Content>
+          <P>(1) Inhalt von § 3, vergleiche § 5 EStG.</P>
+        </Content>
+      </text>
+    </textdaten>
+  </norm>
+</dokumente>

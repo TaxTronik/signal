@@ -1,0 +1,689 @@
+# =============================================================================
+# Begriffskatalog – Single Source of Truth der Schicht 1  (/LF220/, /LF230/)
+# =============================================================================
+# Versionierte, kuratierte Datendatei. GETRENNT vom Code – Änderungen hier
+# erfordern KEINEN Code-Deploy (/NF50/) und werden über Git nachvollzogen.
+#
+# WICHTIG (fachliche Verantwortung): Dieser Seed-Katalog lenkt Aufmerksamkeit,
+# er ersetzt KEINE Subsumtion. Norm-Anker und Fundstellen sind vom Berufsträger
+# vor produktivem Einsatz zu verifizieren und fortzuschreiben (§§ 33, 57 StBerG).
+# Zulässiger Fehlermodus: lieber ein überflüssiger Hinweis als ein übersehener
+# Begriff (Recall vor Precision).
+#
+# Seed-Quelle: Tab. 1 / dogmatische Eckpfeiler des DStR-Beitrags
+# „Steuerartenübergreifende Risikosteuerung der Organschaft".
+#
+# governance_typ:  FP = formal-periodisch | FF = fortlaufend-faktisch | IN = inhärent
+# schadensintensitaet: niedrig | mittel | hoch
+# kaskadenreichweite:  1 | 2 | 3
+#
+# NEU in 0.3.0 – ausloeser (Schicht 1b, Beschreibungs-/Negativbefund-Muster):
+#   Reale Sachverhalte BENENNEN die Rechtsbegriffe selten – sie UMSCHREIBEN sie,
+#   oft als Negativbefund ("Belege fehlen", "Abgaben nicht weitergeleitet"). Ein
+#   ausloeser-Muster trifft, wenn in EINEM Satz aus JEDER Wortgruppe mindestens
+#   ein Glied vorkommt (Ko-Okkurrenz ⇒ Präzision). Rein deterministisch, kein
+#   Modell, kuratierbar. Glieder matchen am Wortanfang (stamm-/präfixtolerant):
+#   "fehl" ⇒ fehlt/fehlen/fehlende; "kasse" ⇒ Kasse/Kassenführung, aber NICHT
+#   Unterstützungs|kasse (kein Wortanfang) – genau der Realabgleich, an dem die
+#   reine Stichwortliste „Unterstützungskasse" mit „Kasse" verwechselt hat.
+# =============================================================================
+
+version: "0.3.0"
+stand: "2026-05-31"
+quelle: "DStR-Beitrag: Steuerartenübergreifende Risikosteuerung der Organschaft; AO-Eckbegriffe"
+
+begriffe:
+
+  # ---------------------------------------------------------------------------
+  # Umsatzsteuerliche Organschaft – Eingliederungsmerkmale (§ 2 Abs. 2 Nr. 2 UStG)
+  # ---------------------------------------------------------------------------
+
+  - id: ust_finanzielle_eingliederung
+    begriff_kanonisch: "finanzielle Eingliederung"
+    aliase:
+      - "finanziell eingegliedert"
+      - "finanzielle Eingliederung in das Unternehmen"
+      - "Stimmrechtsmehrheit"
+    norm_anker:
+      - "§ 2 Abs. 2 Nr. 2 UStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "Abschn. 2.8 Abs. 5 UStAE"
+      - typ: "Rspr"
+        fundstelle: "BFH v. 18.01.2023 – XI R 29/22"
+    governance_typ: "FF"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Anteilsübertragung"
+      - "Kapitalerhöhung"
+      - "Stimmrechtsvereinbarung"
+    gefaehrdungsnotiz: >
+      Erfordert Mehrheit der Stimmrechte. Veränderung der Beteiligungs- oder
+      Stimmrechtslage kann die Organschaft taggenau beenden – mit Rückwirkung
+      auf die Zurechnung der Umsätze.
+    gueltig_ab: "2023-01-01"
+    gueltig_bis: null
+
+  - id: ust_wirtschaftliche_eingliederung
+    begriff_kanonisch: "wirtschaftliche Eingliederung"
+    aliase:
+      - "wirtschaftlich eingegliedert"
+      - "wirtschaftliche Verflechtung"
+    norm_anker:
+      - "§ 2 Abs. 2 Nr. 2 UStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "Abschn. 2.8 Abs. 6 UStAE"
+    governance_typ: "FF"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Einstellung der Leistungsbeziehung"
+      - "Geschäftsfeldänderung"
+    gefaehrdungsnotiz: >
+      Setzt einen vernünftigen wirtschaftlichen Zusammenhang (Förderung/Ergänzung)
+      voraus. Wegfall der Leistungsverflechtung gefährdet das Merkmal.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ust_organisatorische_eingliederung
+    begriff_kanonisch: "organisatorische Eingliederung"
+    aliase:
+      - "organisatorisch eingegliedert"
+      - "organisatorische Eingliederung in das Unternehmen"
+      - "Eingliederung in organisatorischer Hinsicht"
+      - "personelle Verflechtung"
+    norm_anker:
+      - "§ 2 Abs. 2 Nr. 2 UStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "Abschn. 2.8 Abs. 7 bis 10 UStAE"
+      - typ: "Rspr"
+        fundstelle: "BFH v. 18.01.2023 – XI R 29/22"
+    governance_typ: "FF"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Geschäftsführerwechsel"
+      - "Insolvenzanzeichen"
+      - "Umstrukturierung"
+    gefaehrdungsnotiz: >
+      Endet taggenau kraft Gesetzes; keine Heilung. Wegfall macht Innenumsätze
+      zu steuerbaren Außenumsätzen. Laufendes Monitoring zwingend.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ust_willensdurchsetzung
+    begriff_kanonisch: "Willensdurchsetzung"
+    aliase:
+      - "Beherrschung der laufenden Geschäftsführung"
+      - "Durchsetzung des Willens"
+      - "abweichende Willensbildung verhindert"
+    norm_anker:
+      - "§ 2 Abs. 2 Nr. 2 UStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "Abschn. 2.8 Abs. 7 UStAE"
+    governance_typ: "FF"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Geschäftsführerwechsel"
+      - "Entzug von Weisungsrechten"
+    gefaehrdungsnotiz: >
+      Kern der organisatorischen Eingliederung: Der Organträger muss eine vom
+      eigenen Willen abweichende Willensbildung in der Organgesellschaft
+      verhindern können. Fällt die Durchsetzungsmöglichkeit weg, entfällt das Merkmal.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  # ---------------------------------------------------------------------------
+  # Ertragsteuerliche Organschaft (§§ 14 ff. KStG)
+  # ---------------------------------------------------------------------------
+
+  - id: kst_finanzielle_eingliederung
+    begriff_kanonisch: "finanzielle Eingliederung"
+    aliase:
+      - "Mehrheit der Stimmrechte"
+      - "Stimmrechtsmehrheit am Organträger"
+    norm_anker:
+      - "§ 14 Abs. 1 Satz 1 Nr. 1 KStG"
+    normketten:
+      - glieder: ["§ 14 KStG", "§ 2 Abs. 2 Satz 2 GewStG"]
+        verknuepfung: "iVm"
+        hinweis: "Die körperschaftsteuerliche Organschaft (§ 14 KStG) schlägt über § 2 Abs. 2 Satz 2 GewStG auf die Gewerbesteuer durch – kippt sie, kippt auch die GewSt-Organschaft."
+    paraphrasen:
+      - "Die Muttergesellschaft hält die Stimmenmehrheit und kann in der Tochter durchregieren."
+      - "Konzernmutter und Tochter sind so verflochten, dass sie steuerlich wie eine Einheit behandelt werden."
+      - "Über die Mehrheit der Anteile beherrscht der eine Betrieb den anderen vollständig."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "R 14.2 KStR"
+    governance_typ: "FP"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Anteilsübertragung"
+      - "unterjähriger Beteiligungserwerb"
+    gefaehrdungsnotiz: >
+      Muss vom Beginn des Wirtschaftsjahrs an ununterbrochen bestehen. Bereits
+      eine kurzzeitige Unterbrechung lässt die Organschaft für das gesamte Jahr
+      scheitern.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: kst_tatsaechliche_durchfuehrung
+    begriff_kanonisch: "tatsächliche Durchführung"
+    aliase:
+      - "tatsächliche Durchführung des Gewinnabführungsvertrags"
+      - "tatsächlich durchgeführt"
+      - "Durchführung des Ergebnisabführungsvertrags"
+    norm_anker:
+      - "§ 14 Abs. 1 Satz 1 Nr. 3 KStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "R 14.5 KStR"
+    governance_typ: "FP"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 3
+    trigger_ereignisse:
+      - "verspätete Ergebnisabführung"
+      - "fehlerhafte Bilanzierung der Forderung/Verbindlichkeit"
+      - "ausgebliebene Verlustübernahme"
+    gefaehrdungsnotiz: >
+      Der Gewinnabführungsvertrag muss während seiner gesamten Geltungsdauer
+      tatsächlich vollzogen werden. Nichtdurchführung (auch durch Bilanzierungs-
+      fehler) kann die Organschaft rückwirkend für die Mindestlaufzeit zerstören.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: kst_schaedlicher_beteiligungserwerb
+    begriff_kanonisch: "schädlicher Beteiligungserwerb"
+    aliase:
+      - "schädlicher Anteilserwerb"
+      - "schädlicher Erwerb"
+      - "Anteilsübertragung von mehr als 50 %"
+    norm_anker:
+      - "§ 8c Abs. 1 KStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "BMF v. 28.11.2017 – IV C 2 - S 2745-a/09/10002 :004 (BStBl I 2017, 1645)"
+    governance_typ: "FP"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Anteilsübertragung > 50 %"
+      - "Erwerbergruppe / gleichgerichtete Interessen"
+      - "Kapitalerhöhung mit Quotenverschiebung"
+    gefaehrdungsnotiz: >
+      Übertragung von mehr als 50 % der Anteile innerhalb von fünf Jahren lässt
+      nicht genutzte Verluste grundsätzlich vollständig untergehen (vorbehaltlich
+      Stille-Reserven- und Konzernklausel, § 8c Abs. 1 Sätze 4 ff. KStG).
+    gueltig_ab: null
+    gueltig_bis: null
+
+  # ---------------------------------------------------------------------------
+  # Einkommen-/Körperschaftsteuer – inhärent wertungsoffene Begriffe (IN)
+  # ---------------------------------------------------------------------------
+
+  - id: est_gewerbliche_taetigkeit
+    begriff_kanonisch: "gewerbliche Tätigkeit"
+    aliase:
+      - "gewerblich tätig"
+      - "Gewerbebetrieb"
+      - "gewerbliche Prägung"
+    norm_anker:
+      - "§ 15 Abs. 2 EStG"
+    paraphrasen:
+      - "Er kauft und verkauft so häufig und planmäßig, dass es über bloße Vermögensverwaltung hinausgeht."
+      - "Die Tätigkeit hat den Zuschnitt eines Betriebs, nicht den eines privaten Anlegers."
+      - "Mit eigenem Einsatz und auf Dauer angelegt, um am Markt Gewinn zu erzielen."
+    definitionsquelle:
+      - typ: "Gesetz"
+        fundstelle: "§ 15 Abs. 2 Satz 1 EStG (Legaldefinition Gewerbebetrieb)"
+      - typ: "Rspr"
+        fundstelle: "BFH-Rspr. zur Abgrenzung Gewerbebetrieb / Vermögensverwaltung"
+    governance_typ: "IN"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Häufung von An- und Verkäufen"
+      - "Einsatz von Fremdkapital / Branchennähe"
+    gefaehrdungsnotiz: >
+      Abgrenzung gewerblich / privat-vermögensverwaltend ist eine wertende
+      Gesamtbetrachtung. IN-Begriff: nicht automatisch bewertbar – das System
+      kennzeichnet nur die Subsumtionsstelle und erzwingt dokumentierte Aufklärung.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: kst_vga
+    begriff_kanonisch: "verdeckte Gewinnausschüttung"
+    aliase:
+      - "vGA"
+      - "verdeckte Gewinnausschüttungen"
+      - "Veranlassung durch das Gesellschaftsverhältnis"
+    norm_anker:
+      - "§ 8 Abs. 3 Satz 2 KStG"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "R 8.5 KStR"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Leistungsbeziehung mit beherrschendem Gesellschafter"
+      - "unangemessene Vergütung / fehlende klare Vereinbarung"
+    gefaehrdungsnotiz: >
+      Vermögensminderung/verhinderte Vermögensmehrung, die durch das Gesellschafts-
+      verhältnis veranlasst ist. IN-Begriff: Beurteilung erfordert wertende
+      Einzelfallwürdigung (Fremdvergleich) – keine automatische Bewertung.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  # ---------------------------------------------------------------------------
+  # Bewusste LÜCKE (Demonstration /LF160/, /AB40/):
+  # Erkannter Begriff OHNE hinterlegte Definitionsquelle ⇒ Rechercheauftrag.
+  # ---------------------------------------------------------------------------
+
+  - id: gesamtwuerdigung_tatsaechliche_verhaeltnisse
+    begriff_kanonisch: "Gesamtwürdigung der tatsächlichen Verhältnisse"
+    aliase:
+      - "Gesamtbild der Verhältnisse"
+      - "Gesamtbild der tatsächlichen Verhältnisse"
+      - "Würdigung der Gesamtumstände"
+      - "Gesamtwürdigung"
+    norm_anker: []
+    definitionsquelle: []          # ← absichtlich leer ⇒ Lücke / Rechercheauftrag
+    governance_typ: "IN"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse: []
+    gefaehrdungsnotiz: >
+      Querschnittlicher Subsumtionsmaßstab vieler Tatbestände. Keine eigenständige
+      Definitionsquelle hinterlegt: bewusst als Lücke geführt, damit die Abhängig-
+      keit vom konkreten Tatbestand sichtbar bleibt (Negativwissen, /R20/).
+    gueltig_ab: null
+    gueltig_bis: null
+
+  # ===========================================================================
+  # Abgabenordnung (AO) – verfahrensrechtliche Eckbegriffe
+  # AO-lastiges, hochaufgeladenes Erstgebiet: viele Sollbruchstellen je Norm.
+  # ===========================================================================
+
+  - id: ao_buchfuehrungs_kassenmangel
+    begriff_kanonisch: "Mängel der Buchführung / Kassenführung"
+    aliase:
+      - "Kassenführung"
+      - "Ordnungsmäßigkeit der Buchführung"
+      - "Kassen-Nachschau"
+      - "Beweiskraft der Buchführung"
+    norm_anker:
+      - "§ 146 AO"
+      - "§ 146a AO"
+      - "§ 158 AO"
+    normketten:
+      - glieder: ["§ 146 AO", "§ 158 AO", "§ 162 AO"]
+        verknuepfung: "→"
+        hinweis: "Ordnungsmangel (§ 146) lässt die Beweiskraft (§ 158) entfallen und eröffnet die Schätzung (§ 162)."
+    paraphrasen:
+      - "Der Wirt notiert seine Tageslosung nirgends; am Tresen wird einfach kassiert."
+      - "Quittungen landen im Müll, eine Registrierkasse gibt es nicht."
+      - "Was abends in der Geldschublade liegt, stimmt nie mit den Aufschrieben überein."
+    definitionsquelle:
+      - typ: "Gesetz"
+        fundstelle: "§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)"
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 146"
+    governance_typ: "FF"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 3
+    trigger_ereignisse:
+      - "Kassen-Nachschau / Außenprüfung"
+      - "Bargeldintensiver Betrieb"
+    ausloeser:
+      # Objekt (Kasse/Buchführung/Belege) + Mangel/Abwesenheit im selben Satz.
+      - gruppen:
+          - ["kasse", "kassenführung", "kasseneinnahme", "bareinnahme", "buchführung", "aufzeichnung", "kassenbuch", "beleg"]
+          - ["fehl", "nicht nachvollziehbar", "nicht in der kasse", "nicht vollständig", "unvollständig", "nicht ordnungsgemäß", "mangel", "nicht erfasst", "nicht verbucht", "nicht geführt", "nachlässig geführt"]
+    gefaehrdungsnotiz: >
+      Nicht nachvollziehbare oder unvollständige (Kassen-)Aufzeichnungen verletzen
+      die Ordnungsvorschriften (§ 146 AO; Einzelaufzeichnung/Registrierkasse
+      § 146a AO). Folge: Die Beweiskraft der Buchführung (§ 158 AO) entfällt, womit
+      die Schätzungsbefugnis (§ 162 AO) dem Grunde nach eröffnet wird.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_schaetzung
+    begriff_kanonisch: "Schätzung der Besteuerungsgrundlagen"
+    aliase:
+      - "Schätzungsbefugnis"
+      - "griffweise Schätzung"
+      - "Schätzung"
+    norm_anker:
+      - "§ 162 AO"
+    normketten:
+      - glieder: ["§ 162 AO", "§ 90 AO"]
+        verknuepfung: "iVm"
+        hinweis: "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162)."
+    paraphrasen:
+      - "Mangels brauchbarer Zahlen rechnet der Prüfer den Umsatz selbst hoch."
+      - "Das Amt legt einen Zuschlag fest, weil die Buchführung nichts hergibt."
+      - "Weil nichts Belastbares vorliegt, wird der Gewinn behördlich angesetzt."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 162"
+    governance_typ: "FF"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "nicht ordnungsmäßige Buchführung"
+      - "Verletzung der Mitwirkungspflicht"
+    ausloeser:
+      # Bemessungs-/Besteuerungsgrundlagen + Schätz-/Erfahrungssatz-Methode.
+      - gruppen:
+          - ["bemessungsgrundlage", "besteuerungsgrundlage", "umsätze", "umsatz", "einnahmen", "gewinn", "betriebsergebnis"]
+          - ["erfahrungssätz", "erfahrungssatz", "schätz", "selbst an", "griffweise", "richtsatz", "hinzuschätz", "sicherheitszuschlag", "äußerer betriebsvergleich"]
+    gefaehrdungsnotiz: >
+      Schätzung, soweit Besteuerungsgrundlagen nicht ermittelt/berechnet werden
+      können. Ergebnis muss schlüssig, wirtschaftlich möglich und vernünftig sein;
+      "allgemeine Erfahrungssätze" umschreibt Schätzungsmethoden (Richtsatz,
+      äußerer Betriebsvergleich). Schätzungsrahmen ist wertungsoffen.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_neue_tatsachen
+    begriff_kanonisch: "neue Tatsachen oder Beweismittel"
+    aliase:
+      - "neue Tatsachen"
+      - "neue Beweismittel"
+      - "nachträglich bekannt gewordene Tatsachen"
+    norm_anker:
+      - "§ 173 Abs. 1 AO"
+    normketten:
+      - glieder: ["§ 173 Abs. 1 AO", "§ 169 Abs. 2 AO"]
+        verknuepfung: "iVm"
+        hinweis: "Änderung nach § 173 nur innerhalb der Festsetzungsfrist (§ 169)."
+    paraphrasen:
+      - "Lange nach dem fertigen Bescheid stellt sich heraus, dass Einnahmen verschwiegen wurden."
+      - "Der längst abgeschlossene Fall wird aufgerollt, weil etwas Verborgenes auftaucht."
+      - "Dem Amt fällt erst Jahre danach auf, was bei der Veranlagung niemand wusste."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 173"
+    governance_typ: "FF"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Außenprüfung"
+      - "Kontrollmitteilung"
+    ausloeser:
+      # Bestandskräftiger Bescheid + nachträglich bekannt gewordene Umstände.
+      - gruppen:
+          - ["bestandskräftig", "rechtskräftig", "steuerbescheid", "bescheide", "veranlagung", "anfechtbar"]
+          - ["nachträglich", "bekannt", "nicht vorlag", "nicht vorgelegen", "neue tatsache", "neue umstände", "später bekannt", "umstände bekannt"]
+    gefaehrdungsnotiz: >
+      Änderung bestandskräftiger Bescheide setzt nachträglich bekannt gewordene
+      Tatsachen/Beweismittel voraus. Tatsache muss bei Erlass bereits vorgelegen
+      haben und dem FA unbekannt gewesen sein – Abgrenzung zur bloßen Rechtsansicht.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_verschuldensgrad
+    begriff_kanonisch: "Verschuldensgrad / Vertretenmüssen (streitig)"
+    aliase:
+      - "leichtfertige Steuerverkürzung"
+      - "Berichtigungspflicht nach § 153 AO"
+    norm_anker:
+      - "§ 173 Abs. 2 AO"
+      - "§ 153 AO"
+      - "§ 169 Abs. 2 AO"
+      - "§ 370 AO"
+      - "§ 378 AO"
+    normketten:
+      - glieder: ["§ 153 AO", "§ 378 AO", "§ 370 AO"]
+        verknuepfung: "→ ggf."
+        hinweis: "Verletzte Berichtigungspflicht (§ 153) kippt je nach Verschulden in leichtfertige Verkürzung (§ 378) oder Hinterziehung (§ 370)."
+      - glieder: ["§ 173 Abs. 2 AO", "§ 169 Abs. 2 AO"]
+        verknuepfung: "iVm"
+        hinweis: "Verschuldensgrad bestimmt Änderungssperre (§ 173 II) UND verlängerte Festsetzungsfrist (§ 169 II: 5/10 Jahre)."
+    paraphrasen:
+      - "Strittig ist, ob der Unternehmer den Fehler hätte bemerken müssen oder ihn bewusst in Kauf nahm."
+      - "Ob bloß schludrig gearbeitet oder absichtlich falsch erklärt wurde, ist zwischen den Seiten umstritten."
+      - "Es geht um die Frage, ob ihn an der falschen Angabe ein Vorwurf trifft."
+    definitionsquelle:
+      - typ: "Gesetz"
+        fundstelle: "§ 169 Abs. 2 AO (Festsetzungsfrist); § 370/§ 378 AO (Verschuldensgrade)"
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 153"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 3
+    trigger_ereignisse:
+      - "unvollständige/unrichtige Erklärung"
+      - "nachträgliche Kenntnis eines Fehlers"
+    ausloeser:
+      # Verschulden/Erklärung + Streit-/Defizit-Indikator im selben Satz.
+      # Markiert die Subsumtionsstelle, an der vorsätzlich/leichtfertig/fahrlässig
+      # über Norm UND Festsetzungsfrist (§ 169 Abs. 2 AO) entscheidet.
+      - gruppen:
+          - ["verschulden", "vertreten", "erklärung", "steuerverkürzung", "hinterzieh", "vorsätzlich", "leichtfertig", "berichtigung"]
+          - ["streitig", "strittig", "umstritten", "fraglich", "nicht zu vertreten", "hätte", "nachlässig", "unterlassen", "unvollständig", "unrichtig"]
+    gefaehrdungsnotiz: >
+      Hier liegen mehrere Stellen dicht beieinander: Änderungssperre/grobes
+      Verschulden (§ 173 Abs. 2 AO), Berichtigungspflicht (§ 153 AO) gegen
+      Steuerhinterziehung (§ 370 AO) bzw. leichtfertige Steuerverkürzung
+      (§ 378 AO). Der Verschuldensgrad (vorsätzlich / leichtfertig / bloß
+      fahrlässig) entscheidet über Norm UND verlängerte Festsetzungsfrist
+      (§ 169 Abs. 2 AO). Reine Subsumtion – das Tool zeigt nur das Feld. IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_grobes_verschulden
+    begriff_kanonisch: "grobes Verschulden"
+    aliase:
+      - "grob schuldhaft"
+      - "grobes Verschulden des Steuerpflichtigen"
+      - "kein grobes Verschulden"
+    norm_anker:
+      - "§ 173 Abs. 1 Nr. 2 AO"
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 173 Nr. 5"
+      - typ: "Rspr"
+        fundstelle: "ständige BFH-Rspr. (Vorsatz oder grobe Fahrlässigkeit)"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "nachträgliche Änderung zugunsten des Steuerpflichtigen"
+    gefaehrdungsnotiz: >
+      Änderung zugunsten des Steuerpflichtigen (§ 173 Abs. 1 Nr. 2 AO) scheitert
+      bei grobem Verschulden (Vorsatz/grobe Fahrlässigkeit). Wertende Einzelfall-
+      würdigung – IN-Begriff, nicht automatisch bewertbar.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_offenbare_unrichtigkeit
+    begriff_kanonisch: "offenbare Unrichtigkeit"
+    aliase:
+      - "offenbare Unrichtigkeiten"
+      - "Schreibfehler, Rechenfehler"
+      - "mechanisches Versehen"
+      - "ähnliche offenbare Unrichtigkeit"
+    norm_anker:
+      - "§ 129 AO"
+    paraphrasen:
+      - "Im Bescheid wurde sich schlicht vertippt oder verrechnet, ein offensichtliches Versehen."
+      - "Eine Zahl ist beim Abtippen verrutscht, niemand hat sich etwas dabei gedacht."
+      - "Ein reiner Übertragungsfehler, kein Streit über die Rechtslage."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 129"
+    governance_typ: "IN"
+    schadensintensitaet: "mittel"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Übernahmefehler aus der Erklärung"
+    gefaehrdungsnotiz: >
+      Berichtigung nur bei mechanischem Versehen (Schreib-/Rechenfehler), nicht bei
+      Fehlern in der Rechtsanwendung oder Sachverhaltswürdigung. Abgrenzung ist
+      wertungsoffen – IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_gestaltungsmissbrauch
+    begriff_kanonisch: "Missbrauch von rechtlichen Gestaltungsmöglichkeiten"
+    aliase:
+      - "Gestaltungsmissbrauch"
+      - "Missbrauch von Gestaltungsmöglichkeiten"
+      - "unangemessene rechtliche Gestaltung"
+    norm_anker:
+      - "§ 42 AO"
+    normketten:
+      - glieder: ["§ 42 AO", "§ 39 Abs. 2 AO", "§ 7 AStG"]
+        verknuepfung: "→ ggf."
+        hinweis: "Gestaltungsmissbrauch (§ 42), wirtschaftliche Zurechnung (§ 39) und Hinzurechnungsbesteuerung (§§ 7 ff. AStG) greifen bei substanzlosen Auslandsgesellschaften ineinander."
+    paraphrasen:
+      - "Über eine eigens gegründete Hülle im Ausland wird Gewinn umgeleitet, obwohl dort niemand arbeitet."
+      - "Die Konstruktion ergibt nur Sinn, um Steuern zu sparen – einen anderen Grund gibt es nicht."
+      - "Auf dem Papier gehört es der Auslandsfirma, gelenkt wird aber alles vom Inland aus."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 42"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Zwischenschaltung funktionsloser Gesellschaften"
+      - "ungewöhnliche Gestaltung ohne außersteuerliche Gründe"
+    ausloeser:
+      # Gesellschaft/Firma (ggf. Ausland) ohne Substanz – kein Personal/Räume.
+      - gruppen:
+          - ["gesellschaft", "firma", "briefkasten", "zwischengesellschaft", "ausland", "niedrigsteuerland", "niedrig besteuert"]
+          - ["kein eigenes personal", "keine geschäftsräume", "ohne eigenes personal", "kein personal", "keine eigenen", "substanzlos", "funktionslos", "leitet die", "lediglich weiter"]
+    gefaehrdungsnotiz: >
+      Unangemessene Gestaltung, die nur der Steuervermeidung dient und nicht durch
+      beachtliche außersteuerliche Gründe gerechtfertigt ist. Personal-/substanzlose
+      Auslandsgesellschaften sind ein typischer Anlass – Abgrenzung zu § 39 AO
+      (wirtschaftliches Eigentum) und §§ 7 ff. AStG. Rechtsfolge: Steuer wie bei
+      angemessener Gestaltung. Hochgradig wertungsoffen – IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_wirtschaftliches_eigentum
+    begriff_kanonisch: "wirtschaftliches Eigentum"
+    aliase:
+      - "wirtschaftlicher Eigentümer"
+      - "wirtschaftliches Eigentum an Wirtschaftsgütern"
+    norm_anker:
+      - "§ 39 Abs. 2 Nr. 1 AO"
+    paraphrasen:
+      - "Offiziell verkauft, doch in Wahrheit schaltet und waltet weiter der alte Besitzer."
+      - "Wem die Sache rechtlich gehört, ist eine Frage, wer tatsächlich darüber bestimmt."
+      - "Auf dem Papier übertragen, aber Nutzen und Kontrolle bleiben beim Übergeber."
+    definitionsquelle:
+      - typ: "Gesetz"
+        fundstelle: "§ 39 Abs. 2 Nr. 1 Satz 1 AO"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 1
+    trigger_ereignisse:
+      - "Sale-and-lease-back / Treuhand / Sicherungsübereignung"
+    ausloeser:
+      # Trotz Übertragung tatsächliche Herrschaft/Nutzung beim Übertragenden.
+      - gruppen:
+          - ["nutzte", "verfügte", "verfügt", "gesteuert", "entscheidungen", "herrschaft", "beherrscht", "tatsächlich"]
+          - ["weiterhin", "wie zuvor", "unverändert", "vom inland", "im inland", "nach wie vor"]
+    gefaehrdungsnotiz: >
+      Abweichende Zurechnung, wenn ein anderer als der zivilrechtliche Eigentümer
+      die tatsächliche Herrschaft ausübt und den Eigentümer wirtschaftlich auf Dauer
+      von der Einwirkung ausschließt – etwa wenn trotz Übertragung weiterhin der
+      Übertragende nutzt, verfügt und entscheidet. Wertende Gesamtbetrachtung – IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: astg_hinzurechnung
+    begriff_kanonisch: "Hinzurechnungsbesteuerung / Funktions- und Substanzfrage (AStG)"
+    aliase:
+      - "Hinzurechnungsbesteuerung"
+      - "Zwischengesellschaft"
+      - "passive Einkünfte"
+      - "Verrechnungspreise"
+    norm_anker:
+      - "§ 7 AStG"
+      - "§ 8 AStG"
+      - "§ 1 AStG"
+    normketten:
+      - glieder: ["§ 7 AStG", "§ 8 AStG", "§ 1 AStG"]
+        verknuepfung: "iVm"
+        hinweis: "Hinzurechnung passiver Einkünfte (§§ 7, 8); bei der Rechteübertragung zusätzlich Verrechnungspreis-Korrektur (§ 1)."
+    paraphrasen:
+      - "Eine Tochter im Steuerparadies hält bloß Rechte und kassiert Lizenzgebühren, gesteuert wird alles von daheim."
+      - "Die ausländische Gesellschaft hat keine echte Tätigkeit, nur niedrig besteuerte Einkünfte."
+    definitionsquelle:
+      - typ: "Gesetz"
+        fundstelle: "§§ 7, 8 AStG (Hinzurechnung); § 1 AStG (Verrechnungspreise)"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Übertragung von Rechten auf eine Auslandsgesellschaft"
+      - "niedrig besteuerte Zwischengesellschaft ohne Substanz"
+    ausloeser:
+      # Niedrig besteuerte Auslandsgesellschaft / Rechteübertragung ohne Substanz.
+      # "firma"/"gesellschaft" in Gruppe 1, weil die Substanzfrage oft im Folgesatz
+      # steht ("Diese Firma verfügt über kein eigenes Personal …") – derselbe
+      # Sachverhalt trägt zu Recht zugleich § 42 AO und §§ 7 ff. AStG (mehrschichtig).
+      - gruppen:
+          - ["ausland", "niedrigsteuerland", "niedrig besteuert", "auslandsgesellschaft", "zwischengesellschaft", "lizenzrecht", "lizenzrechte", "firma", "gesellschaft"]
+          - ["kein eigenes personal", "keine geschäftsräume", "ohne eigenes personal", "kein personal", "keine eigenen", "substanzlos", "funktionslos", "lediglich weiter", "leitet die"]
+    gefaehrdungsnotiz: >
+      Eine niedrig besteuerte Auslandsgesellschaft ohne eigenes Personal/eigene
+      Geschäftsräume zielt auf die Substanz-/Funktionsfrage: Hinzurechnung passiver
+      Einkünfte (§§ 7 ff. AStG); bei der Rechteübertragung zusätzlich
+      Verrechnungspreise (§ 1 AStG). Welche Norm trägt, ist Subsumtion – IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null
+
+  - id: ao_vertreterhaftung
+    begriff_kanonisch: "grob fahrlässige Pflichtverletzung"
+    aliase:
+      - "Vertreterhaftung"
+      - "Haftung des Geschäftsführers"
+      - "Haftung nach § 69 AO"
+      - "Pflichtverletzung des gesetzlichen Vertreters"
+    norm_anker:
+      - "§ 69 AO"
+      - "§ 34 AO"
+    normketten:
+      - glieder: ["§ 69 AO", "§ 34 AO"]
+        verknuepfung: "iVm"
+        hinweis: "Die Haftung (§ 69) knüpft an die Vertreterpflichten (§ 34) an – Grundsatz der anteiligen Tilgung."
+    paraphrasen:
+      - "Der Chef einer klammen GmbH bedient erst Lieferanten und Bank, das Finanzamt geht leer aus."
+      - "Es war noch Geld vorhanden, doch ausgerechnet die Steuer wurde nicht überwiesen."
+      - "Statt das Amt zu bezahlen, hat der Geschäftsführer lieber den Betrieb am Laufen gehalten."
+    definitionsquelle:
+      - typ: "Verwaltung"
+        fundstelle: "AEAO zu § 69"
+    governance_typ: "IN"
+    schadensintensitaet: "hoch"
+    kaskadenreichweite: 2
+    trigger_ereignisse:
+      - "Nichtabführung fälliger Steuern trotz vorhandener Mittel"
+      - "Insolvenznähe"
+    ausloeser:
+      # Vertreter/Geschäftsführer haftet, weil fällige Steuern trotz Mitteln nicht
+      # abgeführt wurden (anteilige Tilgung / Gläubigerbevorzugung).
+      - gruppen:
+          - ["geschäftsführer", "vertreter", "haftung", "persönlich", "einstehen"]
+          - ["nicht weitergeleitet", "nicht abgeführt", "nicht entrichtet", "andere gläubiger", "gläubiger bevorzugt", "bevorzugt bedient", "trotz ausreichender mittel", "trotz mitteln", "weitergeleitet", "fälligen abgaben"]
+    gefaehrdungsnotiz: >
+      Persönliche Haftung des gesetzlichen Vertreters (§ 34 AO) bei vorsätzlicher
+      oder grob fahrlässiger Verletzung steuerlicher Pflichten (§ 69 AO), insb.
+      Nichtabführung trotz Mitteln. "Andere Gläubiger bevorzugt bedient" umschreibt
+      die Verletzung des Grundsatzes der anteiligen Tilgung; bei Lohnsteuer
+      zusätzlich verschärft. Verschuldensmaßstab ist wertungsoffen – IN-Begriff.
+    gueltig_ab: null
+    gueltig_bis: null

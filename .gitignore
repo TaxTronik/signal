@@ -1,0 +1,62 @@
+# Secrets – NIE einchecken
+.engine_token
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Test / Tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Laufzeit-Ausgaben (Mandantendaten – NIE einchecken, § 203 StGB)
+out/
+runs/
+*.report.html
+audit/*.json
+!audit/.gitkeep
+
+# Persönliche Berater-Definitionen (können mandantenbezogene Notizen enthalten)
+**/personal.yaml
+
+# Abgleich-Zustand (gesehene RSS-Einträge)
+abgleich/
+
+# Fall-Datenbank + Rechercheaufgaben (Mandantendaten – § 203 StGB)
+faelle/
+aufgaben/
+
+# Modelle / Engine / Indizes (Ausbaustufen, lokal, groß)
+models/
+engine/
+*.gguf
+*.bin
+
+# Normtext-Korpus: extern bezogene Daten + Build-Artefakte (regenerierbar via
+# 'risk-layer korpus fetch' + 'risk-layer graph build'). gesetze.yaml bleibt.
+corpus/gii/
+corpus/*.sqlite
+!corpus/gesetze.yaml
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# --- Mirror 'signal': lokale/regenerierbare Artefakte (nicht syncen) ---
+.VSCodeCounter/
+.claude/
+corpus/embedding/

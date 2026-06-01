@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <title>BMF Steuern</title>
+  <item>
+    <title>Sanierungsklausel nach &#167; 8c KStG</title>
+    <description>Anwendung der Sanierungsklausel beim schädlichen Beteiligungserwerb.</description>
+    <link>https://www.bundesfinanzministerium.de/sanierungsklausel.html</link>
+    <guid>bmf-sanierung-8c</guid>
+    <pubDate>Wed, 27 May 2026 00:00:00 +0200</pubDate>
+  </item>
+  <item>
+    <title>Umsatzsteuerbefreiung nach &#167; 4 Nummer 14 UStG</title>
+    <description>Ohne Bezug zu einem Katalogbegriff.</description>
+    <link>https://www.bundesfinanzministerium.de/ust-4-14.html</link>
+    <guid>bmf-ust-4-14</guid>
+    <pubDate>Thu, 21 May 2026 12:00:00 +0200</pubDate>
+  </item>
+</channel></rss>

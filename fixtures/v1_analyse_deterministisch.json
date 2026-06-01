@@ -1,0 +1,1177 @@
+{
+  "text": "Der Prüfer stellt fest, dass Bareinnahmen nicht in der Kasse erscheinen und Belege fehlen. Es droht die Schätzung der Besteuerungsgrundlagen. Ob der Unternehmer dies hätte vermeiden müssen, ist zwischen den Beteiligten streitig.",
+  "katalog_version": "0.3.0",
+  "erzeugt_am": "2026-06-01T14:55:53+00:00",
+  "text_hash": "04c73a864d84da3fe1e304eef077b5294cc252b7d8476bfcac2e9c9dee45d360",
+  "summary": {
+    "markierungen_gesamt": 8,
+    "treffer": 2,
+    "luecken": 0,
+    "kandidaten": 0,
+    "unknown_risiko": 6,
+    "berater_definiert": 0,
+    "nach_governance_typ": {
+      "FF": 2
+    },
+    "nach_schadensintensitaet": {
+      "mittel": 1,
+      "hoch": 1
+    }
+  },
+  "spans": [
+    {
+      "start": 104,
+      "end": 140,
+      "status": "treffer",
+      "cls": "gov-ff",
+      "titel": "Schätzung der Besteuerungsgrundlagen",
+      "layer": "schicht1",
+      "via": "wörtlich",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 0
+      }
+    },
+    {
+      "start": 29,
+      "end": 87,
+      "status": "treffer",
+      "cls": "gov-ff",
+      "titel": "Mängel der Buchführung / Kassenführung",
+      "layer": "muster",
+      "via": "muster",
+      "streitig": false,
+      "ref": {
+        "type": "karte",
+        "index": 1
+      }
+    },
+    {
+      "start": 4,
+      "end": 10,
+      "status": "unknown_risiko",
+      "cls": "trigger",
+      "titel": "§ 198 AO",
+      "layer": "trigger",
+      "streitig": false,
+      "ref": {
+        "type": "risiko",
+        "index": 0
+      }
+    },
+    {
+      "start": 11,
+      "end": 17,
+      "status": "unknown_risiko",
+      "cls": "trigger",
+      "titel": "§ 17 StBerG",
+      "layer": "trigger",
+      "streitig": false,
+      "ref": {
+        "type": "risiko",
+        "index": 1
+      }
+    },
+    {
+      "start": 166,
+      "end": 188,
+      "status": "unknown_risiko",
+      "cls": "streit",
+      "titel": "Subsumtions-Brennpunkt: hätte … müssen",
+      "layer": "streit",
+      "streitig": true,
+      "ref": {
+        "type": "risiko",
+        "index": 2
+      }
+    },
+    {
+      "start": 172,
+      "end": 181,
+      "status": "unknown_risiko",
+      "cls": "trigger",
+      "titel": "§ 426 HGB",
+      "layer": "trigger",
+      "streitig": true,
+      "ref": {
+        "type": "risiko",
+        "index": 3
+      }
+    },
+    {
+      "start": 194,
+      "end": 227,
+      "status": "unknown_risiko",
+      "cls": "streit",
+      "titel": "Subsumtions-Brennpunkt: streitig",
+      "layer": "streit",
+      "streitig": true,
+      "ref": {
+        "type": "risiko",
+        "index": 4
+      }
+    },
+    {
+      "start": 219,
+      "end": 227,
+      "status": "unknown_risiko",
+      "cls": "trigger",
+      "titel": "§ 98 AktG",
+      "layer": "trigger",
+      "streitig": true,
+      "ref": {
+        "type": "risiko",
+        "index": 5
+      }
+    }
+  ],
+  "semantik": [
+    {
+      "start": 0,
+      "end": 89,
+      "satz": "Der Prüfer stellt fest, dass Bareinnahmen nicht in der Kasse erscheinen und Belege fehlen",
+      "normen": [
+        {
+          "zitat": "§ 162 AO",
+          "id": "norm:AO:162",
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "sim": 0.693,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 162 AO",
+                "§ 90 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162).",
+              "anzeige": "§ 162 AO iVm § 90 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 69 AO",
+          "id": "norm:AO:69",
+          "titel": "Haftung der Vertreter",
+          "sim": 0.666,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 69 AO",
+                "§ 34 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Die Haftung (§ 69) knüpft an die Vertreterpflichten (§ 34) an – Grundsatz der anteiligen Tilgung.",
+              "anzeige": "§ 69 AO iVm § 34 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 173 AO",
+          "id": "norm:AO:173",
+          "titel": "Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel",
+          "sim": 0.637,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 173 Abs. 1 AO",
+                "§ 169 Abs. 2 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Änderung nach § 173 nur innerhalb der Festsetzungsfrist (§ 169).",
+              "anzeige": "§ 173 Abs. 1 AO iVm § 169 Abs. 2 AO"
+            },
+            {
+              "glieder": [
+                "§ 173 Abs. 2 AO",
+                "§ 169 Abs. 2 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Verschuldensgrad bestimmt Änderungssperre (§ 173 II) UND verlängerte Festsetzungsfrist (§ 169 II: 5/10 Jahre).",
+              "anzeige": "§ 173 Abs. 2 AO iVm § 169 Abs. 2 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 146 AO",
+          "id": "norm:AO:146",
+          "titel": "Ordnungsvorschriften für die Buchführung und für Aufzeichnungen",
+          "sim": 0.61,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 146 AO",
+                "§ 158 AO",
+                "§ 162 AO"
+              ],
+              "verknuepfung": "→",
+              "hinweis": "Ordnungsmangel (§ 146) lässt die Beweiskraft (§ 158) entfallen und eröffnet die Schätzung (§ 162).",
+              "anzeige": "§ 146 AO → § 158 AO → § 162 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 153 AO",
+          "id": "norm:AO:153",
+          "titel": "Berichtigung von Erklärungen",
+          "sim": 0.573,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 153 AO",
+                "§ 378 AO",
+                "§ 370 AO"
+              ],
+              "verknuepfung": "→ ggf.",
+              "hinweis": "Verletzte Berichtigungspflicht (§ 153) kippt je nach Verschulden in leichtfertige Verkürzung (§ 378) oder Hinterziehung (§ 370).",
+              "anzeige": "§ 153 AO → ggf. § 378 AO → ggf. § 370 AO"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "start": 91,
+      "end": 140,
+      "satz": "Es droht die Schätzung der Besteuerungsgrundlagen",
+      "normen": [
+        {
+          "zitat": "§ 162 AO",
+          "id": "norm:AO:162",
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "sim": 0.677,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 162 AO",
+                "§ 90 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162).",
+              "anzeige": "§ 162 AO iVm § 90 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 180 AO",
+          "id": "norm:AO:180",
+          "titel": "Gesonderte Feststellung von Besteuerungsgrundlagen",
+          "sim": 0.568,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 17 UStG",
+          "id": "norm:UStG:17",
+          "titel": "Änderung der Bemessungsgrundlage",
+          "sim": 0.564,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 1 AStG",
+          "id": "norm:AStG:1",
+          "titel": "Berichtigung von Einkünften",
+          "sim": 0.561,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 31 AO",
+          "id": "norm:AO:31",
+          "titel": "Mitteilung von Besteuerungsgrundlagen",
+          "sim": 0.561,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        }
+      ]
+    },
+    {
+      "start": 142,
+      "end": 227,
+      "satz": "Ob der Unternehmer dies hätte vermeiden müssen, ist zwischen den Beteiligten streitig",
+      "normen": [
+        {
+          "zitat": "§ 153 AO",
+          "id": "norm:AO:153",
+          "titel": "Berichtigung von Erklärungen",
+          "sim": 0.779,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 153 AO",
+                "§ 378 AO",
+                "§ 370 AO"
+              ],
+              "verknuepfung": "→ ggf.",
+              "hinweis": "Verletzte Berichtigungspflicht (§ 153) kippt je nach Verschulden in leichtfertige Verkürzung (§ 378) oder Hinterziehung (§ 370).",
+              "anzeige": "§ 153 AO → ggf. § 378 AO → ggf. § 370 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 69 AO",
+          "id": "norm:AO:69",
+          "titel": "Haftung der Vertreter",
+          "sim": 0.563,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": [
+            {
+              "glieder": [
+                "§ 69 AO",
+                "§ 34 AO"
+              ],
+              "verknuepfung": "iVm",
+              "hinweis": "Die Haftung (§ 69) knüpft an die Vertreterpflichten (§ 34) an – Grundsatz der anteiligen Tilgung.",
+              "anzeige": "§ 69 AO iVm § 34 AO"
+            }
+          ]
+        },
+        {
+          "zitat": "§ 15 EStG",
+          "id": "norm:EStG:15",
+          "titel": "Einkünfte aus Gewerbebetrieb",
+          "sim": 0.553,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 39 AO",
+          "id": "norm:AO:39",
+          "titel": "Zurechnung",
+          "sim": 0.529,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        },
+        {
+          "zitat": "§ 317 AktG",
+          "id": "norm:AktG:317",
+          "titel": "Verantwortlichkeit des herrschenden Unternehmens und seiner\ngesetzlichen Vertreter",
+          "sim": 0.52,
+          "gestuetzt": true,
+          "im_korpus": true,
+          "ketten": []
+        }
+      ]
+    }
+  ],
+  "karten": [
+    {
+      "begriff_id": "ao_schaetzung",
+      "begriff": "Schätzung der Besteuerungsgrundlagen",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① wörtlich · Katalog",
+        "art": "wörtlicher Katalogtreffer",
+        "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+      },
+      "matched_text": "Schätzung der Besteuerungsgrundlagen",
+      "start": 104,
+      "end": 140,
+      "norm_anker": [
+        {
+          "zitat": "§ 162 AO",
+          "ids": [
+            "norm:AO:162"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 162 AO",
+            "§ 90 AO"
+          ],
+          "verknuepfung": "iVm",
+          "hinweis": "Verletzte Mitwirkung (§ 90) verschärft den Schätzungsrahmen (§ 162).",
+          "anzeige": "§ 162 AO iVm § 90 AO"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Verwaltung",
+          "fundstelle": "AEAO zu § 162",
+          "id": "verw:AEAO:zu§162"
+        }
+      ],
+      "governance_typ": "FF",
+      "schadensintensitaet": "mittel",
+      "kaskadenreichweite": 1,
+      "gefaehrdungsnotiz": "Schätzung, soweit Besteuerungsgrundlagen nicht ermittelt/berechnet werden können. Ergebnis muss schlüssig, wirtschaftlich möglich und vernünftig sein; \"allgemeine Erfahrungssätze\" umschreibt Schätzungsmethoden (Richtsatz, äußerer Betriebsvergleich). Schätzungsrahmen ist wertungsoffen.",
+      "rechercheauftrag": null,
+      "surface": "Schätzung der Besteuerungsgrundlagen",
+      "gesetzestext": [
+        {
+          "id": "norm:AO:162",
+          "verwendet": "norm:AO:162",
+          "titel": "Schätzung von Besteuerungsgrundlagen",
+          "text": "(1) Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln oder berechnen kann, hat sie sie zu schätzen. Dabei sind alle Umstände zu berücksichtigen, die für die Schätzung von Bedeutung sind.(2) Zu schätzen ist insbesondere dann, wenn der Steuerpflichtige über seine Angaben keine ausreichenden Aufklärungen zu geben vermag oder weitere Auskunft oder eine Versicherung an Eides statt verweigert oder seine Mitwirkungspflicht nach § 90 Absatz 2 verletzt. Das Gleiche gilt, wenn der Steuerpflichtige Bücher oder Aufzeichnungen, die er nach den Steuergesetzen zu führen hat, nicht vorlegen kann, wenn die Buchführung oder die Aufzeichnungen nach § 158 Absatz 2 nicht der Besteuerung zugrunde gelegt werden oder wenn tatsächliche Anhaltspunkte für die Unrichtigkeit oder Unvollständigkeit der vom Steuerpflichtigen gemachten Angaben zu steuerpflichtigen Einnahmen oder Betriebsvermögensmehrungen bestehen und der Steuerpflichtige die Zustimmung nach § 93 Absatz 7 Satz 1 Nummer 5 nicht erteilt. Hat der Steuerpflichtige seine Mitwirkungspflichten nach § 12 des Gesetzes zur Abwehr von Steuervermeidung und unfairem Steuerwettbewerb verletzt, so wird widerlegbar vermutet, dass in Deutschland steuerpflichtige Einkünfte in Bezug zu Staaten oder Gebieten im Sinne des § 3 Absatz 1 des Gesetzes zur Abwehr von Steuervermeidung und unfairem Steuerwettbewerb 1.bisher nicht erklärt wurden, tatsächlich aber vorhanden sind, oder2.bisher zwar erklärt wurden, tatsächlich aber höher sind als erklärt.(3) Verletzt ein Steuerpflichtiger seine Mitwirkungspflichten nach § 90 Absatz 3 dadurch, dass er keine Aufzeichnungen über einen Geschäftsvorfall vorlegt, oder sind die über einen Geschäftsvorfall vorgelegten Aufzeichnungen im Wesentlichen unverwertbar oder wird festgestellt, dass der Steuerpflichtige Aufzeichnungen im Sinne des § 90 Absatz 3 Satz 5 nicht zeitnah erstellt hat, so wird widerlegbar vermutet, dass seine im Inland steuerpflichtigen Einkünfte, zu deren Ermittlung die Aufzeichnungen im Sinne des § 90 Absatz 3 dienen, höher als die von ihm erklärten Einkünfte sind. Hat in solchen Fällen die Finanzbehörde eine Schätzung vorzunehmen und können diese Einkünfte nur innerhalb eines bestimmten Rahmens, insbesondere nur auf Grund von Preisspannen bestimmt werden, kann dieser Rahmen zu Lasten des Steuerpflichtigen ausgeschöpft werden. Bestehen trotz Vorlage verwertbarer Aufzeichnungen durch den Steuerpflichtigen Anhaltspunkte dafür, dass seine Einkünfte bei Beachtung des Fremdvergleichsgrundsatzes höher wären als die auf Grund der Aufzeichnungen erklärten Einkünfte, und können entsprechende Zweifel deswegen nicht aufgeklärt werden, weil eine ausländische, nahe stehende Person ihre Mitwirkungspflichten nach § 90 Absatz 2 oder ihre Auskunftspflichten nach § 93 Absatz 1 nicht erfüllt, ist Satz 2 entsprechend anzuwenden.(4) Legt ein Steuerpflichtiger über einen Geschäftsvorfall keine Aufzeichnungen im Sinne des § 90 Absatz 3 vor oder sind die über einen Geschäftsvorfall vorgelegten Aufzeichnungen im Wesentlichen unverwertbar oder wird die Transaktionsmatrix gemäß § 90 Absatz 3 Satz 2 Nummer 1 nicht vorgelegt, ist ein Zuschlag von 5 000 Euro festzusetzen. Der Zuschlag beträgt mindestens 5 Prozent und höchstens 10 Prozent des Mehrbetrags der Einkünfte, der sich nach einer Berichtigung auf Grund der Anwendung des Absatzes 3 ergibt, wenn sich danach ein Zuschlag von mehr als 5 000 Euro ergibt. Der Zuschlag ist regelmäßig nach Abschluss der Außenprüfung festzusetzen. Bei verspäteter Vorlage von verwertbaren Aufzeichnungen beträgt der Zuschlag bis zu 1 000 000 Euro, mindestens jedoch 100 Euro für jeden vollen Tag der Fristüberschreitung; er kann für volle Wochen und Monate der verspäteten Vorlage in Teilbeträgen festgesetzt werden. Soweit den Finanzbehörden Ermessen hinsichtlich der Höhe des jeweiligen Zuschlags eingeräumt ist, sind neben dem Zweck dieses Zuschlags, den Steuerpflichtigen zur Erstellung und fristgerechten Vorlage der Aufzeichnungen nach § 90 Absatz 3 anzuhalten, insbesondere die von ihm gezogenen Vorteile und bei verspäteter Vorlage auch die Dauer der Fristüberschreitung zu berücksichtigen. Von der Festsetzung eines Zuschlags ist abzusehen, wenn die Nichterfüllung der Pflichten nach § 90 Absatz 3 entschuldbar erscheint oder ein Verschulden nur geringfügig ist. Das Verschulden eines gesetzlichen Vertreters oder eines Erfüllungsgehilfen steht dem eigenen Verschulden gleich.(4a) Verletzt der Steuerpflichtige seine Mitwirkungspflichten nach § 12 des Steueroasen-Abwehrgesetzes, ist Absatz 4 entsprechend anzuwenden. Von der Festsetzung eines Zuschlags ist abzusehen, wenn die Nichterfüllung der Mitwirkungspflichten entschuldbar erscheint oder das Verschulden nur geringfügig ist. Das Verschulden eines gesetzlichen Vertreters oder eines Erfüllungsgehilfen ist dem Steuerpflichtigen zuzurechnen.(5) In den Fällen des § 155 Absatz 2 können die in einem Grundlagenbescheid festzustellenden Besteuerungsgrundlagen geschätzt werden.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "wörtlich",
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "begriff_id": "ao_buchfuehrungs_kassenmangel",
+      "begriff": "Mängel der Buchführung / Kassenführung",
+      "status": "treffer",
+      "herkunft": {
+        "schicht": "1b",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Katalog · Beschreibungsmuster",
+        "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+        "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+      },
+      "matched_text": "Bareinnahmen nicht in der Kasse erscheinen und Belege fehl",
+      "start": 29,
+      "end": 87,
+      "norm_anker": [
+        {
+          "zitat": "§ 146 AO",
+          "ids": [
+            "norm:AO:146"
+          ]
+        },
+        {
+          "zitat": "§ 146a AO",
+          "ids": [
+            "norm:AO:146a"
+          ]
+        },
+        {
+          "zitat": "§ 158 AO",
+          "ids": [
+            "norm:AO:158"
+          ]
+        }
+      ],
+      "normketten": [
+        {
+          "glieder": [
+            "§ 146 AO",
+            "§ 158 AO",
+            "§ 162 AO"
+          ],
+          "verknuepfung": "→",
+          "hinweis": "Ordnungsmangel (§ 146) lässt die Beweiskraft (§ 158) entfallen und eröffnet die Schätzung (§ 162).",
+          "anzeige": "§ 146 AO → § 158 AO → § 162 AO"
+        }
+      ],
+      "quellen": [
+        {
+          "typ": "Gesetz",
+          "fundstelle": "§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)",
+          "id": null
+        },
+        {
+          "typ": "Verwaltung",
+          "fundstelle": "AEAO zu § 146",
+          "id": "verw:AEAO:zu§146"
+        }
+      ],
+      "governance_typ": "FF",
+      "schadensintensitaet": "hoch",
+      "kaskadenreichweite": 3,
+      "gefaehrdungsnotiz": "Nicht nachvollziehbare oder unvollständige (Kassen-)Aufzeichnungen verletzen die Ordnungsvorschriften (§ 146 AO; Einzelaufzeichnung/Registrierkasse § 146a AO). Folge: Die Beweiskraft der Buchführung (§ 158 AO) entfällt, womit die Schätzungsbefugnis (§ 162 AO) dem Grunde nach eröffnet wird.",
+      "rechercheauftrag": null,
+      "surface": "Bareinnahmen nicht in der Kasse erscheinen und Belege fehl",
+      "gesetzestext": [
+        {
+          "id": "norm:AO:146",
+          "verwendet": "norm:AO:146",
+          "titel": "Ordnungsvorschriften für die Buchführung und für Aufzeichnungen",
+          "text": "(1) Die Buchungen und die sonst erforderlichen Aufzeichnungen sind einzeln, vollständig, richtig, zeitgerecht und geordnet vorzunehmen. Kasseneinnahmen und Kassenausgaben sind täglich festzuhalten. Die Pflicht zur Einzelaufzeichnung nach Satz 1 besteht aus Zumutbarkeitsgründen bei Verkauf von Waren an eine Vielzahl von nicht bekannten Personen gegen Barzahlung nicht. Das gilt nicht, wenn der Steuerpflichtige ein elektronisches Aufzeichnungssystem im Sinne des § 146a verwendet.(2) Bücher und die sonst erforderlichen Aufzeichnungen sind im Geltungsbereich dieses Gesetzes zu führen und aufzubewahren. Dies gilt nicht, soweit für Betriebstätten außerhalb des Geltungsbereichs dieses Gesetzes nach dortigem Recht eine Verpflichtung besteht, Bücher und Aufzeichnungen zu führen, und diese Verpflichtung erfüllt wird. In diesem Fall sowie bei Organgesellschaften außerhalb des Geltungsbereichs dieses Gesetzes müssen die Ergebnisse der dortigen Buchführung in die Buchführung des hiesigen Unternehmens übernommen werden, soweit sie für die Besteuerung von Bedeutung sind. Dabei sind die erforderlichen Anpassungen an die steuerrechtlichen Vorschriften im Geltungsbereich dieses Gesetzes vorzunehmen und kenntlich zu machen.(2a) Abweichend von Absatz 2 Satz 1 kann der Steuerpflichtige elektronische Bücher und sonstige erforderliche elektronische Aufzeichnungen oder Teile davon in einem anderen Mitgliedstaat oder in mehreren Mitgliedstaaten der Europäischen Union führen und aufbewahren. Macht der Steuerpflichtige von dieser Befugnis Gebrauch, hat er sicherzustellen, dass der Datenzugriff nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes in vollem Umfang möglich ist.(2b) Abweichend von Absatz 2 Satz 1 kann die zuständige Finanzbehörde auf schriftlichen oder elektronischen Antrag des Steuerpflichtigen bewilligen, dass elektronische Bücher und sonstige erforderliche elektronische Aufzeichnungen oder Teile davon in einem Drittstaat oder in mehreren Drittstaaten geführt und aufbewahrt werden können. Voraussetzung ist, dass 1.der Steuerpflichtige der zuständigen Finanzbehörde den Standort oder die Standorte des Datenverarbeitungssystems oder bei Beauftragung eines Dritten dessen Namen und Anschrift mitteilt,2.der Steuerpflichtige seinen sich aus den §§ 90, 93, 97, 140 bis 147 und 200 Absatz 1 und 2 ergebenden Pflichten ordnungsgemäß nachgekommen ist,3.der Datenzugriff nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes in vollem Umfang möglich ist und4.die Besteuerung hierdurch nicht beeinträchtigt wird.Werden der Finanzbehörde Umstände bekannt, die zu einer Beeinträchtigung der Besteuerung führen, hat sie die Bewilligung zu widerrufen und die unverzügliche Rückverlagerung der elektronischen Bücher und sonstigen erforderlichen elektronischen Aufzeichnungen in einen oder mehrere Mitgliedstaaten der Europäischen Union zu verlangen. Eine Änderung der unter Satz 2 Nummer 1 benannten Umstände ist der zuständigen Finanzbehörde unverzüglich mitzuteilen.(2c) Kommt der Steuerpflichtige der Aufforderung zur Rückverlagerung seiner elektronischen Buchführung oder seinen Pflichten nach Absatz 2b Satz 4, zur Einräumung des Datenzugriffs nach § 147 Absatz 6 nicht nach oder hat er seine elektronische Buchführung ohne Bewilligung der zuständigen Finanzbehörde in einen Drittstaat oder mehrere Drittstaaten verlagert, kann ein Verzögerungsgeld von 2 500 Euro bis 250 000 Euro festgesetzt werden.(3) Die Buchungen und die sonst erforderlichen Aufzeichnungen sind in einer lebenden Sprache vorzunehmen. Wird eine andere als die deutsche Sprache verwendet, so kann die Finanzbehörde Übersetzungen verlangen. Werden Abkürzungen, Ziffern, Buchstaben oder Symbole verwendet, muss im Einzelfall deren Bedeutung eindeutig festliegen.(4) Eine Buchung oder eine Aufzeichnung darf nicht in einer Weise verändert werden, dass der ursprüngliche Inhalt nicht mehr feststellbar ist. Auch solche Veränderungen dürfen nicht vorgenommen werden, deren Beschaffenheit es ungewiss lässt, ob sie ursprünglich oder erst später gemacht worden sind.(5) Die Bücher und die sonst erforderlichen Aufzeichnungen können auch in der geordneten Ablage von Belegen bestehen oder auf Datenträgern geführt werden, soweit diese Formen der Buchführung einschließlich des dabei angewandten Verfahrens den Grundsätzen ordnungsmäßiger Buchführung entsprechen; bei Aufzeichnungen, die allein nach den Steuergesetzen vorzunehmen sind, bestimmt sich die Zulässigkeit des angewendeten Verfahrens nach dem Zweck, den die Aufzeichnungen für die Besteuerung erfüllen sollen. Bei der Führung der Bücher und der sonst erforderlichen Aufzeichnungen auf Datenträgern muss insbesondere sichergestellt sein, dass während der Dauer der Aufbewahrungsfrist die Daten jederzeit verfügbar sind und unverzüglich lesbar gemacht werden können. Dies gilt auch für die Befugnisse der Finanzbehörde nach § 146b Absatz 2 Satz 2, § 147 Absatz 6 und § 27b Absatz 2 Satz 2 und 3 des Umsatzsteuergesetzes. Absätze 1 bis 4 gelten sinngemäß.(6) Die Ordnungsvorschriften gelten auch dann, wenn der Unternehmer Bücher und Aufzeichnungen, die für die Besteuerung von Bedeutung sind, führt, ohne hierzu verpflichtet zu sein.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        },
+        {
+          "id": "norm:AO:146a",
+          "verwendet": "norm:AO:146a",
+          "titel": "Ordnungsvorschrift für die Buchführung und für Aufzeichnungen mittels elektronischer Aufzeichnungssysteme; Verordnungsermächtigung",
+          "text": "(1) Wer aufzeichnungspflichtige Geschäftsvorfälle oder andere Vorgänge mit Hilfe eines elektronischen Aufzeichnungssystems erfasst, hat ein elektronisches Aufzeichnungssystem zu verwenden, das jeden aufzeichnungspflichtigen Geschäftsvorfall und anderen Vorgang einzeln, vollständig, richtig, zeitgerecht und geordnet aufzeichnet. Das elektronische Aufzeichnungssystem und die digitalen Aufzeichnungen nach Satz 1 sind durch eine zertifizierte technische Sicherheitseinrichtung zu schützen. Diese zertifizierte technische Sicherheitseinrichtung muss aus einem Sicherheitsmodul, einem Speichermedium und einer einheitlichen digitalen Schnittstelle bestehen. Die digitalen Aufzeichnungen sind auf dem Speichermedium zu sichern und für Nachschauen sowie Außenprüfungen durch elektronische Aufbewahrung verfügbar zu halten. Es ist verboten, innerhalb des Geltungsbereichs dieses Gesetzes solche elektronischen Aufzeichnungssysteme, Software für elektronische Aufzeichnungssysteme und zertifizierte technische Sicherheitseinrichtungen, die den in den Sätzen 1 bis 3 beschriebenen Anforderungen nicht entsprechen, zur Verwendung im Sinne der Sätze 1 bis 3 gewerbsmäßig zu bewerben oder gewerbsmäßig in den Verkehr zu bringen.(2) Wer aufzeichnungspflichtige Geschäftsvorfälle im Sinne des Absatzes 1 Satz 1 erfasst, hat dem an diesem Geschäftsvorfall Beteiligten in unmittelbarem zeitlichem Zusammenhang mit dem Geschäftsvorfall unbeschadet anderer gesetzlicher Vorschriften einen Beleg über den Geschäftsvorfall auszustellen und dem an diesem Geschäftsvorfall Beteiligten zur Verfügung zu stellen (Belegausgabepflicht). Bei Verkauf von Waren an eine Vielzahl von nicht bekannten Personen können die Finanzbehörden nach § 148 aus Zumutbarkeitsgründen nach pflichtgemäßem Ermessen von einer Belegausgabepflicht nach Satz 1 befreien. Die Befreiung kann widerrufen werden.(3) Das Bundesministerium der Finanzen wird ermächtigt, durch Rechtsverordnung mit Zustimmung des Bundestages und des Bundesrates und im Einvernehmen mit dem Bundesministerium des Innern und für Heimat und dem Bundesministerium für Wirtschaft und Klimaschutz Folgendes zu bestimmen: 1.die elektronischen Aufzeichnungssysteme, die über eine zertifizierte technische Sicherheitseinrichtung verfügen müssen, und2.die Anforderungen an a)das Sicherheitsmodul,b)das Speichermedium,c)die einheitliche digitale Schnittstelle,d)die elektronische Aufbewahrung der Aufzeichnungen,e)die Protokollierung von digitalen Grundaufzeichnungen zur Sicherstellung der Integrität und Authentizität sowie der Vollständigkeit der elektronischen Aufzeichnung,f)den Beleg undg)die Zertifizierung der technischen Sicherheitseinrichtung.Die Erfüllung der Anforderungen nach Satz 1 Nummer 2 Buchstabe a bis c ist durch eine Zertifizierung des Bundesamts für Sicherheit in der Informationstechnik nachzuweisen, die fortlaufend aufrechtzuerhalten ist. Das Bundesamt für Sicherheit in der Informationstechnik kann mit der Festlegung von Anforderungen an die technische Sicherheitseinrichtung im Sinne des Satzes 1 Nummer 2 Buchstabe a bis c beauftragt werden. Die Rechtsverordnung nach Satz 1 ist dem Bundestag zuzuleiten. Die Zuleitung erfolgt vor der Zuleitung an den Bundesrat. Der Bundestag kann der Rechtsverordnung durch Beschluss zustimmen oder sie durch Beschluss ablehnen. Der Beschluss des Bundestages wird dem Bundesministerium der Finanzen zugeleitet. Hat sich der Bundestag nach Ablauf von drei Sitzungswochen seit Eingang der Rechtsverordnung nicht mit ihr befasst, so gilt die Zustimmung nach Satz 1 als erteilt und die Rechtsverordnung wird dem Bundesrat zugeleitet.(4) Wer aufzeichnungspflichtige Geschäftsvorfälle oder andere Vorgänge mit Hilfe eines elektronischen Aufzeichnungssystems im Sinne des Absatzes 1 erfasst, hat dem nach den §§ 18 bis 20 zuständigen Finanzamt nach amtlich vorgeschriebenen Datensatz durch Datenfernübertragung mitzuteilen: 1.Name des Steuerpflichtigen,2.Steuernummer des Steuerpflichtigen,3.Art der zertifizierten technischen Sicherheitseinrichtung,4.Art des verwendeten elektronischen Aufzeichnungssystems,5.Anzahl der verwendeten elektronischen Aufzeichnungssysteme,6.Seriennummer des verwendeten elektronischen Aufzeichnungssystems,7.Datum der Anschaffung des verwendeten elektronischen Aufzeichnungssystems,8.Datum der Außerbetriebnahme des verwendeten elektronischen Aufzeichnungssystems.Die Mitteilung nach Satz 1 ist innerhalb eines Monats nach Anschaffung oder Außerbetriebnahme des elektronischen Aufzeichnungssystems zu erstatten.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        },
+        {
+          "id": "norm:AO:158",
+          "verwendet": "norm:AO:158",
+          "titel": "Beweiskraft der Buchführung",
+          "text": "(1) Die Buchführung und die Aufzeichnungen des Steuerpflichtigen, die den Vorschriften der §§ 140 bis 148 entsprechen, sind der Besteuerung zugrunde zu legen.(2) Absatz 1 gilt nicht, 1.soweit nach den Umständen des Einzelfalls Anlass besteht, die sachliche Richtigkeit zu beanstanden oder2.soweit die elektronischen Daten nicht nach der Vorgabe der einheitlichen digitalen Schnittstellen des § 41 Absatz 1 Satz 7 des Einkommensteuergesetzes in Verbindung mit § 4 Absatz 2a der Lohnsteuer-Durchführungsverordnung, des § 146a oder des § 147b in Verbindung mit der jeweiligen Rechtsverordnung zur Verfügung gestellt werden.",
+          "law": "AO",
+          "gueltig_ab": "1976-03-16"
+        }
+      ],
+      "berater_notizen": [],
+      "abweichung": [],
+      "via": "muster",
+      "ist_streitig": false,
+      "streit_signal": ""
+    }
+  ],
+  "risiken": [
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1.5",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Trigger-Index (ohne Modell)",
+        "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+        "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+      },
+      "quelle": "trigger",
+      "matched_text": "Prüfer",
+      "start": 4,
+      "end": 10,
+      "titel": "§ 198 AO",
+      "score": 0.6,
+      "signale": {
+        "quelle": "trigger",
+        "konfidenz": "mittel",
+        "idf": 4.73
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 198 AO",
+          "id": "norm:AO:198",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Ausweispflicht, Beginn der Außenprüfung",
+          "text": ""
+        },
+        {
+          "zitat": "§ 57f GmbHG",
+          "id": "norm:GmbHG:57f",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Anforderungen an die Bilanz",
+          "text": ""
+        },
+        {
+          "zitat": "§ 318 HGB",
+          "id": "norm:HGB:318",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Bestellung und Abberufung des Abschlußprüfers",
+          "text": ""
+        },
+        {
+          "zitat": "§ 324a HGB",
+          "id": "norm:HGB:324a",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Anwendung auf den Einzelabschluss nach § 325 Abs. 2a",
+          "text": ""
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1.5",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Trigger-Index (ohne Modell)",
+        "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+        "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+      },
+      "quelle": "trigger",
+      "matched_text": "stellt",
+      "start": 11,
+      "end": 17,
+      "titel": "§ 17 StBerG",
+      "score": 0.3,
+      "signale": {
+        "quelle": "trigger",
+        "konfidenz": "niedrig",
+        "idf": 4.02
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 17 StBerG",
+          "id": "norm:StBerG:17",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Urkunde",
+          "text": ""
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": false,
+      "streit_signal": ""
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1b",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "⚑ Subsumtions-Brennpunkt",
+        "art": "Streit-/Subsumtionssignal",
+        "hinweis": "Der Sachverhalt signalisiert hier selbst eine streitige Subsumtion (Signalwörter wie streitig oder haette vermeiden muessen). Deterministisch erkannt; kein Modellurteil."
+      },
+      "quelle": "streit",
+      "matched_text": "hätte vermeiden müssen",
+      "start": 166,
+      "end": 188,
+      "titel": "Subsumtions-Brennpunkt: hätte … müssen",
+      "score": 0.9,
+      "signale": {
+        "quelle": "streit",
+        "signal": "hätte … müssen"
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "hoch",
+      "norm_anker": [],
+      "norm_vorschlag": [],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": true,
+      "streit_signal": "hätte … müssen"
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1.5",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Trigger-Index (ohne Modell)",
+        "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+        "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+      },
+      "quelle": "trigger",
+      "matched_text": "vermeiden",
+      "start": 172,
+      "end": 181,
+      "titel": "§ 426 HGB",
+      "score": 1.0,
+      "signale": {
+        "quelle": "trigger",
+        "konfidenz": "hoch",
+        "idf": 6.02
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 426 HGB",
+          "id": "norm:HGB:426",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Haftungsausschluß",
+          "text": ""
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": true,
+      "streit_signal": "hätte … müssen"
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1b",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "⚑ Subsumtions-Brennpunkt",
+        "art": "Streit-/Subsumtionssignal",
+        "hinweis": "Der Sachverhalt signalisiert hier selbst eine streitige Subsumtion (Signalwörter wie streitig oder haette vermeiden muessen). Deterministisch erkannt; kein Modellurteil."
+      },
+      "quelle": "streit",
+      "matched_text": "zwischen den Beteiligten streitig",
+      "start": 194,
+      "end": 227,
+      "titel": "Subsumtions-Brennpunkt: streitig",
+      "score": 0.9,
+      "signale": {
+        "quelle": "streit",
+        "signal": "streitig"
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "hoch",
+      "norm_anker": [],
+      "norm_vorschlag": [],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": true,
+      "streit_signal": "streitig"
+    },
+    {
+      "status": "unknown_risiko",
+      "herkunft": {
+        "schicht": "1.5",
+        "methode": "deterministisch",
+        "interpretation": false,
+        "kurz": "① Trigger-Index (ohne Modell)",
+        "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+        "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+      },
+      "quelle": "trigger",
+      "matched_text": "streitig",
+      "start": 219,
+      "end": 227,
+      "titel": "§ 98 AktG",
+      "score": 1.0,
+      "signale": {
+        "quelle": "trigger",
+        "konfidenz": "hoch",
+        "idf": 5.7
+      },
+      "governance_typ": null,
+      "schadensintensitaet": "mittel",
+      "norm_anker": [],
+      "norm_vorschlag": [
+        {
+          "zitat": "§ 98 AktG",
+          "id": "norm:AktG:98",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Gerichtliche Entscheidung über die Zusammensetzung des Aufsichtsrats",
+          "text": ""
+        },
+        {
+          "zitat": "§ 272 AktG",
+          "id": "norm:AktG:272",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Gläubigerschutz",
+          "text": ""
+        },
+        {
+          "zitat": "§ 29 UStG",
+          "id": "norm:UStG:29",
+          "im_korpus": true,
+          "gestuetzt": true,
+          "geprueft": false,
+          "titel": "Umstellung langfristiger Verträge",
+          "text": ""
+        }
+      ],
+      "definitionsquelle": [],
+      "provenienz": {},
+      "ist_streitig": true,
+      "streit_signal": "hätte … müssen"
+    }
+  ],
+  "audit": {
+    "schema": "risk-layer/audit/v1",
+    "erzeugt_am": "2026-06-01T14:55:53+00:00",
+    "eingabe_hash": "04c73a864d84da3fe1e304eef077b5294cc252b7d8476bfcac2e9c9dee45d360",
+    "katalog_version": "0.3.0",
+    "schicht1": {
+      "engine": "deterministic-catalog-matcher",
+      "deterministisch": true
+    },
+    "schicht2": {
+      "aktiv": false,
+      "engine": null,
+      "modell": null,
+      "quantisierung": null,
+      "seed": null,
+      "temperatur": null
+    },
+    "zusammenfassung": {
+      "markierungen_gesamt": 8,
+      "treffer": 2,
+      "luecken": 0,
+      "kandidaten": 0,
+      "unknown_risiko": 6,
+      "berater_definiert": 0,
+      "nach_governance_typ": {
+        "FF": 2
+      },
+      "nach_schadensintensitaet": {
+        "mittel": 1,
+        "hoch": 1
+      }
+    },
+    "treffer": [
+      {
+        "begriff_id": "ao_schaetzung",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① wörtlich · Katalog",
+          "art": "wörtlicher Katalogtreffer",
+          "hinweis": "Begriff steht wörtlich im Text; Definitionsquelle hinterlegt. Die Subsumtion schuldet der Berufsträger."
+        },
+        "start": 104,
+        "end": 140,
+        "matched_text": "Schätzung der Besteuerungsgrundlagen",
+        "surface_beleg": "Schätzung der Besteuerungsgrundlagen",
+        "norm_anker": [
+          "§ 162 AO"
+        ],
+        "norm_anker_ids": [
+          "norm:AO:162"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Verwaltung",
+            "fundstelle": "AEAO zu § 162",
+            "id": "verw:AEAO:zu§162"
+          }
+        ],
+        "ist_luecke": false
+      },
+      {
+        "begriff_id": "ao_buchfuehrungs_kassenmangel",
+        "status": "treffer",
+        "herkunft": {
+          "schicht": "1b",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Katalog · Beschreibungsmuster",
+          "art": "deterministischer Katalogtreffer über Beschreibungsmuster",
+          "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. Inhaltlich vom Berufsträger zu prüfen."
+        },
+        "start": 29,
+        "end": 87,
+        "matched_text": "Bareinnahmen nicht in der Kasse erscheinen und Belege fehl",
+        "surface_beleg": "Bareinnahmen nicht in der Kasse erscheinen und Belege fehl",
+        "norm_anker": [
+          "§ 146 AO",
+          "§ 146a AO",
+          "§ 158 AO"
+        ],
+        "norm_anker_ids": [
+          "norm:AO:146",
+          "norm:AO:146a",
+          "norm:AO:158"
+        ],
+        "definitionsquelle": [
+          {
+            "typ": "Gesetz",
+            "fundstelle": "§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)",
+            "id": null
+          },
+          {
+            "typ": "Verwaltung",
+            "fundstelle": "AEAO zu § 146",
+            "id": "verw:AEAO:zu§146"
+          }
+        ],
+        "ist_luecke": false
+      }
+    ],
+    "kandidaten": [],
+    "risiken": [
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1.5",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Trigger-Index (ohne Modell)",
+          "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+          "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+        },
+        "quelle": "trigger",
+        "matched_text": "Prüfer",
+        "start": 4,
+        "end": 10,
+        "titel": "§ 198 AO",
+        "score": 0.6,
+        "signale": {
+          "quelle": "trigger",
+          "konfidenz": "mittel",
+          "idf": 4.73
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 198 AO",
+            "id": "norm:AO:198",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Ausweispflicht, Beginn der Außenprüfung",
+            "text": ""
+          },
+          {
+            "zitat": "§ 57f GmbHG",
+            "id": "norm:GmbHG:57f",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Anforderungen an die Bilanz",
+            "text": ""
+          },
+          {
+            "zitat": "§ 318 HGB",
+            "id": "norm:HGB:318",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Bestellung und Abberufung des Abschlußprüfers",
+            "text": ""
+          },
+          {
+            "zitat": "§ 324a HGB",
+            "id": "norm:HGB:324a",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Anwendung auf den Einzelabschluss nach § 325 Abs. 2a",
+            "text": ""
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": false,
+        "streit_signal": ""
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1.5",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Trigger-Index (ohne Modell)",
+          "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+          "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+        },
+        "quelle": "trigger",
+        "matched_text": "stellt",
+        "start": 11,
+        "end": 17,
+        "titel": "§ 17 StBerG",
+        "score": 0.3,
+        "signale": {
+          "quelle": "trigger",
+          "konfidenz": "niedrig",
+          "idf": 4.02
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 17 StBerG",
+            "id": "norm:StBerG:17",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Urkunde",
+            "text": ""
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": false,
+        "streit_signal": ""
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1b",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "⚑ Subsumtions-Brennpunkt",
+          "art": "Streit-/Subsumtionssignal",
+          "hinweis": "Der Sachverhalt signalisiert hier selbst eine streitige Subsumtion (Signalwörter wie streitig oder haette vermeiden muessen). Deterministisch erkannt; kein Modellurteil."
+        },
+        "quelle": "streit",
+        "matched_text": "hätte vermeiden müssen",
+        "start": 166,
+        "end": 188,
+        "titel": "Subsumtions-Brennpunkt: hätte … müssen",
+        "score": 0.9,
+        "signale": {
+          "quelle": "streit",
+          "signal": "hätte … müssen"
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "hoch",
+        "norm_anker": [],
+        "norm_vorschlag": [],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": true,
+        "streit_signal": "hätte … müssen"
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1.5",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Trigger-Index (ohne Modell)",
+          "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+          "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+        },
+        "quelle": "trigger",
+        "matched_text": "vermeiden",
+        "start": 172,
+        "end": 181,
+        "titel": "§ 426 HGB",
+        "score": 1.0,
+        "signale": {
+          "quelle": "trigger",
+          "konfidenz": "hoch",
+          "idf": 6.02
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 426 HGB",
+            "id": "norm:HGB:426",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Haftungsausschluß",
+            "text": ""
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": true,
+        "streit_signal": "hätte … müssen"
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1b",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "⚑ Subsumtions-Brennpunkt",
+          "art": "Streit-/Subsumtionssignal",
+          "hinweis": "Der Sachverhalt signalisiert hier selbst eine streitige Subsumtion (Signalwörter wie streitig oder haette vermeiden muessen). Deterministisch erkannt; kein Modellurteil."
+        },
+        "quelle": "streit",
+        "matched_text": "zwischen den Beteiligten streitig",
+        "start": 194,
+        "end": 227,
+        "titel": "Subsumtions-Brennpunkt: streitig",
+        "score": 0.9,
+        "signale": {
+          "quelle": "streit",
+          "signal": "streitig"
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "hoch",
+        "norm_anker": [],
+        "norm_vorschlag": [],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": true,
+        "streit_signal": "streitig"
+      },
+      {
+        "status": "unknown_risiko",
+        "herkunft": {
+          "schicht": "1.5",
+          "methode": "deterministisch",
+          "interpretation": false,
+          "kurz": "① Trigger-Index (ohne Modell)",
+          "art": "korpus-trennscharfes Trigger-Wort mit Norm-Kandidaten",
+          "hinweis": "Deterministisch aus dem Gesetzeskorpus abgeleitet (trainingsdaten-unabhängig). Norm-Kandidaten sind Vorschläge, kein festes Mapping."
+        },
+        "quelle": "trigger",
+        "matched_text": "streitig",
+        "start": 219,
+        "end": 227,
+        "titel": "§ 98 AktG",
+        "score": 1.0,
+        "signale": {
+          "quelle": "trigger",
+          "konfidenz": "hoch",
+          "idf": 5.7
+        },
+        "governance_typ": null,
+        "schadensintensitaet": "mittel",
+        "norm_anker": [],
+        "norm_vorschlag": [
+          {
+            "zitat": "§ 98 AktG",
+            "id": "norm:AktG:98",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Gerichtliche Entscheidung über die Zusammensetzung des Aufsichtsrats",
+            "text": ""
+          },
+          {
+            "zitat": "§ 272 AktG",
+            "id": "norm:AktG:272",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Gläubigerschutz",
+            "text": ""
+          },
+          {
+            "zitat": "§ 29 UStG",
+            "id": "norm:UStG:29",
+            "im_korpus": true,
+            "gestuetzt": true,
+            "geprueft": false,
+            "titel": "Umstellung langfristiger Verträge",
+            "text": ""
+          }
+        ],
+        "definitionsquelle": [],
+        "provenienz": {},
+        "ist_streitig": true,
+        "streit_signal": "hätte … müssen"
+      }
+    ]
+  },
+  "engineVersion": "1.0.0"
+}

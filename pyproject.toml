@@ -1,0 +1,38 @@
+[project]
+name = "risk-layer"
+version = "0.1.0"
+description = "Schlüsselbegriff-Assistenz für die steuerliche Risikosteuerung (Risk-Layer / Schlüsselbegriff-Detektor)"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Hirschmann & Koxha GbR", email = "rey.koxha@gmail.com" },
+]
+license = { text = "Proprietary" }
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# Stufe 0 (MVP) läuft ohne diese Extras. Sie gehören zu den Ausbaustufen.
+nlp = ["spacy>=3.7"]          # /LF50/ Lemmatisierung (de_core_news_lg) – optionaler Robustheitspfad
+service = ["fastapi>=0.110", "uvicorn>=0.29"]  # /LF: Orchestrierung (Stufe 3)
+llm = ["llama-cpp-python>=0.2"]  # Schicht 2 (Stufe 1) – Kandidatenerkennung
+embedding = ["numpy>=1.26", "sentence-transformers>=2.7"]  # Schicht 1.7 (BGE-M3)
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+risk-layer = "risk_layer.cli:main"
+risk-layer-web = "risk_layer.web:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["risk_layer"]
+
+[tool.setuptools.package-data]
+risk_layer = ["py.typed", "static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,284 @@
+/* Risk-Layer GUI – lokales, abhängigkeitsfreies Stylesheet */
+:root{
+  --fp:#1d4ed8; --ff:#c2410c; --in:#7c3aed; --luecke:#dc2626;
+  --unknown:#d97706; --berater:#0d9488;
+  --bg:#eef2f7; --surface:#ffffff; --ink:#0f172a; --muted:#64748b;
+  --line:#e2e8f0; --primary:#2563eb; --primary-d:#1e40af;
+  --shadow:0 1px 2px rgba(15,23,42,.06),0 8px 24px rgba(15,23,42,.06);
+  --radius:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  background:linear-gradient(180deg,#f1f5fb,#eef2f7 240px);
+  color:var(--ink); line-height:1.55; min-height:100vh;
+}
+h1,h2,h3{margin:0}
+kbd{background:#f1f5f9;border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:5px;padding:0 5px;font-size:.78em}
+.muted{color:var(--muted)}
+.spacer{flex:1}
+
+/* ---------- Topbar ---------- */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:14px 28px;background:rgba(255,255,255,.8);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);position:sticky;top:0;z-index:20;
+}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{font-size:1.8rem}
+.topbar h1{font-size:1.18rem;letter-spacing:-.01em}
+.topbar .sub{margin:0;font-size:.78rem;color:var(--muted)}
+.topmeta{display:flex;gap:8px;align-items:center}
+.pill{font-size:.74rem;padding:4px 11px;border-radius:999px;background:#f1f5f9;
+  color:#334155;border:1px solid var(--line);white-space:nowrap}
+.pill.ok{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+.pill.warnpill{background:#fffbeb;color:#92400e;border-color:#fcd34d;cursor:help}
+
+.disclaimer{
+  max-width:1180px;margin:18px auto 0;padding:11px 18px;font-size:.88rem;
+  background:#fffbeb;border:1px solid #fcd34d;border-radius:10px;color:#78350f;
+}
+
+/* ---------- Layout ---------- */
+main{max-width:1180px;margin:0 auto;padding:18px 24px 60px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow)}
+
+/* ---------- Eingabe ---------- */
+#input-view{padding:16px}
+.input-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.nutzer{padding:7px 11px;border:1px solid var(--line);border-radius:9px;font-size:.86rem;width:160px}
+textarea#text{
+  width:100%;min-height:320px;resize:vertical;padding:16px 18px;font-size:1rem;
+  line-height:1.6;border:1px solid var(--line);border-radius:12px;background:#fcfdff;
+  font-family:inherit;color:var(--ink);
+}
+textarea#text:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.actions{display:flex;align-items:center;gap:12px;margin-top:12px}
+.hint{font-size:.82rem;color:var(--muted)}
+
+/* ---------- Buttons / Switches ---------- */
+.btn{appearance:none;border:1px solid var(--line);background:#fff;color:var(--ink);
+  padding:9px 16px;border-radius:10px;font-size:.9rem;font-weight:600;cursor:pointer;
+  transition:.12s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{background:#f8fafc;border-color:#cbd5e1}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.primary:hover{background:var(--primary-d)}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.55;cursor:progress}
+.switch{display:inline-flex;align-items:center;gap:7px;font-size:.86rem;color:#334155;
+  background:#f8fafc;border:1px solid var(--line);padding:6px 11px;border-radius:999px;cursor:pointer;user-select:none}
+.switch input{accent-color:var(--primary);width:15px;height:15px}
+.switch.sm{padding:4px 9px;font-size:.8rem}
+.btn.sm{padding:4px 10px;font-size:.78rem;border-radius:8px}
+.btn.active{background:#f59e0b;border-color:#d97706;color:#fff}
+.btn.active:hover{background:#d97706}
+
+/* ---------- Werkzeuge / Zitat ---------- */
+.tools{margin-top:16px;padding-top:14px;border-top:1px dashed var(--line)}
+.tools h3{font-size:.92rem;margin-bottom:8px}
+.zitat-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.zitat-row input[type=text]{flex:1;min-width:240px;padding:8px 12px;border:1px solid var(--line);border-radius:9px}
+.zitat-out{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+.nodeid{display:inline-block;background:#0f172a;color:#e2e8f0;border-radius:5px;
+  padding:2px 8px;font-size:.78rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.nodeid.rel{background:#7c2d12}
+.ok-chip{font-size:.74rem;background:#dcfce7;color:#166534;border-radius:4px;padding:1px 7px}
+.warn-chip{font-size:.74rem;background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 7px}
+
+/* ---------- Stats ---------- */
+.stats{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:14px 18px;margin-bottom:16px}
+.stat{display:flex;flex-direction:column;align-items:flex-start;min-width:64px}
+.stat .num{font-size:1.7rem;font-weight:800;line-height:1}
+.stat .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.stat.warn .num{color:var(--luecke)} .stat.amber .num{color:var(--unknown)} .stat.teal .num{color:var(--berater)}
+.legend{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:.72rem;padding:3px 9px;border-radius:999px;border:1px solid transparent}
+.chip.gov-fp{background:#dbeafe;color:#1e3a8a} .chip.gov-ff{background:#ffedd5;color:#7c2d12}
+.chip.gov-in{background:#ede9fe;color:#4c1d95} .chip.luecke{background:#fee2e2;color:#991b1b}
+.chip.unknown{background:#fef3c7;color:#92400e} .chip.berater{background:#ccfbf1;color:#115e59}
+.result-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ---------- Results grid ---------- */
+.results-grid{display:grid;grid-template-columns:1fr 380px;gap:16px;align-items:start}
+@media(max-width:920px){.results-grid{grid-template-columns:1fr}}
+.pane-head{display:flex;align-items:baseline;justify-content:space-between;
+  padding:14px 18px;border-bottom:1px solid var(--line)}
+.pane-head h2{font-size:1.02rem}
+.doc{padding:20px 22px;font-size:1.02rem;white-space:normal}
+.side-pane{position:sticky;top:78px;max-height:calc(100vh - 96px);overflow:auto}
+
+/* ---------- Markierungen im Text ---------- */
+.mark{border-radius:4px;padding:0 2px;cursor:pointer;border-bottom:2px solid transparent;
+  transition:filter .1s, box-shadow .1s}
+.mark:hover{filter:brightness(.95)}
+.mark.sel{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--primary)}
+.mark.gov-fp{background:#dbeafe;border-bottom-color:var(--fp)}
+.mark.gov-ff{background:#ffedd5;border-bottom-color:var(--ff)}
+.mark.gov-in{background:#ede9fe;border-bottom-color:var(--in)}
+.mark.luecke{background:#fee2e2;border-bottom:2px dashed var(--luecke)}
+.mark.unknown{background:#fef3c7;border-bottom:2px solid var(--unknown)}
+.mark.berater{background:#ccfbf1;border-bottom:2px solid var(--berater)}
+.mark.eigen{border-radius:3px;padding:0 2px}
+.mark.muster{background:#ffedd5;border-bottom:2px solid #fb923c}
+.mark.trigger{background:#cffafe;border-bottom:2px dotted #06b6d4}
+/* Schicht 1.7 – semantische Norm-Vorschläge (Panel unter dem Dokument, KEINE Marke) */
+.semantik{margin:14px 18px;padding:12px 14px;border:1px dashed #14b8a6;border-radius:8px;
+  background:#f0fdfa;font-size:.85rem}
+.sem-kopf{font-weight:600;margin-bottom:8px;color:#0f766e}
+.sem-zeile{padding:6px 0;border-top:1px solid #ccfbf1}
+.sem-zeile:first-of-type{border-top:none}
+.sem-satz{font-style:italic;color:#334155;margin-bottom:3px}
+.sem-normen{display:flex;flex-wrap:wrap;gap:6px}
+.sem-norm{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;
+  background:#fff;border:1px solid #99f6e4;border-radius:5px}
+.sem-norm .sim{font-variant-numeric:tabular-nums;color:#0d9488;font-weight:600}
+.mark.streit{background:#ffe4e6;border-bottom:2px dashed #e11d48}
+.mark.streitig{box-shadow:inset 0 -6px 0 -3px #fecdd3;font-weight:600}
+.doc-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:8px 18px;border-bottom:1px solid var(--line);font-size:.8rem;color:#475569}
+.flt-label{color:var(--muted);text-transform:uppercase;font-size:.7rem;letter-spacing:.04em}
+.flt{display:inline-flex;align-items:center;gap:4px;cursor:pointer;user-select:none}
+.flt input{accent-color:var(--primary)}
+.edit-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 18px;
+  background:#fffbeb;border-bottom:1px solid #fde68a;font-size:.85rem}
+.edit-bar input[type=color]{width:34px;height:28px;border:1px solid var(--line);border-radius:6px;padding:0;background:none}
+.edit-bar input[type=text]{width:220px}
+.doc.editing{cursor:text;outline:2px dashed #fcd34d;outline-offset:-4px}
+.doc.editing ::selection{background:#93c5fd;color:#0f172a}
+.doc.editing::selection{background:#93c5fd;color:#0f172a}
+.swatches{display:flex;gap:8px;margin:4px 0}
+.swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid #fff;
+  box-shadow:0 0 0 1px var(--line)}
+.swatch.sel{box-shadow:0 0 0 2px var(--ink)}
+.norm-treffer{padding:5px 8px;border:1px solid var(--line);border-radius:7px;margin:4px 0;
+  cursor:pointer;font-size:.86rem}
+.norm-treffer:hover{background:#f8fafc}
+.norm-treffer.sel{border-color:var(--primary);background:#eff6ff}
+.abw-box{background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 11px;
+  font-size:.85rem;color:#7c2d12;margin:.4em 0;line-height:1.7}
+
+/* ---------- Detail / Karte ---------- */
+.detail-empty{padding:22px 20px;color:var(--muted)}
+.detail{padding:18px 20px}
+.detail .kopf{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.badge{font-size:.7rem;padding:2px 9px;border-radius:999px;background:#f1f5f9;color:#334155}
+.badge.gov-fp{background:#dbeafe;color:#1e3a8a} .badge.gov-ff{background:#ffedd5;color:#7c2d12}
+.badge.gov-in{background:#ede9fe;color:#4c1d95}
+.badge.s-luecke{background:#fee2e2;color:#991b1b} .badge.s-treffer{background:#dcfce7;color:#166534}
+.badge.s-unknown{background:#fef3c7;color:#92400e} .badge.s-berater{background:#ccfbf1;color:#115e59}
+.badge.herkunft{font-weight:700;border:1px solid transparent}
+.badge.herkunft.hk-1{background:#dcfce7;color:#166534;border-color:#86efac}
+.badge.herkunft.hk-2{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+.badge.herkunft.hk-b{background:#ccfbf1;color:#115e59;border-color:#5eead4}
+.hk-hinweis{font-size:.82rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;
+  border-radius:8px;padding:6px 10px;margin:.3em 0}
+.layer-legende{padding:10px 16px;margin-bottom:14px;font-size:.84rem;color:#475569;line-height:1.8}
+.layer-legende em{color:#94a3b8}
+.panel{margin-top:16px;padding:18px 20px}
+.panel-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.panel label{display:block;font-size:.74rem;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);margin:12px 0 4px}
+.panel textarea,.panel input{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font-family:inherit;font-size:.9rem}
+.rech-text{min-height:160px;resize:vertical;line-height:1.55}
+.rech-frage{min-height:80px;resize:vertical}
+/* Notizfeld im Markierungs-Editor: volle Breite, Block, damit nichts daneben fließt */
+.nm-notiz{display:block;width:100%;box-sizing:border-box;min-height:72px;resize:vertical;
+  padding:8px 12px;border:1px solid var(--line);border-radius:9px;font:inherit}
+.warnbox{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:9px 13px;font-size:.86rem;color:#78350f;margin:.4em 0}
+.okbox{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:9px 13px;font-size:.86rem;color:#047857;margin:.4em 0}
+.ers-liste{font-size:.84rem;line-height:1.7;margin:.3em 0 .3em 1.1em;padding:0}
+.abg-item{border:1px solid var(--line);border-left:4px solid var(--ff);border-radius:8px;
+  padding:10px 13px;margin:8px 0;font-size:.9rem}
+.abg-item a{color:var(--primary);font-weight:600}
+.badge.int-hoch{background:#fee2e2;color:#991b1b} .badge.int-mittel{background:#fef9c3;color:#854d0e}
+.badge.int-niedrig{background:#dcfce7;color:#166534}
+.detail h3{font-size:1.12rem;margin:.2em 0 .5em}
+.detail .row{margin:.5em 0;font-size:.9rem}
+/* Formular-Labels im Detail-Panel (Markierungs-Editor): eigene Zeile, nicht inline */
+.detail > label{display:block;margin:10px 0 3px;font-size:.72rem;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--muted)}
+.detail .row .k{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:2px}
+.detail .quote{background:#f8fafc;border-left:3px solid var(--line);padding:6px 10px;border-radius:6px;font-size:.9rem}
+.quellen{list-style:none;margin:.3em 0;padding:0;display:flex;flex-direction:column;gap:5px}
+.quellen li{font-size:.86rem}
+.qtyp{font-size:.66rem;background:#0f172a;color:#fff;border-radius:4px;padding:1px 6px;margin-right:5px}
+.notiz{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 11px;font-size:.86rem;color:#78350f}
+.recherche{background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 11px;font-size:.86rem;color:#991b1b}
+.in-hinweis{background:#f5f3ff;border:1px solid #c4b5fd;border-radius:8px;padding:8px 11px;font-size:.82rem;color:#4c1d95}
+.regelbeleg{font-size:.74rem;color:var(--muted);border-top:1px dashed var(--line);padding-top:8px;margin-top:10px}
+.gesetz{margin:5px 0;background:#f8fafc;border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.gesetz summary{cursor:pointer;font-size:.82rem}
+.gesetz-text{font-size:.84rem;color:#334155;margin-top:6px;max-height:180px;overflow:auto}
+
+/* ---------- Define-Formular ---------- */
+.define{margin-top:12px;border-top:1px dashed var(--line);padding-top:12px}
+.define h4{margin:0 0 8px;font-size:.92rem}
+.define label{display:block;font-size:.74rem;color:var(--muted);margin:8px 0 3px;text-transform:uppercase;letter-spacing:.03em}
+.define input,.define textarea,.define select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:.88rem;font-family:inherit}
+.define textarea{min-height:78px;resize:vertical}
+.define .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.define .define-actions{display:flex;gap:8px;margin-top:12px}
+
+/* ---------- Toast ---------- */
+.toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,0);
+  background:#0f172a;color:#fff;padding:12px 20px;border-radius:12px;font-size:.9rem;font-weight:600;
+  box-shadow:0 10px 30px rgba(15,23,42,.28);z-index:50;animation:rise .22s ease}
+.toast.err{background:#b91c1c}
+@keyframes rise{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
+
+/* Schicht-2-Statusanzeige (LLM lädt asynchron in der Ansicht nach) */
+.s2-status{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;
+  padding:4px 10px;border-radius:999px;border:1px solid transparent}
+.s2-status.laedt{background:#ede9fe;color:#6d28d9;border-color:#ddd6fe}
+.s2-status.fertig{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+.s2-status.leer{background:#f1f5f9;color:#475569;border-color:#e2e8f0}
+.s2-status.fehler{background:#fffbeb;color:#92400e;border-color:#fcd34d}
+.s2-status.aus{background:#fff;color:#6d28d9;border-color:#ddd6fe}
+.s2-status.aus:hover,.s2-status.fehler:hover{filter:brightness(.96)}
+.s2-status .muted{color:inherit;opacity:.7}
+.spin{width:12px;height:12px;border:2px solid #c4b5fd;border-top-color:#6d28d9;
+  border-radius:50%;display:inline-block;animation:s2spin .7s linear infinite}
+@keyframes s2spin{to{transform:rotate(360deg)}}
+
+/* Eigene Risiko-Markierung: Governance-Matrix im Editor */
+.risiko-box{margin:12px 0;border:1px solid #fde68a;border-radius:9px;background:#fffdf5;padding:0 12px}
+.risiko-box>summary{cursor:pointer;padding:9px 0;font-size:.78rem;font-weight:600;color:#92400e;
+  text-transform:uppercase;letter-spacing:.03em;list-style:none}
+.risiko-box>summary::-webkit-details-marker{display:none}
+.risiko-box>summary::before{content:"▸ ";color:#d97706}
+.risiko-box[open]>summary::before{content:"▾ "}
+.risiko-box[open]{padding-bottom:12px}
+.risiko-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin:4px 0}
+.risiko-box label{display:block;margin:8px 0 3px;font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--muted)}
+.risiko-box select,.risiko-box input,.risiko-box textarea{width:100%;box-sizing:border-box;
+  padding:7px 10px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:.86rem;background:#fff}
+/* Marken im Dokument, die ein Risiko tragen: Warn-Indikator */
+.mark.eigen.hat-risiko{outline:2px dashed #d97706;outline-offset:1px}
+
+/* Aktenregal – Mandanten als Akten-Ordner */
+.regal{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:8px}
+.akte{display:flex;gap:10px;align-items:stretch;cursor:pointer;background:#fff;border:1px solid var(--line);
+  border-radius:8px;overflow:hidden;transition:box-shadow .12s, transform .12s}
+.akte:hover{box-shadow:0 6px 18px rgba(15,23,42,.12);transform:translateY(-1px)}
+.akte-ruecken{width:10px;background:linear-gradient(#f59e0b,#d97706);flex:0 0 10px}
+.akte-info{display:flex;flex-direction:column;gap:2px;padding:10px 12px;min-width:0}
+.akte-info strong{font-size:.95rem}
+.akte-nr{font-size:.7rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;
+  border-radius:4px;padding:0 6px;width:fit-content}
+.akte-info .muted{font-size:.76rem}
+
+/* Rechercheaufgaben (Delegation) */
+.aufg-item{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:8px;
+  padding:10px 12px;margin:8px 0;background:#fff;display:flex;flex-direction:column;gap:4px}
+.aufg-item.st-offen{border-left-color:#f59e0b}
+.aufg-item.st-in_bearbeitung{border-left-color:#3b82f6}
+.aufg-item.st-erledigt,.aufg-item.st-geprueft{border-left-color:#22c55e;background:#f8fdf9}
+.aufg-item.st-verworfen{border-left-color:#94a3b8;opacity:.7}
+.aufg-kopf{display:flex;align-items:center;gap:8px}
+.aufg-status{margin-left:auto;font-size:.7rem;font-weight:600;text-transform:uppercase;
+  letter-spacing:.03em;color:var(--muted);background:#f1f5f9;border-radius:999px;padding:2px 9px}
+.aufg-frage{font-size:.88rem}
+.aufg-ergebnis{font-size:.84rem;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:6px 9px}

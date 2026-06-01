@@ -1,0 +1,84 @@
+{
+  "name": "Risk-Layer Vorprüfung & Eskalation",
+  "_hinweis": "Beispiel-Workflow (Stufe 3): Zammad → n8n → Risk-Layer /api/analyse → Eskalation. Import in n8n und Host/Port der lokalen Risk-Layer-GUI anpassen. Es verlässt nichts die Kanzlei-Maschine (Service an 127.0.0.1).",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "risk-layer",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Zammad Webhook (neuer Sachverhalt)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 320],
+      "webhookId": "risk-layer"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/api/analyse",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"text\": $json.body.article_body, \"unknown\": true, \"berater\": true }",
+        "options": {}
+      },
+      "name": "Risk-Layer analysieren",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.summary.luecken + $json.summary.unknown_risiko }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "name": "Lücke oder Unknown-Risiko?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [720, 320]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "eskalation",
+              "value": "={{ 'Risk-Layer: ' + $json.summary.luecken + ' Lücke(n), ' + $json.summary.unknown_risiko + ' Unknown-Risiko. Berufsträger-Prüfung erforderlich. Hash ' + $json.text_hash }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Eskalation an Berufsträger (Zammad-Notiz/Tag)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [980, 220]
+    },
+    {
+      "parameters": { "values": { "string": [ { "name": "status", "value": "unauffällig – Vorprüfung ohne offene Stellen" } ] }, "options": {} },
+      "name": "Keine offenen Stellen",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [980, 420]
+    }
+  ],
+  "connections": {
+    "Zammad Webhook (neuer Sachverhalt)": { "main": [[{ "node": "Risk-Layer analysieren", "type": "main", "index": 0 }]] },
+    "Risk-Layer analysieren": { "main": [[{ "node": "Lücke oder Unknown-Risiko?", "type": "main", "index": 0 }]] },
+    "Lücke oder Unknown-Risiko?": {
+      "main": [
+        [{ "node": "Eskalation an Berufsträger (Zammad-Notiz/Tag)", "type": "main", "index": 0 }],
+        [{ "node": "Keine offenen Stellen", "type": "main", "index": 0 }]
+      ]
+    }
+  }
+}
