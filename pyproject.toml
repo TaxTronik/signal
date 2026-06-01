@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 authors = [
     { name = "Hirschmann & Koxha GbR", email = "rey.koxha@gmail.com" },
 ]
-license = { text = "Proprietary" }
+license = { text = "AGPL-3.0-or-later" }
 dependencies = [
     "PyYAML>=6.0",
 ]
