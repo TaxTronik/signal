@@ -136,6 +136,13 @@ dämpfen.
   Abstraktion noch Identifizierendes, wird der Export **verweigert**.
 - **Rechercheauftrag** an ein Cloud-LLM nur abstrahiert (n8n-Webhook/Download);
   die Rückübersetzung wird **nie** mitexportiert.
+- **Webhook default-deny (SSRF):** der `webhook_url`-Versand geht nur an Hosts aus
+  `RISK_LAYER_WEBHOOK_ALLOW` und folgt keinen Redirects. Ein identifizierender
+  Restbefund geht selbst mit `force` **nie** automatisch hinaus (`force` = nur lokaler Download).
+- **`/v1/katalog/definiere`** prüft `definition_text` vor dem Schreiben gegen
+  identifizierende Angaben (derselbe Detektor) — der geteilte Katalog trägt kein Geheimnis.
+- **Maschinen-API zustandslos:** `/v1` persistiert keine Mandantendaten; die Fall-/
+  Aufgaben-Stores (`faelle/`, `aufgaben/`) sind lokal, gitignored und schreiben **atomar**.
 
 ---
 
@@ -151,10 +158,16 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 ## 9. Schnittstellen ✅
 
 - **GUI**: `python -m risk_layer.web` — stdlib-Server + SPA, strikt `127.0.0.1`.
+- **GUI-API** (lokal/komfortabel): `POST /api/analyse` → vollständiges JSON (Summary,
+  Spans, Karten, Risiken, **Semantik-Vorschläge**, Audit). n8n-Beispiel-Workflow liegt bei.
+- **Maschinen-API** (`/v1/*`, `api_v1.py`): stabiler, **zustandsloser** Vertrag zum
+  Einbetten in ein Host-System (TaxTronik) — `analyse` · `katalog` · `katalog/definiere` ·
+  `normgraph/{aufloesen,suche}` · `embedding/suche` · `health`. Stabile Zeichen-Offsets
+  + `text_hash`, deterministische schnelle Phase (`mitLLM:false`). **`--api-only`**
+  bedient **nur** dieses `/v1` (GUI + `/api` abgeschaltet) und verlangt `RISK_LAYER_TOKEN`
+  (Bearer, konstant-zeitig). Details: [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
 - **CLI**: `analyse`, `katalog`, `zitat`, `definiere`, `korpus`, `graph`, `modell`,
   `abgleich`, **`trigger`** (build/stats/lookup), **`embedding`** (build/stats/suche).
-- **Headless API**: `POST /api/analyse` → vollständiges JSON (Summary, Spans,
-  Karten, Risiken, **Semantik-Vorschläge**, Audit). n8n-Beispiel-Workflow liegt bei.
 - **Bibliothek**: `from risk_layer import analyse`.
 
 ---
@@ -171,10 +184,16 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 | bit-identische Reproduzierbarkeit | rein deterministische Schichten 1/1b/1.5 |
 | Audit-Vollständigkeit | Hash + Katalogversion + Modell/Seed je Lauf |
 | trainingsdaten-unabhängig | Erkennung ruht auf Korpus/Katalog, nicht Modellwissen |
+| Netz-Bind nur authentifiziert | `--api-only` schaltet GUI/-api ab; `/v1` Bearer-Token (`hmac.compare_digest`) |
+| kein Pre-Auth-DoS | Request-Body-Cap (8 MiB) **vor** der Auth + Socket-Timeout |
+| kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects |
+| Stores torn-read-frei | `faelle/`/`aufgaben/` schreiben atomar (temp + `os.replace`) + Lock |
 
-**Tests:** `python -m pytest -q` → **161 grün** (deterministischer Kern,
-Parser-Gold-Sets, Web-API, Graph, LLM-Mock + Norm-Vorschlag, Muster/Streit,
-Trigger, Embedding/Paraphrasen-Anker, Anonymisierung, RSS/Abgleich, AO-Fälle).
+**Tests:** `python -m pytest -q` → **201 grün** (deterministischer Kern,
+Parser-Gold-Sets, GUI-API, **`/v1`-Vertrag + Surface/Auth** (`--api-only`, Token),
+**Stores Fall/Aufgabe (atomar) + Persistenz**, Graph, LLM-Mock + Norm-Vorschlag,
+Muster/Streit, Trigger, Embedding/Paraphrasen-Anker, Anonymisierung,
+**Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
 
 ---
 

@@ -12,7 +12,9 @@ Umsetzung des Lastenhefts *„Schlüsselbegriff-Assistenz"* samt Erweiterungen
 (Stand Juni 2026). Alle Stufen 0–3 sind umgesetzt; darüber hinaus erkennen heute
 **mehrere deterministische Schichten** auch *umschriebene* Sachverhalte ohne LLM
 (Muster, Trigger), ein **semantischer Vorschlags-Modus** (BGE-M3-Embedding) fängt
-Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführt.
+Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführt. Die Engine
+ist zudem als **zustandsloser `/v1`-Dienst** in ein Host-System einbettbar
+(`--api-only`, Bearer-Auth) — siehe Abschnitt *„Integration als Engine"*.
 
 > 📋 Vollständiges Feature-Inventar inkl. benannter Grenzen: **[FEATURES.md](FEATURES.md)**.
 
@@ -156,7 +158,11 @@ ein-/ausblendbar.
 | `risk_layer/zitate.py` | Norm-/Entscheidungszitat-Parser, Kanonisierung | Parser-Spez. 2/3 |
 | `risk_layer/unknown_gate.py` | „Unknown als Risiko"-Gate + offline-Proposer | Erw. §3 /LF270–310/ |
 | `risk_layer/berater.py` | Berater-Definitionen (personal/geteilt, Lebenszyklus) | Erw. §4 /LF320–330/ |
-| `risk_layer/web.py` + `static/` | lokale Web-GUI (stdlib-Server + SPA) | Stufe 3 |
+| `risk_layer/web.py` + `static/` | lokale Web-GUI (stdlib-Server + SPA) + `--api-only` | Stufe 3 |
+| `risk_layer/api_v1.py` | stabiler `/v1`-Maschinen-Vertrag (zustandslos, Bearer-Auth) | Integration |
+| `risk_layer/fall.py` · `aufgabe.py` | Fall-Datenbank + Rechercheaufgaben (lokal, § 203) | Stufe 3 / Erw. |
+| `risk_layer/persistenz.py` | geteilte Store-Primitive: Slug + atomares Schreiben | — |
+| `risk_layer/service.py` | optionaler FastAPI-Service (Ausbaustufe) | /Z80/ |
 | `risk_layer/anonymize.py` | lokale Abstraktion/Anonymisierung (§ 203) | Geheimnisschutz |
 | `risk_layer/recherche.py` | Rechercheauftrag-Export (n8n → Cloud-LLM) | Geheimnisschutz |
 | `risk_layer/rss.py` + `abgleich.py` | BFH/BMF-RSS + Abgleich-Schleife | Erw. §5 /LF340–370/ |
@@ -406,7 +412,10 @@ abstrahiert**. Der Ablauf erzwingt den Geheimnisschutz:
 3. **Export** nur nach **Re-Check**: findet die Abstraktion noch Identifizierendes,
    wird der Export **verweigert** (ohne bewusstes Erzwingen). Hinaus geht nur der
    abstrahierte Text + die Rechtsbegriffe + die Frage — via n8n-Webhook oder
-   Download. Die Rückübersetzung wird **nie** mitexportiert.
+   Download. Die Rückübersetzung wird **nie** mitexportiert. Der **Webhook-Versand**
+   ist default-deny (nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects — SSRF);
+   ein identifizierender Restbefund geht selbst mit `force` **nie** automatisch hinaus
+   (`force` erlaubt dann nur den lokalen Download).
 
 ```bash
 # n8n ruft headless:
@@ -452,6 +461,53 @@ importierbarer Beispiel-Workflow liegt unter
 Zammad-Webhook → HTTP-Request auf `/api/analyse` → IF (`luecken + unknown_risiko > 0`)
 → Eskalation an den Berufsträger. Der Service bindet auf `127.0.0.1`.
 
+## Integration als Engine — stabiler `/v1`-Vertrag + `--api-only`
+
+Neben der GUI-API (`/api/*`, lokal & komfortabel) bietet die Engine einen **stabilen,
+zustandslosen Maschinen-Vertrag** unter `/v1/*` (`api_v1.py`, Details in
+[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)) — gedacht zum Einbetten in ein
+Host-System (z. B. TaxTronik). Strikt getrennt von der GUI:
+
+- **Zustandslos (§ 203):** `/v1/analyse` nimmt Text, gibt die Analyse zurück —
+  **kein** Fall-/Aufgaben-/Audit-Persist. Mandantendaten bleiben im Host; persistiert
+  wird ausschließlich Festwissen (`/v1/katalog/definiere`, Berater-Begriffe).
+- **Stabile Offsets:** `spans[].start/end` indizieren zeichengenau in den exakt
+  übergebenen Text (+ `text_hash` = sha256). Die schnelle Phase (`mitLLM:false`) ist
+  **deterministisch** — gleicher Text → gleiche Spans; darüber rendert das Host-Overlay.
+- **Endpunkte:** `GET /v1/health` · `POST /v1/analyse` · `GET /v1/katalog` ·
+  `POST /v1/katalog/definiere` · `GET /v1/normgraph/{aufloesen,suche}` ·
+  `POST /v1/embedding/suche`.
+
+**`--api-only` — die Netz-/Container-Form.** Die GUI-Oberfläche (`/static` + `/api/*`)
+ist bequem, aber nicht auth-bar (Browser) und persistiert Mandantendaten — sie darf
+**nie ans Netz**. Daher zwei strikt getrennte Betriebsformen:
+
+```bash
+# lokal, GUI (Default): bindet ausschließlich an Loopback
+python -m risk_layer.web
+
+# Netz/Container: NUR das authentifizierte /v1; GUI + /api abgeschaltet
+RISK_LAYER_TOKEN=<secret> python -m risk_layer.web --api-only --host 0.0.0.0
+```
+
+`serve()` erzwingt das: ohne `--api-only` wird ein Nicht-Loopback-Bind **verweigert**;
+mit `--api-only` ist `RISK_LAYER_TOKEN` **Pflicht** (sonst kein Start).
+
+**Absicherung (greift im Netzbetrieb):**
+
+| Schutz | Mechanismus |
+|---|---|
+| Auth | Bearer-Token (`RISK_LAYER_TOKEN`), konstant-zeitig (`hmac.compare_digest`) |
+| Surface-Trennung | `--api-only` schaltet GUI + `/api/*` ab; GUI nur an Loopback |
+| Request-Limit | Body-Cap (8 MiB) **vor** Auth + Socket-Timeout — kein Memory-/slow-read-DoS |
+| Webhook-SSRF | `webhook_url` default-deny: nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects |
+| § 203 beim Export | Restbefund + `force` geht **nie** automatisch über den Webhook (nur lokaler Download) |
+| § 203 in `definiere` | `definition_text` wird vor dem Schreiben gegen identifizierende Angaben geprüft |
+
+**Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth für `/v1`), `RISK_LAYER_WEBHOOK_ALLOW`
+(kommagetrennte Host[:Port]-Allowlist für den Recherche-Webhook), `RISK_LAYER_EMB_DEVICE`
+(Embedding-Encoder-Gerät, Default `cuda`).
+
 ## Sicherheits- und Reproduzierbarkeitsgarantien
 
 | Garantie | Mechanismus | Test |
@@ -467,9 +523,11 @@ Zammad-Webhook → HTTP-Request auf `/api/analyse` → IF (`luecken + unknown_ri
 | Berater-Lebenszyklus erzwungen | geteilt nur vorwärts, kanonisch erst nach Freigabe | `test_berater` |
 
 ```bash
-python -m pytest -q          # 161 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, Erweiterung,
-                             #            Web-API, gii/Graph, LLM-Mock + Norm-Vorschlag, Korpus,
-                             #            Modell, Anonymisierung, Rechercheauftrag, RSS/Abgleich, AO,
+python -m pytest -q          # 201 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, Erweiterung,
+                             #            Web-API, /v1-Vertrag, Surface/Auth (--api-only, Token),
+                             #            Stores (Fall/Aufgabe, atomar) + Persistenz, gii/Graph,
+                             #            LLM-Mock + Norm-Vorschlag, Korpus, Modell, Anonymisierung,
+                             #            Rechercheauftrag (SSRF-Allowlist), RSS/Abgleich, AO,
                              #            Muster/Streit, Trigger-Index, Embedding/Paraphrasen-Anker
 ```
 
@@ -522,5 +580,7 @@ werden — **ohne** das deterministische Verhalten des Kerns zu ändern.
 
 Sämtliche Verarbeitung läuft **lokal**, ohne Netzaufruf zur Laufzeit. Es werden
 keine Mandantendaten an externe Dienste gesendet (§ 203 StGB, AVV). Laufzeit-
-Ausgaben (`out/`, `audit/`, Reports) sind in `.gitignore` ausgenommen und dürfen
-nicht eingecheckt werden.
+Ausgaben und Mandantenspeicher (`out/`, `audit/`, Reports, `faelle/`, `aufgaben/`,
+`abgleich/`) sowie Secrets (`.engine_token`, `.env`) sind in `.gitignore` ausgenommen
+und dürfen nicht eingecheckt werden. Die `faelle/`-/`aufgaben/`-Stores schreiben
+**atomar** (temp + `os.replace`) und sind thread-sicher (gemeinsame Engine-Instanz).
