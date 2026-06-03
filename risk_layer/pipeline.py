@@ -20,6 +20,7 @@ liegen wie die Treffer.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -117,6 +118,27 @@ def _pruefe_norm_vorschlag(nv: str, graph, gestuetzt_paras: set[str] | None = No
     return out
 
 
+_KONZEPT_STOPP = {"steuer", "recht", "rechtlich", "norm", "vorschrift", "sachverhalt",
+                  "unternehmen", "gesellschaft", "person", "frage", "stelle", "fall"}
+
+
+def _konzept_tokens(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-zäöüß]{4,}", (text or "").lower())
+            if w not in _KONZEPT_STOPP}
+
+
+def _gleiches_konzept(begruendung: str, begriff: str) -> bool:
+    """Teilt die LLM-Begruendung ein inhaltliches Wort mit dem Katalogbegriff? Dann ist
+    die LLM-Marke ein echtes Duplikat der Karte (gleiche juristische Dimension); sonst
+    eine ANDERE Dimension auf derselben Stelle -> behalten. Bewusst OHNE Norm-Vergleich
+    (Modell-Normen sind unzuverlaessig)."""
+    a, b = _konzept_tokens(begruendung), _konzept_tokens(begriff)
+    if a & b:
+        return True
+    # deutsche Komposita: ein Token steckt im anderen (Buchführung in Buchführungsmangel)
+    return any(x in y or y in x for x in a for y in b if min(len(x), len(y)) >= 5)
+
+
 class Pipeline:
     """Wiederverwendbare Pipeline mit vorkompiliertem Matcher."""
 
@@ -205,23 +227,30 @@ class Pipeline:
             if hasattr(provider, "audit_info"):
                 schicht2_info = provider.audit_info()
 
-        # Belegte Spans fortschreiben, damit keine Stelle doppelt markiert wird.
+        # Belegte Spans: NUR deterministische Marken (Karten/Berater/Trigger) dedupen
+        # untereinander. Die LLM-Schicht ist ADDITIV – sie wandert NICHT in belegt_det,
+        # blockiert die deterministischen Layer also nie und wird von ihnen nicht
+        # geblockt (das Prunkstück bleibt 1:1). Verworfen wird eine LLM-Marke nur bei
+        # echtem Duplikat: gleiches Konzept wie eine ueberlappte Karte, oder LLM-LLM-Dup.
         risiken: list[Risikomarkierung] = []
         treffer_spans = [(t.start, t.end, i) for i, t in enumerate(treffer)]
         karten_para = [_karte_para_ids(k) for k in karten]
-        belegt = [(t.start, t.end) for t in treffer]
+        belegt_det = [(t.start, t.end) for t in treffer]
         if berater is not None:
-            bmark = berater.markierungen(text, belegte_spans=belegt, nutzer=nutzer)
+            bmark = berater.markierungen(text, belegte_spans=belegt_det, nutzer=nutzer)
             risiken.extend(bmark)
-            belegt += [(r.start, r.end) for r in bmark]
+            belegt_det += [(r.start, r.end) for r in bmark]
 
-        # Schicht 2 – LLM-Kandidaten: nur Negativfilter (bewusst übermarkierend).
+        # Schicht 2 – LLM-Kandidaten: konzept-bewusst & additiv.
+        llm_spans: list[tuple[int, int]] = []
         for c in kandidaten:
             span = c["span_text"]
             off = c["char_offset"]
             ende = off + len(span)
-            kat_i = next((i for bs, be, i in treffer_spans if not (ende <= bs or off >= be)), None)
-            if kat_i is not None:
+            kat = next(((bs, be, i) for bs, be, i in treffer_spans if not (ende <= bs or off >= be)), None)
+            ueberlagert = None
+            if kat is not None:
+                kbs, kbe, kat_i = kat
                 if abweichung:
                     nvs = _pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras)
                     nv_para = {_para_level(x["id"]) for x in nvs if x.get("id")}
@@ -232,28 +261,42 @@ class Pipeline:
                             "im_korpus": nvs[0]["im_korpus"],
                             "begruendung": c.get("begruendung_kurz", ""),
                         })
-                continue
-            if any(not (ende <= bs or off >= be) for bs, be in belegt):
+                # Echtes Duplikat, wenn die LLM-Marke (a) KO-EXTENSIV dieselbe Stelle neu
+                # markiert (gleicher Span = die Karte selbst, z.B. nur abweichende Norm)
+                # ODER (b) im Begründungs-Konzept mit dem Katalogbegriff überlappt. Sonst
+                # ist es eine ANDERE juristische Dimension auf überlappender Stelle =>
+                # behalten + taggen (additiver Zweit-Layer).
+                ov = max(0, min(ende, kbe) - max(off, kbs))
+                koextensiv = ov >= 0.8 * max(1, ende - off) and ov >= 0.8 * max(1, kbe - kbs)
+                if koextensiv or _gleiches_konzept(c.get("begruendung_kurz", ""),
+                                                   karten[kat_i].eintrag.begriff_kanonisch):
+                    continue
+                ueberlagert = karten[kat_i].eintrag.id
+            # nur gegen ANDERE LLM-Marken deduplizieren (nicht gegen Trigger/Streit).
+            if any(not (ende <= bs or off >= be) for bs, be in llm_spans):
                 continue
             if ist_belanglos(span):
                 continue
             konf = c.get("konfidenz", "niedrig")
+            signale = {"quelle": "llm", "konfidenz": konf,
+                       "begruendung": c.get("begruendung_kurz", "")}
+            if ueberlagert:
+                signale["ueberlagert_karte"] = ueberlagert
             risiken.append(Risikomarkierung(
                 start=off, end=ende, matched_text=span, status=Status.UNKNOWN_RISIKO,
                 titel=(c.get("begruendung_kurz") or span[:48]),
                 quelle="llm", score=_KONFIDENZ_ZU_SIGNAL.get(konf, 0.3),
-                signale={"quelle": "llm", "konfidenz": konf,
-                         "begruendung": c.get("begruendung_kurz", "")},
+                signale=signale,
                 schadensintensitaet="mittel",
                 norm_vorschlag=_pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras),
             ))
-            belegt.append((off, ende))
+            llm_spans.append((off, ende))
 
         # Schicht 1.5 – deterministischer Trigger-Detektor (OHNE Modell).
         if detektor and trigger is not None:
             for m in trigger.detektiere(text):
                 s, e = m["start"], m["end"]
-                if any(not (e <= bs or s >= be) for bs, be in belegt):
+                if any(not (e <= bs or s >= be) for bs, be in belegt_det):
                     continue
                 nv = [{"zitat": n["zitat"], "id": n["norm_id"], "im_korpus": True,
                        "gestuetzt": True, "geprueft": n["geprueft"],
@@ -265,7 +308,7 @@ class Pipeline:
                     signale={"quelle": "trigger", "konfidenz": m["konfidenz"], "idf": m["idf"]},
                     schadensintensitaet="mittel", norm_vorschlag=nv,
                 ))
-                belegt.append((s, e))
+                belegt_det.append((s, e))
 
         # Schicht 1.7 – semantischer Embedding-Index (Paraphrasen). Findet je Satz
         # die bedeutungsnächsten §§, auch wenn KEIN Fachwort geteilt wird.
@@ -301,7 +344,7 @@ class Pipeline:
         # Schicht 2 – deterministischer Heuristik-Proposer (offline), wenn angefordert.
         if unknown or gate is not None:
             proposer = DefinitorischProposer(gate)
-            risiken.extend(proposer.vorschlagen(text, belegte_spans=belegt))
+            risiken.extend(proposer.vorschlagen(text, belegte_spans=belegt_det + llm_spans))
 
         # Streit-Verstärker (deterministisch): Subsumtions-Brennpunkte markieren UND
         # die im SELBEN Satz liegenden Begriffsmarken als "streitig" verstärken.

@@ -106,6 +106,16 @@ def test_queue_info_slot_busy_robust(monkeypatch):
     assert q["aktiv"] == 2 and q["frei"] == 3   # nur Slot 0 + 3
 
 
+def test_konzept_bewusster_dedup_logik():
+    # Kern des konzept-bewussten Dedups: gleiche Dimension (auch ueber Komposita) =>
+    # Duplikat; andere Dimension (token-disjunkt) => behalten.
+    from risk_layer.pipeline import _gleiches_konzept
+    assert _gleiches_konzept("Buchführungsmangel", "Buchführung")          # Kompositum
+    assert _gleiches_konzept("Schätzung", "Schätzungsbefugnis nach § 162")  # Kompositum
+    assert not _gleiches_konzept("künstliche Gestaltung", "Aufzeichnungsmangel")
+    assert not _gleiches_konzept("Haftungsauslöser", "Vertreterhaftung")
+
+
 def test_provider_unerwartetes_format_bricht_nicht_ab():
     # leere choices (IndexError), Body kein JSON (JSONDecodeError) und fehlende
     # Felder (KeyError) duerfen die Pipeline NICHT crashen -> [] (sichtbar geloggt).
