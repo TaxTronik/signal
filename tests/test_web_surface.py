@@ -99,3 +99,49 @@ def test_body_groesse_und_form_werden_abgewiesen(tmp_path, monkeypatch):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch):
+    # Interner Fehler darf weder Mandantentext-Fragmente noch interne Pfade an den
+    # Client geben (§ 203 / Info-Leak): generische Meldung + Fehlerklasse, kein exc-Text.
+    import json as _json
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    app = Anwendung(None, str(tmp_path))
+
+    def boom(*a, **k):
+        raise RuntimeError("GEHEIM-Mandantentext-xyz")
+    monkeypatch.setattr(app, "analyse", boom)
+    httpd, base = _starte(app)
+    try:
+        req = urllib.request.Request(
+            f"{base}/v1/analyse", data=b'{"text":"x"}',
+            headers={"Authorization": "Bearer geheim", "Content-Type": "application/json"},
+            method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as r:
+                status, body = r.status, r.read()
+        except urllib.error.HTTPError as e:
+            status, body = e.code, e.read()
+        assert status == 500
+        txt = body.decode("utf-8")
+        assert "GEHEIM" not in txt and "Mandantentext" not in txt   # kein Leak
+        assert _json.loads(txt)["typ"] == "RuntimeError"            # Fehlerklasse ok
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_embedding_encoder_fehler_degradiert(tmp_path, monkeypatch):
+    # Encoder nicht ladbar (z.B. torch fehlt) -> Engine startet trotzdem ohne
+    # Schicht 1.7, statt komplett zu crashen.
+    import risk_layer.embedding as emb
+
+    class FakeIdx:
+        encoder_name = "x"
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+
+    def boom(*a, **k):
+        raise RuntimeError("kein torch")
+    monkeypatch.setattr(emb, "encoder_oeffnen", boom)
+    app = Anwendung(None, str(tmp_path))
+    assert app.embedding is None and app.embedding_encoder is None

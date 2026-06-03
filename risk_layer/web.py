@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import json
+import logging
 import os
 import sys
 import threading
@@ -34,6 +35,8 @@ from .models import Begriffskarte, Risikomarkierung, RunReport, Status
 from .pipeline import Pipeline
 from .triggerindex import index_oeffnen
 from .zitate import kanonisiere_fundstelle, parse_normzitat
+
+_log = logging.getLogger(__name__)
 
 # Loopback-Adressen: OHNE Token darf nur an diese gebunden werden (lokale Dev).
 # Alles andere (0.0.0.0, ::, echte IPs, "" = alle Interfaces) ist ein Netz-Bind
@@ -69,8 +72,12 @@ class Anwendung:
         # Query-Encoder: GPU bevorzugt, fällt intern auf CPU zurück. Per
         # RISK_LAYER_EMB_DEVICE setzbar.
         _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
-        self.embedding_encoder = (
-            _enc_open(self.embedding.encoder_name, device=_emb_dev) if self.embedding else None)
+        try:
+            self.embedding_encoder = (
+                _enc_open(self.embedding.encoder_name, device=_emb_dev) if self.embedding else None)
+        except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
+            _log.warning("Embedding-Encoder nicht ladbar (%s) — Engine laeuft ohne Schicht 1.7.", exc)
+            self.embedding = self.embedding_encoder = None
         self.llm_url = llm_url        # Schicht 2 (mitLLM:true) verbindet sich hierher
         self.llm_model = llm_model    # expliziter GGUF-Pfad (sonst Registry-Default)
         self.llm_bin = llm_bin        # llama-server-Binary
@@ -366,6 +373,13 @@ def make_handler(app: Anwendung):
                 return False
             return hmac.compare_digest(auth[7:].encode("utf-8"), erwartet.encode("utf-8"))
 
+        def _fehler_500(self, exc: Exception) -> None:
+            # § 203 / Info-Leak: roher Exception-Text kann Mandantentext-Fragmente
+            # oder interne Pfade enthalten → NICHT an den Client. Server-seitig voll
+            # loggen (Betreiber-Log), dem Client nur die Fehlerklasse melden.
+            _log.exception("Unbehandelter /v1-Fehler bei %s %s", self.command, urlparse(self.path).path)
+            self._json(500, {"error": "interner Fehler", "typ": type(exc).__name__})
+
         # -- Routen (ausschließlich /v1) --------------------------------
         def do_GET(self):
             try:
@@ -379,7 +393,7 @@ def make_handler(app: Anwendung):
                 code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
                 self._json(code, obj)
             except Exception as exc:  # noqa: BLE001 – einheitliche Fehlerantwort
-                self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+                self._fehler_500(exc)
 
         def do_POST(self):
             try:
@@ -400,7 +414,7 @@ def make_handler(app: Anwendung):
             except BeraterFehler as exc:
                 self._json(400, {"error": str(exc)})
             except Exception as exc:  # noqa: BLE001 – einheitliche Fehlerantwort
-                self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
+                self._fehler_500(exc)
 
     return Handler
 
