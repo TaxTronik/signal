@@ -227,7 +227,7 @@ class Pipeline:
                         break
 
     def _gefenstert(self, text, treffer, trig_hits, streit_zonen, bekannt,
-                    provider, kontext, *, max_chars=_FENSTER_MAX_CHARS):
+                    provider, kontext, *, abweichung=False, max_chars=_FENSTER_MAX_CHARS):
         """Coverage-gesteuertes LLM-Gating: das Dokument wird absatzweise in Haupt-
         fenster zerlegt; deterministisch GESÄTTIGTE Fenster (alle Wortzeichen abgedeckt,
         kein Streit-Signal) werden übersprungen, der Rest läuft – mit je einem Nachbar-
@@ -250,7 +250,8 @@ class Pipeline:
                        else "streit" if hat_streit else "blind")
             cs, ce = _mit_kontext(ms, me, absaetze)          # zusammenhängender Slice
             n = 0
-            for k in erkenne_kandidaten(text[cs:ce], bekannt, provider, kontext_normen=kontext):
+            for k in erkenne_kandidaten(text[cs:ce], bekannt, provider,
+                                        kontext_normen=kontext, abweichung=abweichung):
                 orig = cs + k.char_offset
                 if ms <= orig and orig + len(k.span_text) <= me:   # Leitplanke 3
                     kand.append(replace(k, char_offset=orig))
@@ -329,16 +330,14 @@ class Pipeline:
         if provider is not None:
             bekannt = sorted({self.katalog.get(t.begriff_id).begriff_kanonisch for t in treffer})
             kontext, gestuetzt_paras = _kandidaten_normen(text, graph, trigger)
-            if hasattr(provider, "__dict__"):
-                provider._abweichung = abweichung
             if smart_windowing:
                 kand_objs, fenster_prov = self._gefenstert(
                     text, treffer, trig_hits, streit_zonen_orig, bekannt, provider, kontext,
-                    max_chars=fenster_max_chars)
+                    abweichung=abweichung, max_chars=fenster_max_chars)
                 kandidaten = [k.as_dict() for k in kand_objs]
             else:
-                kandidaten = [k.as_dict() for k in
-                              erkenne_kandidaten(text, bekannt, provider, kontext_normen=kontext)]
+                kandidaten = [k.as_dict() for k in erkenne_kandidaten(
+                    text, bekannt, provider, kontext_normen=kontext, abweichung=abweichung)]
             if hasattr(provider, "audit_info"):
                 schicht2_info = provider.audit_info()
             if smart_windowing:

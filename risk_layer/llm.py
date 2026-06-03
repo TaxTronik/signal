@@ -280,6 +280,10 @@ class LlamaServerProvider:
         self.timeout = _env_timeout() if timeout is None else timeout
         self.n_predict = n_predict
         self.pruefe_verfuegbar = pruefe_verfuegbar
+        # Von kandidaten() je Aufruf gesetzt, von _infer in den Prompt gezogen
+        # (Template-Method – statt externer Injektion durch die Pipeline).
+        self._kontext: list[str] | None = None
+        self._abweichung = False
 
     def audit_info(self) -> dict[str, Any]:
         return {
@@ -315,8 +319,8 @@ class LlamaServerProvider:
             "messages": [
                 {"role": "system", "content": SYSTEMPROMPT},
                 {"role": "user", "content": _user_prompt(
-                    segment_text, bekannte_begriffe, getattr(self, "_kontext", None),
-                    getattr(self, "_abweichung", False), denk_suffix=self._denk_suffix())},
+                    segment_text, bekannte_begriffe, self._kontext,
+                    self._abweichung, denk_suffix=self._denk_suffix())},
             ],
             "temperature": self.temperatur,
             "seed": self.seed,
@@ -338,8 +342,10 @@ class LlamaServerProvider:
         return data["choices"][0]["message"]["content"]
 
     def kandidaten(self, segment_text: str, bekannte_begriffe: list[str],
-                   kontext_normen: list[str] | None = None) -> list[dict[str, Any]]:
+                   kontext_normen: list[str] | None = None,
+                   abweichung: bool = False) -> list[dict[str, Any]]:
         self._kontext = kontext_normen          # vom _infer in den Prompt gezogen
+        self._abweichung = abweichung
         # Readiness-Gate: lädt/down ⇒ sofort leer (kein 2-Minuten-Hänger).
         if self.pruefe_verfuegbar and not server_verfuegbar(self.base_url, timeout=2.0):
             return []
@@ -386,11 +392,12 @@ class LlamaCppProvider:
                 "quantisierung": self.quantisierung, "seed": self.seed, "temperatur": self.temperatur}
 
     def kandidaten(self, segment_text: str, bekannte_begriffe: list[str],
-                   kontext_normen: list[str] | None = None) -> list[dict[str, Any]]:  # pragma: no cover
+                   kontext_normen: list[str] | None = None,
+                   abweichung: bool = False) -> list[dict[str, Any]]:  # pragma: no cover
         res = self._llm.create_chat_completion(
             messages=[
                 {"role": "system", "content": SYSTEMPROMPT},
-                {"role": "user", "content": _user_prompt(segment_text, bekannte_begriffe, kontext_normen)},
+                {"role": "user", "content": _user_prompt(segment_text, bekannte_begriffe, kontext_normen, abweichung)},
             ],
             temperature=self.temperatur, seed=self.seed, max_tokens=256,
             response_format={"type": "json_object", "schema": KANDIDATEN_JSON_SCHEMA},

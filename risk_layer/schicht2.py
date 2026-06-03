@@ -164,7 +164,8 @@ class KandidatenProvider(Protocol):
     """Liefert Roh-Kandidaten für ein Segment (vor Span-Verifikation)."""
 
     def kandidaten(self, segment_text: str, bekannte_begriffe: list[str],
-                   kontext_normen: list[str] | None = ...) -> list[dict[str, Any]]:
+                   kontext_normen: list[str] | None = ...,
+                   abweichung: bool = ...) -> list[dict[str, Any]]:
         ...
 
 
@@ -172,7 +173,8 @@ class NullProvider:
     """Default für reine Schicht 1 (MVP): kein Modell, keine Kandidaten."""
 
     def kandidaten(self, segment_text: str, bekannte_begriffe: list[str],
-                   kontext_normen: list[str] | None = None) -> list[dict[str, Any]]:
+                   kontext_normen: list[str] | None = None,
+                   abweichung: bool = False) -> list[dict[str, Any]]:
         return []
 
 
@@ -181,12 +183,14 @@ def erkenne_kandidaten(
     bekannte_begriffe: list[str],
     provider: KandidatenProvider | None = None,
     kontext_normen: list[str] | None = None,
+    abweichung: bool = False,
 ) -> list[Kandidat]:
     """Schicht-2-Lauf mit zwingender Span-Verifikation.
 
     ``kontext_normen`` erdet das Modell (im Text/Korpus reale Normen) – das ist
     KEINE Begriffsdefinition, nur eine Auswahlhilfe für ``norm_vorschlag``.
+    ``abweichung`` erlaubt dem Prompt, eine vom Katalog abweichende Norm zu nennen.
     """
     provider = provider or NullProvider()
-    roh = provider.kandidaten(text, bekannte_begriffe, kontext_normen)
+    roh = provider.kandidaten(text, bekannte_begriffe, kontext_normen, abweichung)
     return verifiziere_kandidaten(text, roh)

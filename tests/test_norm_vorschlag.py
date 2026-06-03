@@ -19,7 +19,7 @@ class StubProvider:
     def __init__(self, kandidaten):
         self._k = kandidaten
 
-    def kandidaten(self, text, bekannte, kontext_normen=None):
+    def kandidaten(self, text, bekannte, kontext_normen=None, abweichung=False):
         return [k.__dict__ if hasattr(k, "__dict__") else k for k in self._k]
 
 
