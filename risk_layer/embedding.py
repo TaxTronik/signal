@@ -172,16 +172,16 @@ class JinaV5Encoder(BgeM3Encoder):
 
 
 class Qwen3Encoder(BgeM3Encoder):
-    """Qwen3-Embedding-0.6B (Apache-2.0, stark mehrsprachig). ⚠️ am stärksten
-    instruktions-abhängig (Queries wollen eigentlich einen Instruction-Prefix);
-    hier symmetrisch out-of-the-box gemessen (konsistent mit den anderen) →
-    untertreibt Qwen tendenziell am meisten."""
+    """Qwen3-Embedding (Apache-2.0, stark mehrsprachig), ``variante`` z.B. "0.6B"
+    oder "4B". ⚠️ am stärksten instruktions-abhängig: Queries wollen eigentlich
+    einen Instruction-Prefix; symmetrisch gemessen wird Qwen also untertrieben.
+    Die Dimension wird beim Laden erkannt (0.6B=1024, 4B=2560)."""
 
-    name = "qwen3-emb-0.6b"
     dim = 1024
 
-    def __init__(self, device: str | None = None):
-        super().__init__(modell="Qwen/Qwen3-Embedding-0.6B", device=device)
+    def __init__(self, device: str | None = None, variante: str = "0.6B"):
+        self.name = f"qwen3-emb-{variante.lower()}"
+        super().__init__(modell=f"Qwen/Qwen3-Embedding-{variante}", device=device)
 
 
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
@@ -200,6 +200,8 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
         return JinaV5Encoder(device=device)
     if name in ("qwen3", "qwen3-emb-0.6b", "qwen3-embedding"):
         return Qwen3Encoder(device=device)
+    if name in ("qwen3-4b", "qwen3-emb-4b"):
+        return Qwen3Encoder(device=device, variante="4B")
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
