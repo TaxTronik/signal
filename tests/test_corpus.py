@@ -30,3 +30,13 @@ def test_config_roundtrip(tmp_path):
     corpus.schreibe_config(gesetze, tmp_path)
     geladen = corpus.lade_config(tmp_path)
     assert {g.law for g in geladen} == {g.law for g in gesetze}
+
+
+def test_hole_gesetz_lehnt_pfad_traversal_ab(tmp_path):
+    # g.law (aus editierbarer gesetze.yaml) bildet den Dateinamen -> ein Traversal-
+    # law muss VOR jedem Netz-/FS-Zugriff scheitern, nichts darf angelegt werden.
+    import pytest
+    g = corpus.Gesetz(law="../../evil", slug="x", url="http://invalid.invalid/x.zip")
+    with pytest.raises(ValueError):
+        corpus.hole_gesetz(g, korpus=tmp_path)
+    assert not (tmp_path / "gii").exists()

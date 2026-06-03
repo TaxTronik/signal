@@ -149,6 +149,12 @@ def hole_gesetz(g: Gesetz, korpus: Path = DEFAULT_KORPUS, *, timeout: float = 30
 
     NETZZUGRIFF – nur im Build-Schritt aufzurufen. Raises bei Fehlern.
     """
+    # g.law stammt aus der editierbaren gesetze.yaml und bildet den Dateinamen ->
+    # Pfad-Traversal verhindern, BEVOR ueberhaupt etwas geladen/geschrieben wird.
+    ziel = xml_verzeichnis(korpus)
+    pfad = ziel / f"{g.law}.xml"
+    if pfad.resolve().parent != ziel.resolve():
+        raise ValueError(f"unzulässiger law-Code (Pfad-Traversal): {g.law!r}")
     req = urllib.request.Request(g.url, headers={"User-Agent": "risk-layer/0.1 (lokal)"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (feste, vom Nutzer bestätigte Quelle)
         roh = resp.read()
@@ -157,9 +163,7 @@ def hole_gesetz(g: Gesetz, korpus: Path = DEFAULT_KORPUS, *, timeout: float = 30
         if not xml_namen:
             raise ValueError(f"{g.law}: kein XML im Archiv {g.url}")
         daten = zf.read(xml_namen[0])
-    ziel = xml_verzeichnis(korpus)
     ziel.mkdir(parents=True, exist_ok=True)
-    pfad = ziel / f"{g.law}.xml"
     pfad.write_bytes(daten)
     return pfad
 

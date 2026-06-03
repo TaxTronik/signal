@@ -128,7 +128,10 @@ def _parse_eintrag(raw: dict[str, Any]) -> Katalogeintrag:
             f"nicht {intensitaet!r}"
         )
 
-    kaskade = int(raw.get("kaskadenreichweite", 1))
+    try:
+        kaskade = int(raw.get("kaskadenreichweite", 1))
+    except (TypeError, ValueError):
+        raise KatalogFehler(f"[{begriff_id}] kaskadenreichweite muss eine Zahl 1|2|3 sein") from None
     if kaskade not in (1, 2, 3):
         raise KatalogFehler(f"[{begriff_id}] kaskadenreichweite muss 1|2|3 sein")
 

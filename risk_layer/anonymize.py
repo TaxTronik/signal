@@ -38,6 +38,11 @@ _DATUM = re.compile(
 )
 _STEUERNR = re.compile(r"\b\d{2,3}/\d{3}/\d{4,5}\b")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:\s?\d{4}){3,}\d{0,4}\b")
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+# Telefon: +49/0-Vorwahl + >=6 weitere Ziffern/Trenner. Kein '.'/',' in der Klasse,
+# damit Daten/Betraege (1.000,00) und Steuernummern nicht faelschlich greifen; der
+# Lookbehind verhindert einen Treffer mitten in einer laengeren Zahl.
+_TELEFON = re.compile(r"(?<!\d)(?:\+49|0)[\d /()-]{6,}\d\b")
 # „M-GmbH" → der reine Buchstaben-Stub als Mandantenkürzel (nach Rechtsform-Ersetzung übrig)
 # (durch _FIRMA bereits erfasst)
 
@@ -66,7 +71,8 @@ class _Zaehler:
     """Vergibt stabile Platzhalter je Typ; identische Originale → gleicher Platzhalter."""
 
     _LABEL = {"firma": "Gesellschaft", "person": "Person", "betrag": "Betrag",
-              "datum": "Datum", "steuernr": "Steuernummer", "iban": "Konto"}
+              "datum": "Datum", "steuernr": "Steuernummer", "iban": "Konto",
+              "email": "E-Mail", "telefon": "Telefon"}
     _BUCHST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     def __init__(self) -> None:
@@ -92,11 +98,13 @@ class _Zaehler:
 _REGELN: list[tuple[str, re.Pattern]] = [
     ("iban", _IBAN),
     ("steuernr", _STEUERNR),
+    ("email", _EMAIL),
     ("firma", _FIRMA_KOMPAKT),
     ("firma", _FIRMA_SPACED),
     ("person", _PERSON),
     ("betrag", _BETRAG),
     ("datum", _DATUM),
+    ("telefon", _TELEFON),    # zuletzt: numerische Spezialmuster (Betrag/Datum/Steuernr) zuerst
 ]
 
 

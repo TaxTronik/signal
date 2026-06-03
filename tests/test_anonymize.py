@@ -34,3 +34,20 @@ def test_steuernummer_und_iban():
     r = anonymisiere("StNr 151/815/08153, IBAN DE89 3704 0044 0532 0130 00.")
     typen = {e.typ for e in r.ersetzungen}
     assert "steuernr" in typen and "iban" in typen
+
+
+def test_email_und_telefon_werden_ersetzt():
+    # § 203: E-Mail/Telefon sind identifizierende Angaben und muessen geschwaerzt werden.
+    r = anonymisiere("Kontakt: max.mustermann@example.com oder 0151 23456789.")
+    typen = {e.typ for e in r.ersetzungen}
+    assert "email" in typen and "telefon" in typen
+    assert "max.mustermann@example.com" not in r.abstrahiert
+    assert "0151 23456789" not in r.abstrahiert
+
+
+def test_telefon_stiehlt_keine_betraege_oder_daten():
+    # Telefon laeuft zuletzt und hat kein '.'/',' in der Klasse -> Betrag/Datum bleiben deren Muster.
+    r = anonymisiere("Am 1. April 2026 wurden 1.250.000 EUR gezahlt.")
+    typen = {e.typ for e in r.ersetzungen}
+    assert "telefon" not in typen
+    assert "datum" in typen and "betrag" in typen
