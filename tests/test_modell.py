@@ -155,3 +155,15 @@ def test_download_engine_meldet_fehlend(monkeypatch, tmp_path):
     monkeypatch.setattr(M, "_release_assets", lambda **k: [("readme.txt", "u")])
     with pytest.raises(RuntimeError):
         M.download_engine(tmp_path, backend="cuda")
+
+
+def test_download_engine_cuda_ohne_cudart_crasht_nicht(monkeypatch, tmp_path):
+    # CUDA-Build da, aber kein cudart-Paket -> nur warnen, nicht crashen, Build trotzdem da
+    assets = [("llama-b1-bin-win-cuda-12.4-x64.zip", "u-cuda")]
+    geladen: list[str] = []
+    monkeypatch.setattr(M.sys, "platform", "win32")
+    monkeypatch.setattr(M, "_release_assets", lambda **k: assets)
+    monkeypatch.setattr(M, "_lade_und_entpacke", lambda name, url, zd, f: geladen.append(name))
+    monkeypatch.setattr(M, "finde_llama_server", lambda **k: "x/llama-server")
+    assert M.download_engine(tmp_path, backend="cuda") == "x/llama-server"
+    assert geladen == ["llama-b1-bin-win-cuda-12.4-x64.zip"]

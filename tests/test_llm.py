@@ -104,3 +104,15 @@ def test_queue_info_slot_busy_robust(monkeypatch):
     q = llm._queue_info("http://x", timeout=0.1)
     assert q["quelle"] == "slots" and q["slots_gesamt"] == 5
     assert q["aktiv"] == 2 and q["frei"] == 3   # nur Slot 0 + 3
+
+
+def test_provider_unerwartetes_format_bricht_nicht_ab():
+    # leere choices (IndexError), Body kein JSON (JSONDecodeError) und fehlende
+    # Felder (KeyError) duerfen die Pipeline NICHT crashen -> [] (sichtbar geloggt).
+    for fehler in (IndexError("choices leer"),
+                   json.JSONDecodeError("kein json", "", 0),
+                   KeyError("message")):
+        class P(LlamaServerProvider):
+            def __init__(self): super().__init__(pruefe_verfuegbar=False)
+            def _infer(self, s, b, _e=fehler): raise _e
+        assert P().kandidaten(TEXT, bekannte_begriffe=[]) == []

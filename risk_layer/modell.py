@@ -15,6 +15,7 @@ lokalen llama-server über HTTP an (siehe ``llm.LlamaServerProvider``).
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import subprocess
 import sys
@@ -32,6 +33,8 @@ HF = "https://huggingface.co"
 DEFAULT_MODELL_DIR = Path("models")
 DEFAULT_ENGINE_DIR = Path("engine")
 GITHUB_RELEASES = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=12"
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -219,7 +222,7 @@ def backend_patterns(backend: str = "auto") -> list[str]:
     if backend == "auto":
         backend = erkenne_gpu_vendor() or "cpu"
     table = _BACKEND_WIN if sys.platform == "win32" else _BACKEND_LINUX
-    return table.get(backend, table["cpu"])
+    return list(table.get(backend, table["cpu"]))   # Kopie: Tabelle bleibt unveraendert
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +305,9 @@ def download_engine(ziel_dir: Path | str = DEFAULT_ENGINE_DIR, *,
         cud = _waehle_asset(assets, gewaehlt, cudart=True)
         if cud:
             _lade_und_entpacke(*cud, ziel_dir, fortschritt)
+        else:
+            _log.warning("CUDA-Engine geladen, aber kein cudart-Runtime-Paket im Release "
+                         "gefunden — llama-server braucht die CUDA-Runtime-DLLs auf dem PATH.")
     return finde_llama_server(engine_dir=ziel_dir)
 
 

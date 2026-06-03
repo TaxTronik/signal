@@ -335,7 +335,9 @@ class LlamaServerProvider:
             _log.warning("Schicht-2 LLM nicht erreichbar (%s): %s — Kandidaten verworfen.",
                          self.base_url, exc)
             return []
-        except KeyError as exc:
+        except (KeyError, IndexError, json.JSONDecodeError) as exc:
+            # leere choices (IndexError), Felder fehlen (KeyError), Body kein JSON
+            # (JSONDecodeError) — alles "Antwort unbrauchbar", nicht crashen.
             _log.warning("Schicht-2 LLM: unerwartetes Antwortformat (%s) — Kandidaten verworfen.", exc)
             return []
         return _nachziehen(segment_text, _kandidaten_aus_text(roh_text))

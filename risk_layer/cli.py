@@ -152,6 +152,8 @@ def _cmd_modell(args: argparse.Namespace) -> int:
 
     if args.aktion == "engine":
         backend = getattr(args, "backend", "auto")
+        if backend == "auto":                       # GPU-Vendor nur EINMAL erkennen
+            backend = M.erkenne_gpu_vendor() or "cpu"
         muster = M.backend_patterns(backend)
         print(f"Lade llama.cpp-Engine (Backend: {backend} → {muster[0]}) nach ./engine …")
         letzte = [-1]
