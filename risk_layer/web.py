@@ -241,7 +241,7 @@ def _karte_json(k: Begriffskarte) -> dict[str, Any]:
         "start": k.treffer.start,
         "end": k.treffer.end,
         "norm_anker": _norm_anker_json(e.norm_anker),
-        "normketten": [kette.as_dict() for kette in getattr(e, "normketten", ())],
+        "normketten": [kette.as_dict() for kette in e.normketten],
         "quellen": _quellen_json(k.quellen),
         "governance_typ": e.governance_typ.value,
         "schadensintensitaet": e.schadensintensitaet,

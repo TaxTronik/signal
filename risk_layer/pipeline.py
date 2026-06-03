@@ -219,7 +219,7 @@ class Pipeline:
         # Katalog ist die Single Source der Ketten; Embedding/Graph bleiben schlank.
         self._ketten_nach_norm: dict[str, list] = {}
         for e in katalog:
-            for kette in getattr(e, "normketten", ()) or ():
+            for kette in e.normketten:
                 for a in parse_normzitat(kette.primaer):
                     if a.norm_id:
                         pid = _para_level(a.norm_id.to_id())

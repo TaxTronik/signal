@@ -398,6 +398,11 @@ class LlamaServerManager:
             time.sleep(intervall)
         return server_verfuegbar(self.url, timeout=2.0)
 
+    def wait(self) -> int | None:
+        """Blockiert, bis der Server-Prozess endet (z.B. via Strg+C im Vordergrund).
+        Rückgabe: Exit-Code, oder None wenn kein Prozess läuft."""
+        return self._proc.wait() if self._proc else None
+
     def stop(self) -> None:
         if self._proc and self._proc.poll() is None:
             # Sanftes terminate() zuerst – aber NICHT lange warten: steckt der Server

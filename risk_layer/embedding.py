@@ -34,6 +34,7 @@ import numpy as np
 
 from .idschema import para_level
 from .muster import saetze_mit_offset
+from .torch_compat import patch_rocm_dist
 
 DEFAULT_DIR = Path("corpus") / "embedding"
 _TOKEN = re.compile(r"[a-zäöüß]+")
@@ -112,17 +113,7 @@ class BgeM3Encoder:
         if self._modell is None:
             with self._lock:
                 if self._modell is None:   # double-checked: nur EIN Thread lädt
-                    # ROCm-Workaround: sentence-transformers' get_device_name() ruft
-                    # torch.distributed.is_initialized() auf, das in diesem torch-ROCm-
-                    # Build fehlt (AttributeError). Wir patchen die EIGENTLICHE Ursache
-                    # an torch.distributed – aber NUR, wenn das Attribut wirklich fehlt,
-                    # damit echtes Multi-GPU (wo es existiert) unberührt bleibt.
-                    try:
-                        import torch.distributed as _dist
-                        if not hasattr(_dist, "is_initialized"):
-                            _dist.is_initialized = lambda: False
-                    except ImportError:
-                        pass
+                    patch_rocm_dist()      # ROCm: fehlendes is_initialized abfangen
                     from sentence_transformers import SentenceTransformer  # lazy
                     self._modell = SentenceTransformer(self._modell_name, device=self._device,
                                                        trust_remote_code=self._trust)
@@ -295,13 +286,13 @@ class EmbeddingIndex:
                 return None
 
             for eintrag in katalog:
-                phrasen = getattr(eintrag, "paraphrasen", ()) or ()
+                phrasen = eintrag.paraphrasen
                 if not phrasen:
                     continue
                 # Ziel = KOPF der ersten Normkette (Kaskaden-Spitze), sonst der erste
                 # auflösbare norm_anker. Die volle Kette wird beim Ausspielen über den
                 # Katalog-Lookup (norm_id → Normketten) angehängt – nicht hier gespeichert.
-                ketten = getattr(eintrag, "normketten", ()) or ()
+                ketten = eintrag.normketten
                 ziel = None
                 if ketten:
                     ziel = _erste_aufloesbare([k.primaer for k in ketten if k.primaer])

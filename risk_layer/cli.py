@@ -150,21 +150,25 @@ def _cmd_graph(args: argparse.Namespace) -> int:
 def _cmd_modell(args: argparse.Namespace) -> int:
     from . import modell as M
 
+    def _fortschritt():
+        """Frischer Download-Fortschritts-Callback (prozentweise, in-place überschrieben)."""
+        letzte = [-1]
+
+        def drucke(gelesen: int, gesamt: int) -> None:
+            pct = int(gelesen * 100 / gesamt) if gesamt else 0
+            if pct != letzte[0]:
+                letzte[0] = pct
+                print(f"\r  {pct:3d}%  {M.menschlich(gelesen)} / {M.menschlich(gesamt)}",
+                      end="", flush=True)
+        return drucke
+
     if args.aktion == "engine":
         backend = getattr(args, "backend", "auto")
         if backend == "auto":                       # GPU-Vendor nur EINMAL erkennen
             backend = M.erkenne_gpu_vendor() or "cpu"
         muster = M.backend_patterns(backend)
         print(f"Lade llama.cpp-Engine (Backend: {backend} → {muster[0]}) nach ./engine …")
-        letzte = [-1]
-
-        def fortschritt(gelesen: int, gesamt: int) -> None:
-            pct = int(gelesen * 100 / gesamt) if gesamt else 0
-            if pct != letzte[0]:
-                letzte[0] = pct
-                print(f"\r  {pct:3d}%  {M.menschlich(gelesen)} / {M.menschlich(gesamt)}",
-                      end="", flush=True)
-
+        fortschritt = _fortschritt()
         try:
             binp = M.download_engine(backend=backend, fortschritt=fortschritt)
         except Exception as exc:  # noqa: BLE001
@@ -188,15 +192,7 @@ def _cmd_modell(args: argparse.Namespace) -> int:
     if args.aktion == "download":
         ziel = M.DEFAULT_MODELL_DIR
         print(f"Lade {info.name} ({info.quant}) aus {info.repo} → {ziel}/ …")
-        letzte = [-1]
-
-        def fortschritt(gelesen: int, gesamt: int) -> None:
-            pct = int(gelesen * 100 / gesamt) if gesamt else 0
-            if pct != letzte[0]:
-                letzte[0] = pct
-                print(f"\r  {pct:3d}%  {M.menschlich(gelesen)} / {M.menschlich(gesamt)}",
-                      end="", flush=True)
-
+        fortschritt = _fortschritt()
         pfade = M.download_modell(info, ziel, fortschritt=fortschritt)
         print("\nFertig:", ", ".join(str(p) for p in pfade))
         return 0
@@ -228,7 +224,7 @@ def _cmd_modell(args: argparse.Namespace) -> int:
         print("bereit ✓" if ok else "nicht erreichbar geworden")
         print("(Strg+C beendet den Server.)")
         try:
-            mgr._proc.wait()  # type: ignore[union-attr]
+            mgr.wait()
         except KeyboardInterrupt:
             mgr.stop()
             print("\nbeendet.")
@@ -321,7 +317,7 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
     if args.aktion == "stats":
         print(f"{len(idx.ids)} Normen, dim {idx.dim}, Encoder {idx.encoder_name}")
     elif args.aktion == "suche":
-        enc = encoder_oeffnen(idx.encoder_name if idx.encoder_name != "bge-m3" else "bge-m3")
+        enc = encoder_oeffnen(idx.encoder_name)
         for h in idx.suche(" ".join(args.text or []), enc, k=args.limit, min_sim=0.0):
             print(f"  {h['zitat']:14} sim={h['sim']:6}  {h['titel'][:50]}")
     return 0

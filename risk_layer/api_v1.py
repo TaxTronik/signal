@@ -65,7 +65,7 @@ def _katalog_lesen(app) -> tuple[int, dict[str, Any]]:
         "schadensintensitaet": e.schadensintensitaet,
         "kaskadenreichweite": e.kaskadenreichweite,
         "norm_anker": list(e.norm_anker),
-        "normketten": [kette.as_dict() for kette in getattr(e, "normketten", ())],
+        "normketten": [kette.as_dict() for kette in e.normketten],
         "hat_definitionsquelle": e.hat_definitionsquelle,
     } for e in k]
     return 200, {"version": k.version, "begriffe": begriffe, "engineVersion": V1_VERSION}

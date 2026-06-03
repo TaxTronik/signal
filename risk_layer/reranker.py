@@ -20,6 +20,7 @@ import threading
 from typing import Any, Protocol, runtime_checkable
 
 from .idschema import para_level
+from .torch_compat import patch_rocm_dist
 
 # Bi-Encoder-Top-N, die der Cross-Encoder umsortiert (mehr Headroom = mehr Chance,
 # einen vom Bi-Encoder vergrabenen Treffer hochzuholen).
@@ -60,12 +61,7 @@ class CrossEncoderReranker:
         if self._modell is None:
             with self._lock:
                 if self._modell is None:
-                    try:                       # ROCm: fehlendes is_initialized patchen
-                        import torch.distributed as _dist
-                        if not hasattr(_dist, "is_initialized"):
-                            _dist.is_initialized = lambda: False
-                    except ImportError:
-                        pass
+                    patch_rocm_dist()          # ROCm: fehlendes is_initialized abfangen
                     from sentence_transformers import CrossEncoder  # lazy
                     self._modell = CrossEncoder(self._modell_name, device=self._device)
                     # fp16 auf der GPU: ~25x schneller (11,9 s -> 0,47 s je Dokument).
@@ -110,11 +106,10 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
 
     anker: dict[str, list[str]] = {}
     for e in katalog:
-        phrasen = list(getattr(e, "paraphrasen", ()) or [])
+        phrasen = list(e.paraphrasen)
         if not phrasen:
             continue
-        quellen = list(getattr(e, "norm_anker", ()) or []) + \
-            [k.primaer for k in (getattr(e, "normketten", ()) or []) if k.primaer]
+        quellen = list(e.norm_anker) + [k.primaer for k in e.normketten if k.primaer]
         for z in quellen:
             for a in parse_normzitat(z):
                 if a.norm_id:
