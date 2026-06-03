@@ -83,6 +83,7 @@ class Anwendung:
         self.llm_bin = llm_bin        # llama-server-Binary
         self.manager = None           # LlamaServerManager, falls VON UNS gestartet
         self._llm_lock = threading.Lock()  # serialisiert llm_start/llm_stop (Concurrency)
+        self._berater_lock = threading.Lock()  # serialisiert define-on-the-fly-Writes
 
     def norm_suche(self, q: str, limit: int = 8) -> dict[str, Any]:
         """Norm-Auswahl: erst Zitat parsen + im Graph bestätigen, sonst Titel-Suche."""
@@ -125,19 +126,22 @@ class Anwendung:
         return antwort_json(report, text)
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:
-        store = BeraterStore(self.berater_dir)
-        d = store.definiere(
-            payload["begriff"],
-            payload.get("definition_text", ""),
-            autor=payload.get("autor") or "berater",
-            datum=payload.get("datum") or date.today().isoformat(),
-            scope=payload.get("scope", "personal"),
-            governance_typ=payload.get("governance_typ", "IN"),
-            schadensintensitaet=payload.get("schadensintensitaet", "mittel"),
-            norm_anker=tuple(payload.get("norm_anker") or ()),
-            konfidenz=payload.get("konfidenz", "mittel"),
-            katalog_id=payload.get("katalog_id"),
-        )
+        # load–modify–write serialisieren: parallele Defines auf dieselbe Scope-Datei
+        # wuerden sich sonst ueberschreiben (Lost-Update der Festwissens-YAML).
+        with self._berater_lock:
+            store = BeraterStore(self.berater_dir)
+            d = store.definiere(
+                payload["begriff"],
+                payload.get("definition_text", ""),
+                autor=payload.get("autor") or "berater",
+                datum=payload.get("datum") or date.today().isoformat(),
+                scope=payload.get("scope", "personal"),
+                governance_typ=payload.get("governance_typ", "IN"),
+                schadensintensitaet=payload.get("schadensintensitaet", "mittel"),
+                norm_anker=tuple(payload.get("norm_anker") or ()),
+                konfidenz=payload.get("konfidenz", "mittel"),
+                katalog_id=payload.get("katalog_id"),
+            )
         return {"ok": True, "id": d.id, "scope": d.scope, "geankert_an": list(d.geankert_an),
                 "katalog_id": d.katalog_id}
 

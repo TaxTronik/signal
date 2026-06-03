@@ -80,3 +80,15 @@ def test_personal_nur_fuer_autor_sichtbar(tmp_path):
     store.definiere("Sondertatbestand", "…", autor="rey", datum="d", scope="personal")
     assert store.finde("Sondertatbestand", nutzer="rey") is not None
     assert store.finde("Sondertatbestand", nutzer="andere") is None
+
+
+def test_markierungen_ignoriert_leeren_begriff(tmp_path):
+    # Defensive: ein (manuell eingeschleuster) leerer Begriff darf keine
+    # Null-Breite-Spurmarken erzeugen – re.escape('') matcht sonst ueberall.
+    from risk_layer.berater import BeraterDefinition
+    store = BeraterStore(tmp_path)
+    store.definiere("Betriebsaufspaltung", "…", autor="rey", datum="d")
+    store._eintraege.append(BeraterDefinition(id="leer", begriff="",
+                                              definition_text="x", scope="personal", autor="rey"))
+    marks = store.markierungen("Eine Betriebsaufspaltung und mehr Text.", nutzer="rey")
+    assert len(marks) == 1 and marks[0].titel == "Betriebsaufspaltung"

@@ -272,7 +272,7 @@ class BeraterStore:
         belegt = belegte_spans or []
         out: list[Risikomarkierung] = []
         for d in self._sichtbare(nutzer):
-            if d.katalog_id:           # Annotationen sind keine eigenständigen Begriffe
+            if d.katalog_id or not d.begriff.strip():   # Annotationen + leere Begriffe: keine Marken
                 continue
             pat = re.compile(
                 rf"(?<![{_WB}]){re.escape(d.begriff)}(?![{_WB}])", re.IGNORECASE

@@ -53,3 +53,14 @@ def test_persistenz_meldet_nur_neue(tmp_path):
     assert erste                      # beim ersten Lauf Treffer
     zweite = abgleich.laufe(kat, eintraege=ein, state_pfad=state, fetch=False)
     assert zweite == []               # alles bereits gesehen
+
+
+def test_rss_lehnt_dtd_entity_ab():
+    # Entity-Expansion-Schutz (billion laughs): Feed mit DTD/<!ENTITY> wird
+    # abgelehnt statt von expat expandiert.
+    import pytest
+    bombe = (b'<?xml version="1.0"?>\n'
+             b'<!DOCTYPE rss [<!ENTITY a "AAAAAAAA">]>\n'
+             b'<rss><channel><item><title>&a;</title></item></channel></rss>')
+    with pytest.raises(ValueError):
+        rss.parse_rss(bombe, "BFH")

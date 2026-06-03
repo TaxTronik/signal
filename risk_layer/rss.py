@@ -42,6 +42,12 @@ def _text(s: str | None) -> str:
 
 
 def parse_rss(raw: bytes | str, quelle: str) -> list[RssEintrag]:
+    # Defense-in-depth gegen Entity-Expansion (billion laughs): legitimes RSS hat
+    # keine DTD/Entities. Ein Feed, der welche im Prolog mitbringt, wird abgelehnt,
+    # statt von expat expandiert zu werden (unabhaengig von der libexpat-Version).
+    head = (raw[:65536] if isinstance(raw, bytes) else raw[:65536].encode("utf-8", "replace")).lower()
+    if b"<!doctype" in head or b"<!entity" in head:
+        raise ValueError("RSS mit DTD/Entity abgelehnt (Entity-Expansion-Schutz)")
     root = ET.fromstring(raw)
     out: list[RssEintrag] = []
     for it in root.iter("item"):
