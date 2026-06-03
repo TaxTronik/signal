@@ -1,0 +1,82 @@
+{
+  "encoder": "bge-m3",
+  "dim": 1024,
+  "katalog_version": "0.3.0",
+  "stand": "2026-06-03T16:04:02+00:00",
+  "index": {
+    "anker_frei": 2857,
+    "mit_anker": 2905
+  },
+  "hand_mit_anker": {
+    "n": 15,
+    "recall@5": 1.0,
+    "recall@10": 1.0,
+    "mrr": 0.852,
+    "verfehlt": 0,
+    "pro_gebiet": {
+      "AO": [
+        13,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        1,
+        1
+      ]
+    }
+  },
+  "hand_anker_frei": {
+    "n": 15,
+    "recall@5": 0.6,
+    "recall@10": 0.733,
+    "mrr": 0.379,
+    "verfehlt": 4,
+    "pro_gebiet": {
+      "AO": [
+        8,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        0,
+        1
+      ]
+    }
+  },
+  "katalog_anker_frei": {
+    "n": 48,
+    "recall@5": 0.167,
+    "recall@10": 0.292,
+    "mrr": 0.113,
+    "verfehlt": 34,
+    "pro_gebiet": {
+      "AO": [
+        3,
+        26
+      ],
+      "AStG": [
+        1,
+        2
+      ],
+      "EStG": [
+        0,
+        3
+      ],
+      "KStG": [
+        2,
+        9
+      ],
+      "UStG": [
+        2,
+        8
+      ]
+    }
+  },
+  "abstention_marge": -0.074
+}

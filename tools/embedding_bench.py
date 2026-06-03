@@ -20,7 +20,9 @@ Aufruf:  python tools/embedding_bench.py [--encoder bge-m3|hash]
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -105,25 +107,46 @@ def main() -> int:
     gold_hand = [(s, z, "hand") for s, z in POSITIVE]
     gold_kat = katalog_gold(kat)
 
-    print(f"# HAND-Fälle (n={len(gold_hand)}, held-out, andere Phrasierung als die Anker)")
-    for cond, idx in (("mit Anker  (Produktion)", idx_mit),
-                      ("anker-frei (Encoder pur)", idx_ohne)):
-        m = bewerte(idx, enc, gold_hand)
-        print(f"  [{cond}] R@5={m['recall@5']:.2f}  R@10={m['recall@10']:.2f}  MRR={m['mrr']:.3f}")
+    def kompakt(m):
+        return {"n": m["n"], "recall@5": round(m["recall@5"], 3),
+                "recall@10": round(m["recall@10"], 3), "mrr": round(m["mrr"], 3),
+                "verfehlt": len(m["verfehlt"]),
+                "pro_gebiet": {g: v for g, v in sorted(m["pro_gebiet"].items())}}
 
-    print(f"\n# KATALOG-Paraphrasen (n={len(gold_kat)}, anker-frei = echtes Held-out)")
-    m = bewerte(idx_ohne, enc, gold_kat)
-    print(f"  R@5={m['recall@5']:.2f}  R@10={m['recall@10']:.2f}  MRR={m['mrr']:.3f}")
-    print("  je Gebiet (R@5): " + "  ".join(
-        f"{g}={tref}/{ges}" for g, (tref, ges) in sorted(m["pro_gebiet"].items())))
-
-    # Abstention in der Produktionsbedingung (mit Anker).
+    hand_mit = bewerte(idx_mit, enc, gold_hand)
+    hand_ohne = bewerte(idx_ohne, enc, gold_hand)
+    kat_ohne = bewerte(idx_ohne, enc, gold_kat)
     neg_best = sorted((idx_mit.suche(s, enc, k=1, min_sim=0.0)[0]["sim"] for s in NEGATIVE),
                       reverse=True)
-    pos_best = bewerte(idx_mit, enc, gold_hand)["best_korrekt"]
-    if pos_best:
-        print(f"\nAbstention (mit Anker): tiefster Positiv={pos_best[0]:.3f} | "
-              f"höchster Negativ={neg_best[0]:.3f} | Marge={pos_best[0]-neg_best[0]:+.3f}")
+    pos_best = hand_mit["best_korrekt"]
+    marge = round(pos_best[0] - neg_best[0], 3) if pos_best else None
+
+    print(f"# HAND-Fälle (n={len(gold_hand)}, held-out)")
+    print(f"  [mit Anker ] R@5={hand_mit['recall@5']:.2f}  R@10={hand_mit['recall@10']:.2f}  MRR={hand_mit['mrr']:.3f}")
+    print(f"  [anker-frei] R@5={hand_ohne['recall@5']:.2f}  R@10={hand_ohne['recall@10']:.2f}  MRR={hand_ohne['mrr']:.3f}")
+    print(f"# KATALOG-Paraphrasen (n={len(gold_kat)}, anker-frei) "
+          f"R@5={kat_ohne['recall@5']:.2f}  R@10={kat_ohne['recall@10']:.2f}  MRR={kat_ohne['mrr']:.3f}")
+    print("  je Gebiet (R@5): " + "  ".join(
+        f"{g}={t}/{ges}" for g, (t, ges) in sorted(kat_ohne["pro_gebiet"].items())))
+    if marge is not None:
+        print(f"Abstention (mit Anker): Marge={marge:+.3f} "
+              f"(tiefster Pos {pos_best[0]:.3f} / höchster Neg {neg_best[0]:.3f})")
+
+    ergebnis = {
+        "encoder": enc.name, "dim": enc.dim,
+        "katalog_version": getattr(kat, "version", "?"),
+        "stand": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "index": {"anker_frei": len(idx_ohne.ids), "mit_anker": len(idx_mit.ids)},
+        "hand_mit_anker": kompakt(hand_mit),
+        "hand_anker_frei": kompakt(hand_ohne),
+        "katalog_anker_frei": kompakt(kat_ohne),
+        "abstention_marge": marge,
+    }
+    if "--save" in sys.argv:
+        ziel = Path(sys.argv[sys.argv.index("--save") + 1])
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        ziel.write_text(json.dumps(ergebnis, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\nBaseline gesichert: {ziel}")
     return 0
 
 
