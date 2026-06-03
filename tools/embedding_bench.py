@@ -31,6 +31,8 @@ from risk_layer.catalog import lade_katalog                       # noqa: E402
 from risk_layer.embedding import EmbeddingIndex, encoder_oeffnen  # noqa: E402
 from risk_layer.graph import graph_oeffnen                        # noqa: E402
 from risk_layer.idschema import para_level                        # noqa: E402
+from risk_layer.reranker import (baue_norm_doc_fn,                # noqa: E402
+                                 rerank_normen, reranker_oeffnen)
 from risk_layer.zitate import parse_normzitat                     # noqa: E402
 from tools.embedding_eval import NEGATIVE, POSITIVE               # noqa: E402
 
@@ -65,13 +67,15 @@ def _gebiet(norm_id: str) -> str:
     return teile[1] if len(teile) > 1 else "?"
 
 
-def bewerte(idx, enc, gold, topk=10):
+def bewerte(idx, enc, gold, topk=10, reranker=None, doc_fn=None, topn=20):
     r5 = r10 = mrr = 0
     best_korrekt: list[float] = []
     verfehlt: list[str] = []
     pro_gebiet: dict[str, list[int]] = {}
     for satz, ziele, _bid in gold:
-        treffer = idx.suche(satz, enc, k=topk, min_sim=0.0)
+        treffer = idx.suche(satz, enc, k=(topn if reranker else topk), min_sim=0.0)
+        if reranker is not None and doc_fn is not None:   # Top-N -> anker-bewusst rerank
+            treffer = rerank_normen(reranker, satz, treffer, doc_fn, topk)
         paras = [para_level(t["norm_id"]) for t in treffer]
         rank = next((i + 1 for i, p in enumerate(paras) if p in ziele), None)
         g = pro_gebiet.setdefault(_gebiet(sorted(ziele)[0]), [0, 0])
@@ -102,7 +106,15 @@ def main() -> int:
     # Rohkraft (und macht die Katalog-Paraphrasen zu echten Held-out-Anfragen).
     idx_ohne = EmbeddingIndex.build(graph, enc, katalog=None)
     idx_mit = EmbeddingIndex.build(graph, enc, katalog=kat)
-    print(f"Index: {len(idx_ohne.ids)} anker-frei | {len(idx_mit.ids)} mit Anker\n")
+    print(f"Index: {len(idx_ohne.ids)} anker-frei | {len(idx_mit.ids)} mit Anker")
+
+    # Optionaler Reranker: --reranker bge-reranker-v2-m3 (Top-20 -> anker-bewusst -> Top-k).
+    rr = doc_fn = None
+    if "--reranker" in sys.argv:
+        rr = reranker_oeffnen(sys.argv[sys.argv.index("--reranker") + 1])
+        doc_fn = baue_norm_doc_fn(kat, graph)
+        print(f"Reranker: {rr.name if rr else None}")
+    print()
 
     gold_hand = [(s, z, "hand") for s, z in POSITIVE]
     gold_kat = katalog_gold(kat)
@@ -113,9 +125,9 @@ def main() -> int:
                 "verfehlt": len(m["verfehlt"]),
                 "pro_gebiet": {g: v for g, v in sorted(m["pro_gebiet"].items())}}
 
-    hand_mit = bewerte(idx_mit, enc, gold_hand)
-    hand_ohne = bewerte(idx_ohne, enc, gold_hand)
-    kat_ohne = bewerte(idx_ohne, enc, gold_kat)
+    hand_mit = bewerte(idx_mit, enc, gold_hand, reranker=rr, doc_fn=doc_fn)
+    hand_ohne = bewerte(idx_ohne, enc, gold_hand, reranker=rr, doc_fn=doc_fn)
+    kat_ohne = bewerte(idx_ohne, enc, gold_kat, reranker=rr, doc_fn=doc_fn)
     neg_best = sorted((idx_mit.suche(s, enc, k=1, min_sim=0.0)[0]["sim"] for s in NEGATIVE),
                       reverse=True)
     pos_best = hand_mit["best_korrekt"]
@@ -134,6 +146,7 @@ def main() -> int:
 
     ergebnis = {
         "encoder": enc.name, "dim": enc.dim,
+        "reranker": rr.name if rr else None,
         "katalog_version": getattr(kat, "version", "?"),
         "stand": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "index": {"anker_frei": len(idx_ohne.ids), "mit_anker": len(idx_mit.ids)},
