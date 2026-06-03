@@ -8,11 +8,12 @@ import pytest
 from risk_layer import modell as M
 
 
-def test_registry_default_ist_qwen3_14b():
-    assert M.DEFAULT_MODELL == "qwen3-14b"
-    info = M.MODELLE["qwen3-14b"]
-    assert info.repo == "Qwen/Qwen3-14B-GGUF"
-    assert info.quant == "Q5_K_M"
+def test_registry_default_ist_granite_4_1_8b():
+    assert M.DEFAULT_MODELL == "granite-4.1-8b"
+    g = M.MODELLE["granite-4.1-8b"]
+    assert g.repo == "ibm-granite/granite-4.1-8b-GGUF" and g.quant == "Q5_K_M"
+    # Qwen3-14B bleibt als "Gruendlich-Modus" verfuegbar (nur nicht mehr Default)
+    assert M.MODELLE["qwen3-14b"].repo == "Qwen/Qwen3-14B-GGUF"
 
 
 def test_registry_granite_eintraege():
@@ -20,7 +21,6 @@ def test_registry_granite_eintraege():
     g8 = M.MODELLE["granite-4.1-8b"]
     assert g8.repo == "ibm-granite/granite-4.1-8b-GGUF" and g8.quant == "Q5_K_M"
     assert "granite-4.1-3b" in M.MODELLE
-    assert M.DEFAULT_MODELL == "qwen3-14b"   # Default bleibt unveraendert
 
 
 def test_datei_url_form():
@@ -40,6 +40,15 @@ def test_modell_pfad_findet_gguf(tmp_path):
     info = M.MODELLE["qwen3-14b"]
     assert M.modell_pfad(info, tmp_path).name == "Qwen3-14B-Q5_K_M.gguf"
     assert M.modell_pfad(info, tmp_path / "leer") is None
+
+
+def test_modell_pfad_disambiguiert_bei_gleichem_quant(tmp_path):
+    # Qwen UND Granite mit gleicher Quant -> jeder Eintrag muss SEINE Datei finden,
+    # nicht die alphabetisch erste (sonst laedt die Engine trotz Default das falsche Modell).
+    (tmp_path / "Qwen3-14B-Q5_K_M.gguf").write_bytes(b"x")
+    (tmp_path / "granite-4.1-8b-Q5_K_M.gguf").write_bytes(b"x")
+    assert M.modell_pfad(M.MODELLE["granite-4.1-8b"], tmp_path).name == "granite-4.1-8b-Q5_K_M.gguf"
+    assert M.modell_pfad(M.MODELLE["qwen3-14b"], tmp_path).name == "Qwen3-14B-Q5_K_M.gguf"
 
 
 def test_finde_llama_server(monkeypatch, tmp_path):

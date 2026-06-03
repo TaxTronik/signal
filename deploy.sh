@@ -92,7 +92,7 @@ if [[ $SKIP_MODEL -eq 0 ]]; then
   if py_ok "from risk_layer import modell as M; import sys; sys.exit(0 if M.modell_pfad($MREF) else 1)" && [[ $FORCE -eq 0 ]]; then
     ok "Modell bereits vorhanden (./models) - uebersprungen"
   else
-    info "laedt das GGUF (Default Qwen3-14B Q5_K_M ~10 GB, resumebar) nach ./models ..."
+    info "laedt das Default-GGUF (resumebar) nach ./models ..."
     if [[ -n "$MODELL" ]]; then cli modell download --modell "$MODELL"; else cli modell download; fi
     ok "Modell geladen"
   fi

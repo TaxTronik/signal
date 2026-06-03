@@ -102,7 +102,7 @@ if (-not $SkipModel) {
     if ($vorhanden -and -not $Force) {
         OkMsg "Modell bereits vorhanden (./models) - uebersprungen"
     } else {
-        Info "laedt das GGUF (Default Qwen3-14B Q5_K_M ~10 GB, resumebar) nach ./models ..."
+        Info "laedt das Default-GGUF (resumebar) nach ./models ..."
         $dl = @("modell", "download"); if ($Modell) { $dl += @("--modell", $Modell) }
         Cli $dl
         OkMsg "Modell geladen"

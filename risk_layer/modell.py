@@ -50,7 +50,7 @@ class ModellInfo:
 # Kuratierte Empfehlungen (16 GB VRAM, RDNA4/Vulkan). Default = Qwen3-14B Q5_K_M.
 MODELLE: dict[str, ModellInfo] = {
     "qwen3-14b": ModellInfo("qwen3-14b", "Qwen3-14B", "Qwen/Qwen3-14B-GGUF", "Q5_K_M", 10.1,
-                            "Empfehlung: Sweet Spot 16 GB, starke deutsche Rechtssprache"),
+                            "Gruendlich-Modus: breiterer Recall, aber langsam (GEMV-limitiert auf RDNA4)"),
     "qwen3-8b": ModellInfo("qwen3-8b", "Qwen3-8B", "Qwen/Qwen3-8B-GGUF", "Q6_K", 6.7,
                            "mehr Kontext-Headroom, schneller"),
     # IBM Granite 4.1 (aktuelle Linie, Apache-2.0; die 4.x-Reihe setzt auf hybride
@@ -60,12 +60,12 @@ MODELLE: dict[str, ModellInfo] = {
     # (Hybrid braucht eine recente llama.cpp; wird beim ersten Laden bestaetigt.)
     "granite-4.1-8b": ModellInfo(
         "granite-4.1-8b", "Granite-4.1-8B", "ibm-granite/granite-4.1-8b-GGUF",
-        "Q5_K_M", 5.8, "IBM 4.1, Apache-2.0; ~halbe Gewichte vs. 14B -> schneller"),
+        "Q5_K_M", 5.8, "Default: IBM 4.1 Hybrid (Mamba-2), Apache-2.0; schnell auf bandbreiten-limitierter GPU"),
     "granite-4.1-3b": ModellInfo(
         "granite-4.1-3b", "Granite-4.1-3B", "ibm-granite/granite-4.1-3b-GGUF",
         "Q5_K_M", 2.1, "IBM 4.1, Apache-2.0; sehr schnell (Speed-Anker)"),
 }
-DEFAULT_MODELL = "qwen3-14b"
+DEFAULT_MODELL = "granite-4.1-8b"
 
 
 # ---------------------------------------------------------------------------
@@ -138,12 +138,21 @@ def download_modell(
 
 
 def modell_pfad(info: ModellInfo, ziel_dir: Path | str = DEFAULT_MODELL_DIR) -> Path | None:
-    """Pfad der (ersten) lokal vorhandenen GGUF-Datei des Modells, falls geladen."""
+    """Pfad der lokal vorhandenen GGUF-Datei des Modells, falls geladen.
+
+    Matcht Repo-Stamm UND Quant: liegen mehrere Modelle mit gleicher Quant in
+    ./models (z. B. Qwen3-14B-Q5_K_M und granite-4.1-8b-Q5_K_M), waehlt ein reiner
+    Quant-Match sonst das alphabetisch erste – also potentiell das FALSCHE Modell.
+    """
     ziel_dir = Path(ziel_dir)
     if not ziel_dir.exists():
         return None
     q = info.quant.lower()
-    treffer = sorted(p for p in ziel_dir.glob("*.gguf") if q in p.name.lower())
+    stamm = info.repo.split("/")[-1].lower().replace("-gguf", "")
+    treffer = sorted(p for p in ziel_dir.glob("*.gguf")
+                     if q in p.name.lower() and stamm in p.name.lower())
+    if not treffer:   # Fallback (Einzelmodell-Setup): nur Quant
+        treffer = sorted(p for p in ziel_dir.glob("*.gguf") if q in p.name.lower())
     return treffer[0] if treffer else None
 
 
