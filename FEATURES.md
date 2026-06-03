@@ -174,9 +174,9 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 
 | Garantie | Mechanismus |
 |---|---|
-| Schicht-1-Recall = 100 % auf dem Katalog | deterministisches Matching je Oberfläche |
+| Surface-Recall = 100 % der katalogisierten Oberflächenformen | deterministisches Matching je Oberfläche (KEIN Recall auf alle denkbaren Risiken) |
 | keine erfundenen Treffer | jeder Treffer trägt Katalog-ID + wörtlichen Beleg |
-| Span-Treue = 100 % (Schicht 1b/1.5/2) | Pflicht-Gate / span-treue Offsets |
+| Offset-Treue = 100 % für erzeugte Spans (Schicht 1b/1.5/2) | Pflicht-Gate / span-treue Offsets (keine inhaltliche Vollständigkeit aller denkbaren Spans) |
 | Definition **nie** aus dem Modell | Resolver greift nur auf Katalog/Korpus zu |
 | Norm **nie** fest gemappt | Graph prüft nur Existenz; LLM/Embedding = Vorschlag |
 | bit-identische Reproduzierbarkeit | rein deterministische Schichten 1/1b/1.5 (gleiche `/v1`-Antwort) |
