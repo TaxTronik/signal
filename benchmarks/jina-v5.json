@@ -1,0 +1,82 @@
+{
+  "encoder": "jina-v5-small-retrieval",
+  "dim": 1024,
+  "katalog_version": "0.3.0",
+  "stand": "2026-06-03T17:14:35+00:00",
+  "index": {
+    "anker_frei": 2857,
+    "mit_anker": 2905
+  },
+  "hand_mit_anker": {
+    "n": 15,
+    "recall@5": 0.667,
+    "recall@10": 0.733,
+    "mrr": 0.643,
+    "verfehlt": 4,
+    "pro_gebiet": {
+      "AO": [
+        8,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        1,
+        1
+      ]
+    }
+  },
+  "hand_anker_frei": {
+    "n": 15,
+    "recall@5": 0.4,
+    "recall@10": 0.467,
+    "mrr": 0.276,
+    "verfehlt": 8,
+    "pro_gebiet": {
+      "AO": [
+        5,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        0,
+        1
+      ]
+    }
+  },
+  "katalog_anker_frei": {
+    "n": 48,
+    "recall@5": 0.062,
+    "recall@10": 0.104,
+    "mrr": 0.043,
+    "verfehlt": 43,
+    "pro_gebiet": {
+      "AO": [
+        1,
+        26
+      ],
+      "AStG": [
+        1,
+        2
+      ],
+      "EStG": [
+        0,
+        3
+      ],
+      "KStG": [
+        0,
+        9
+      ],
+      "UStG": [
+        1,
+        8
+      ]
+    }
+  },
+  "abstention_marge": -0.112
+}

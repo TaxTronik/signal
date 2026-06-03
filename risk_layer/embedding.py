@@ -96,9 +96,11 @@ class BgeM3Encoder:
     name = "bge-m3"
     dim = 1024
 
-    def __init__(self, modell: str = "BAAI/bge-m3", device: str | None = None):
+    def __init__(self, modell: str = "BAAI/bge-m3", device: str | None = None,
+                 trust_remote_code: bool = False):
         self._modell_name = modell
         self._device = device
+        self._trust = trust_remote_code
         self._modell = None
         # Der Encoder ist im ThreadingHTTPServer prozessweit GETEILT. torch/das
         # ST-Modell sind nicht thread-sicher (gemeinsamer CUDA/ROCm-Context). Ein
@@ -122,7 +124,8 @@ class BgeM3Encoder:
                     except ImportError:
                         pass
                     from sentence_transformers import SentenceTransformer  # lazy
-                    self._modell = SentenceTransformer(self._modell_name, device=self._device)
+                    self._modell = SentenceTransformer(self._modell_name, device=self._device,
+                                                       trust_remote_code=self._trust)
                     hole = (getattr(self._modell, "get_embedding_dimension", None)
                             or self._modell.get_sentence_embedding_dimension)
                     d = hole()                  # ST renames die Methode; beides abfangen
@@ -155,10 +158,24 @@ class GraniteR2Encoder(BgeM3Encoder):
                          device=device)
 
 
+class JinaV5Encoder(BgeM3Encoder):
+    """Jina-Embeddings-v5-text-small-retrieval. ⚠️ NUR Eval/Vergleich: Lizenz
+    CC-BY-NC-4.0 (nicht-kommerziell → für TaxTronik-Produktion lizenzpflichtig)
+    und trust_remote_code=True (fremder Modellcode wird ausgeführt)."""
+
+    name = "jina-v5-small-retrieval"
+    dim = 512
+
+    def __init__(self, device: str | None = None):
+        super().__init__(modell="jinaai/jina-embeddings-v5-text-small-retrieval",
+                         device=device, trust_remote_code=True)
+
+
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
                     device: str | None = None) -> Encoder:
     """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash;
-    ``granite-311m-r2`` das mehrsprachige Granite-R2 (ModernBERT).
+    ``granite-311m-r2`` das mehrsprachige Granite-R2 (ModernBERT); ``jina-v5``
+    Jina-v5-small-retrieval (CC-BY-NC, nur Eval).
 
     ``device`` wird durchgereicht. Für Einzelabfragen (Web-Request) ist CPU
     sinnvoll: hält die GPU frei und ist für einen Satz schnell genug. Der Index-
@@ -166,6 +183,8 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
     """
     if name in ("granite-311m-r2", "granite-r2", "granite"):
         return GraniteR2Encoder(device=device)
+    if name in ("jina-v5", "jina-v5-small-retrieval", "jina"):
+        return JinaV5Encoder(device=device)
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
