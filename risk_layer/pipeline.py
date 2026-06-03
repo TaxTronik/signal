@@ -21,6 +21,7 @@ liegen wie die Treffer.
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -139,6 +140,70 @@ def _gleiches_konzept(begruendung: str, begriff: str) -> bool:
     return any(x in y or y in x for x in a for y in b if min(len(x), len(y)) >= 5)
 
 
+# --- Smart-Windowing (Coverage-Preserving LLM-Gating) ----------------------
+# Schicht 2 läuft NICHT pauschal über das ganze Dokument, sondern absatzweise –
+# und nur dort, wo die deterministischen Schichten NICHT schon alles erklären.
+# Drei harte Leitplanken:
+#   1. Trefferlose ("blinde") Fenster werden NIE übersprungen – dort steckt die
+#      eigentliche LLM-Daseinsberechtigung (umschriebene/unbekannte Risiken).
+#   2. "voll abgedeckt" ist konservativ: schon EIN unbedecktes Wortzeichen ODER
+#      ein Streit-Signal im Fenster => das LLM läuft.
+#   3. Kontext-Nachbarabsätze erden das Modell, aber neue Spans gelten NUR im
+#      Hauptfenster (kein Offset-/Dedupe-Chaos über Fenstergrenzen).
+
+_FENSTER_MAX_CHARS = 600
+
+
+def _absatz_grenzen(text: str) -> list[tuple[int, int]]:
+    """Absatz-Spans (start, end) auf dem ORIGINAL (durch Leerzeilen getrennt)."""
+    out: list[tuple[int, int]] = []
+    pos = 0
+    for m in re.finditer(r"\n[ \t]*\n", text):
+        if text[pos:m.start()].strip():
+            out.append((pos, m.start()))
+        pos = m.end()
+    if text[pos:].strip():
+        out.append((pos, len(text)))
+    return out or [(0, len(text))]
+
+
+def _haupt_fenster(absaetze: list[tuple[int, int]], max_chars: int) -> list[tuple[int, int]]:
+    """Bündelt aufeinanderfolgende Absätze zu Hauptfenstern <= max_chars (Absatz-
+    grenzen werden nie gebrochen; ein Übergroß-Absatz bleibt sein eigenes Fenster)."""
+    fenster: list[tuple[int, int]] = []
+    for s, e in absaetze:
+        if fenster and e - fenster[-1][0] <= max_chars:
+            fenster[-1] = (fenster[-1][0], e)
+        else:
+            fenster.append((s, e))
+    return fenster
+
+
+def _mit_kontext(ms: int, me: int, absaetze: list[tuple[int, int]]) -> tuple[int, int]:
+    """Erweitert das Hauptfenster um je einen Nachbarabsatz – als ZUSAMMENHÄNGENDEN
+    Slice auf dem Original (Offsets bleiben linear, daher kein Mapping nötig)."""
+    idx = [i for i, (a, b) in enumerate(absaetze) if not (b <= ms or a >= me)]
+    if not idx:
+        return ms, me
+    lo, hi = max(0, idx[0] - 1), min(len(absaetze) - 1, idx[-1] + 1)
+    return absaetze[lo][0], absaetze[hi][1]
+
+
+def _coverage_maske(n: int, spans: list[tuple[int, int]]) -> bytearray:
+    """1-Byte-Maske der deterministisch abgedeckten Positionen (O(n))."""
+    maske = bytearray(n)
+    for a, b in spans:
+        for i in range(max(0, a), min(n, b)):
+            maske[i] = 1
+    return maske
+
+
+def _wort_unbedeckt(ms: int, me: int, maske: bytearray, text: str) -> bool:
+    """True, sobald EIN inhaltliches (alphanumerisches) Zeichen im Fenster nicht
+    deterministisch abgedeckt ist – die konservative Bedingung für 'nicht gesättigt'."""
+    return any(maske[i] == 0 and text[i].isalnum() for i in range(ms, me))
+
+
 class Pipeline:
     """Wiederverwendbare Pipeline mit vorkompiliertem Matcher."""
 
@@ -159,6 +224,38 @@ class Pipeline:
                         self._ketten_nach_norm.setdefault(pid, []).append(kette.as_dict())
                         break
 
+    def _gefenstert(self, text, treffer, trig_hits, streit_zonen, bekannt,
+                    provider, kontext, *, max_chars=_FENSTER_MAX_CHARS):
+        """Coverage-gesteuertes LLM-Gating: das Dokument wird absatzweise in Haupt-
+        fenster zerlegt; deterministisch GESÄTTIGTE Fenster (alle Wortzeichen abgedeckt,
+        kein Streit-Signal) werden übersprungen, der Rest läuft – mit je einem Nachbar-
+        absatz als Kontext – durchs LLM. Neue Spans gelten nur im Hauptfenster.
+        Liefert (Kandidaten mit ORIGINAL-Offsets, Fenster-Provenienz)."""
+        absaetze = _absatz_grenzen(text)
+        cov = [(t.start, t.end) for t in treffer]
+        cov += [(m["start"], m["end"]) for m in trig_hits]   # Trigger = aufgelöst -> Abdeckung
+        maske = _coverage_maske(len(text), cov)
+        kand: list = []
+        prov: list[dict] = []
+        for ms, me in _haupt_fenster(absaetze, max_chars):
+            hat_streit = any(not (me <= zs or ms >= ze) for zs, ze in streit_zonen)
+            hat_cov = any(not (me <= a or ms >= b) for a, b in cov)
+            # Leitplanke 1+2: blind ODER teilbedeckt ODER Streit => LLM läuft.
+            if not hat_streit and not _wort_unbedeckt(ms, me, maske, text):
+                prov.append({"span": [ms, me], "state": "covered_full", "llm": False})
+                continue
+            zustand = ("covered_partial" if hat_cov
+                       else "streit" if hat_streit else "blind")
+            cs, ce = _mit_kontext(ms, me, absaetze)          # zusammenhängender Slice
+            n = 0
+            for k in erkenne_kandidaten(text[cs:ce], bekannt, provider, kontext_normen=kontext):
+                orig = cs + k.char_offset
+                if ms <= orig and orig + len(k.span_text) <= me:   # Leitplanke 3
+                    kand.append(replace(k, char_offset=orig))
+                    n += 1
+            prov.append({"span": [ms, me], "state": zustand, "llm": True, "kandidaten": n})
+        return kand, prov
+
     def run(
         self,
         text: str,
@@ -176,6 +273,8 @@ class Pipeline:
         streit: bool = False,
         embedding=None,
         embedding_encoder=None,
+        smart_windowing: bool = False,
+        fenster_max_chars: int = _FENSTER_MAX_CHARS,
     ) -> RunReport:
         ergebnis = ingest_mod.ingest(text)
         omap = ergebnis.offset_map
@@ -212,6 +311,13 @@ class Pipeline:
         if berater is not None:
             anreichern_mit_berater(karten, berater, nutzer=nutzer)
 
+        # Deterministische Roh-Erkennungen EINMAL berechnen: für das Coverage-Gating
+        # der Schicht 2 (Smart-Windowing) UND die späteren Trigger-/Streit-Marken –
+        # kein Doppellauf. (Reine Funktionen; Reihenfolge unkritisch.)
+        trig_hits = list(trigger.detektiere(text)) if (detektor and trigger is not None) else []
+        streit_funde = self.streit.funde(norm_text) if streit else []
+        streit_zonen_orig = [_to_orig(omap, f.start, f.end) for f in streit_funde]
+
         # Schicht 2 (optional). Ohne provider bleibt der Lauf rein deterministisch.
         kandidaten: list = []
         schicht2_info = None
@@ -222,10 +328,18 @@ class Pipeline:
             kontext, gestuetzt_paras = _kandidaten_normen(text, graph, trigger)
             if hasattr(provider, "__dict__"):
                 provider._abweichung = abweichung
-            kandidaten = [k.as_dict() for k in
-                          erkenne_kandidaten(text, bekannt, provider, kontext_normen=kontext)]
+            if smart_windowing:
+                kand_objs, fenster_prov = self._gefenstert(
+                    text, treffer, trig_hits, streit_zonen_orig, bekannt, provider, kontext,
+                    max_chars=fenster_max_chars)
+                kandidaten = [k.as_dict() for k in kand_objs]
+            else:
+                kandidaten = [k.as_dict() for k in
+                              erkenne_kandidaten(text, bekannt, provider, kontext_normen=kontext)]
             if hasattr(provider, "audit_info"):
                 schicht2_info = provider.audit_info()
+            if smart_windowing:
+                schicht2_info = {**(schicht2_info or {}), "windowing": fenster_prov}
 
         # Belegte Spans: NUR deterministische Marken (Karten/Berater/Trigger) dedupen
         # untereinander. Die LLM-Schicht ist ADDITIV – sie wandert NICHT in belegt_det,
@@ -293,8 +407,9 @@ class Pipeline:
             llm_spans.append((off, ende))
 
         # Schicht 1.5 – deterministischer Trigger-Detektor (OHNE Modell).
-        if detektor and trigger is not None:
-            for m in trigger.detektiere(text):
+        # trig_hits wurde oben EINMAL berechnet (auch fürs Coverage-Gating).
+        if trig_hits:
+            for m in trig_hits:
                 s, e = m["start"], m["end"]
                 if any(not (e <= bs or s >= be) for bs, be in belegt_det):
                     continue
@@ -348,7 +463,7 @@ class Pipeline:
 
         # Streit-Verstärker (deterministisch): Subsumtions-Brennpunkte markieren UND
         # die im SELBEN Satz liegenden Begriffsmarken als "streitig" verstärken.
-        streit_funde = self.streit.funde(norm_text) if streit else []
+        # streit_funde wurde oben EINMAL berechnet (auch fürs Coverage-Gating).
         if streit_funde:
             zonen_o = [_to_orig(omap, s.start, s.end) for s in saetze_mit_offset(norm_text)]
             streit_zonen: list[tuple[int, int, str]] = []
