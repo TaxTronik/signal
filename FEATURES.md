@@ -20,7 +20,8 @@ Jede Schicht ist additiv — keine überschreibt die vorige. Reihenfolge in
 | **1b — Muster** | `muster.py` | Beschreibungs-/Negativbefund-**Ko-Okkurrenz je Satz**: fängt UMSCHRIEBENE Sachverhalte („Belege fehlen", „Kasse nicht nachvollziehbar"), ohne dass der Begriff wörtlich fällt | ✅ |
 | **1.5 — Trigger** | `triggerindex.py` | korpus-trennscharfe Wörter (**IDF-gewichtet**) → Norm-Kandidaten; rein deterministisch, kuratierbar (`geprueft`-Flag) | ✅ |
 | **1.7 — Semantik** | `embedding.py` | **BGE-M3-Embedding** des Gesetzeskorpus; findet Paraphrasen ohne geteiltes Fachwort. Liefert **VORSCHLÄGE**, keine harten Marken | 🟡 |
-| **2 — LLM** | `schicht2.py`, `llm.py` | optionales lokales LLM als Zusatzsignal; Constrained Decoding + **Span-Verifikations-Gate**; darf nur *zeigen*, nie *definieren* | ✅ |
+| **1.7b — Reranker** | `reranker.py` | **Cross-Encoder** (bge-reranker-v2-m3, Apache-2.0) ordnet die 1.7-Top-N **anker-bewusst** um (bewertet gegen Gesetzestext **+** kuratierte Paraphrasen) und filtert per Abstention-Schwelle; **held-out-Recall ~2×**. GPU-only (fp16, ~1 s/Dok), optional/degradierend | ✅ |
+| **2 — LLM** | `schicht2.py`, `llm.py` | optionales lokales LLM als **additives** Zusatzsignal; Constrained Decoding + **Span-Verifikations-Gate**; darf nur *zeigen*, nie *definieren*. Konzept-bewusster Dedup: LLM-Marken überleben über deterministischen Treffern, wenn juristisch eigenständig | ✅ |
 | **Streit-Verstärker** | `muster.py` | markiert Subsumtions-Brennpunkte („streitig", „hätte … müssen", „nachlässig") **und** hebt benachbarte Begriffsmarken (`ist_streitig`) — die FF/IN-Stellen, an denen es kippt | ✅ |
 
 **Provenienz-Pflicht:** jede Markierung trägt ihre `herkunft` (Schicht, Methode,
@@ -73,14 +74,23 @@ Katalog-Norm werden **mit-eingebettet**. Eine alltagssprachliche Anfrage trifft
 dann den Anker im selben Register hoch, statt den abstrakten §-Text nur knapp —
 das **hebt echte Treffer, ohne den Rauschboden zu senken** (gemessen bestätigt).
 
-📌 **Benannte Schuld (Granularität):** Der Index führt die **Paragraph-Ebene**;
-Katalog-Anker auf Absatz-/Satz-Ebene (`:abs1`, `:nr3`) werden beim Einbetten auf
-die §-Ebene gekürzt. Das opfert die Absatz-Präzision (§ 173 **Abs. 1** „neue
-Tatsachen" vs. **Abs. 2** „Änderungssperre" — gegensätzliche Rechtsfolge). Im
-Vorschlags-Modus vertretbar; die richtige Lösung ist, den **Index auf
-Absatz-Granularität zu heben**, nicht den Katalog zu senken. Ein **lautes Audit**
-(tote Anker ohne Index-Ziel) verhindert, dass solche Mismatches still den Recall
-dämpfen.
+**Reranker (Schicht 1.7b — der gemessene Hebel):** Ein **Cross-Encoder**
+(`bge-reranker-v2-m3`, Apache-2.0) bewertet die Top-N des Bi-Encoders *gemeinsam* —
+**anker-bewusst** gegen Gesetzestext **plus** kuratierte Paraphrasen — und sortiert
+um; eine Abstention-Schwelle (`RISK_LAYER_RERANK_SCHWELLE`, Default 0,10) lässt
+neutrale Sätze leer. Gemessen (`tools/embedding_bench.py --reranker`):
+**held-out-Recall 0,17 → 0,35**, MRR ×3 — der erste Retrieval-Hebel, der den
+Anker-Floor *schlägt* (naiv gegen reinen Gesetzestext schadet er dagegen). fp16 auf
+der GPU macht ihn schnell (~1 s/Dok); in der Engine fest aktiv (GPU-only).
+
+📌 **Granularität — gemessen entschieden:** Der Index führt bewusst die
+**Paragraph-Ebene**. Ein A/B mit Absatz-Splitting **regredierte** die Gold-Menge
+(mehr Vektoren ⇒ höherer Rausch-Floor, Recall −1; die risiko-relevanten §§ sind
+kurz genug, die langen sind Übergangsrecht). Die echte Absatz-Präzision (§ 173
+Abs. 1 vs. Abs. 2) löst der **kuratierte Paraphrasen-Anker** gezielt, nicht blankes
+Splitting. Encoder-Head-to-Head (BGE-M3 vs. Granite-R2 vs. Jina-v5 vs. Qwen3-0.6B/4B,
+`benchmarks/*.json`): **BGE-M3 bleibt** — der Hebel sind **Anker + Reranker**, nicht
+das Modell. (Qwen3-4B ~2× bei un-verankerter Abdeckung, aber 8 GB VRAM — Reserve.)
 
 ---
 
@@ -187,17 +197,20 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 | kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects |
 | Katalog-Schreibvorgang torn-read-frei | Berater-Store schreibt atomar (temp + `os.replace`) |
 
-**Tests:** `python -m pytest -q` → **185 grün** (deterministischer Kern,
+**Tests:** `python -m pytest -q` → **221 grün** (deterministischer Kern,
 Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth**, Engine-Analysevertrag + Persistenz,
-Graph, LLM-Mock + Norm-Vorschlag, Muster/Streit, Trigger, Embedding/Paraphrasen-Anker,
-Anonymisierung, **Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
+Graph, LLM-Mock + Norm-Vorschlag + **konzept-bewusster Dedup**, Muster/Streit, Trigger,
+Embedding/Paraphrasen-Anker, **Reranker**, **Smart-Windowing**, Anonymisierung,
+**Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
 
 ---
 
 ## Offene Punkte / Ausbau 📌
 
-- **Index-Granularität auf Absatz-Ebene heben** — damit `:abs1`-Anker wieder
-  fachlich präzise einbetten (Abs. 1 vs. Abs. 2 ist nicht kosmetisch).
+- **Reranker-Feinschliff** — Startup-Warmup (sonst trifft der *erste* Request ~15 s
+  Kaltstart: Lazy-Load + ROCm-Kernel-Warmup), Gesamt-Batch über alle Sätze
+  (1 s → 0,47 s), Frontend zeigt den `rerank`-Score, CLI-Flag.
+  *(Absatz-Granularität wurde gemessen verworfen — siehe § 3.)*
 - **Domänenweite Paraphrasen-Anker** — Anker heben nicht nur die eigene Norm,
   sondern verschieben das relative Ranking aller anderen; ungeankerte Fälle sinken
   relativ ab. Wer die halbe Domäne ankert, muss die andere Hälfte mitziehen.

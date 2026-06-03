@@ -68,9 +68,9 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
   "$PY" -m pip install --upgrade pip >/dev/null
   "$PY" -m pip install -e . "numpy>=1.26"
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
-    info "Embedding gewuenscht -> sentence-transformers (+ torch, gross) installieren"
-    "$PY" -m pip install "sentence-transformers>=2.7"
-    ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers)"
+    info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
+    "$PY" -m pip install "sentence-transformers>=2.7" hf_transfer
+    ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
   else
     ok "Abhaengigkeiten installiert (PyYAML + numpy)"
   fi
@@ -135,11 +135,19 @@ if [[ $SKIP_CORPUS -eq 0 ]]; then
   if [[ ! -f corpus/trigger.sqlite || $FORCE -eq 1 ]]; then cli trigger build; else ok "Trigger-Index vorhanden (corpus/trigger.sqlite)"; fi
 
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
-    schritt "Semantischer Embedding-Index (BGE-M3)"
-    if [[ ! -f corpus/embedding/vectors.npy || $FORCE -eq 1 ]]; then
+    schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
+    if "$PY" -c "import hf_transfer" 2>/dev/null; then export HF_HUB_ENABLE_HF_TRANSFER=1; fi
+    # (Neu) bauen, wenn Index fehlt, --force, ODER der Katalog NEUER ist: neue
+    # Paraphrasen-Anker (catalog/begriffe.yaml) MUESSEN mit-eingebettet werden.
+    if [[ ! -f corpus/embedding/vectors.npy || $FORCE -eq 1 ]] || [[ catalog/begriffe.yaml -nt corpus/embedding/vectors.npy ]]; then
       info "bettet den Korpus ein (laedt BGE-M3 ~2,3 GB beim ersten Mal) ..."
       cli embedding build
-    else ok "Embedding-Index vorhanden (corpus/embedding/)"; fi
+    else ok "Embedding-Index aktuell (corpus/embedding/)"; fi
+    # Reranker (Schicht 1.7b) ist in der Engine fest aktiv (GPU). Modell vorab
+    # cachen, sonst laedt der ERSTE Request ~600 MB nach. Nur Download, kein GPU.
+    info "cacht den Reranker (bge-reranker-v2-m3, ~600 MB) ..."
+    "$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3')" \
+      && ok "Reranker gecacht" || info "Reranker-Cache fehlgeschlagen (laedt sonst beim 1. Request)"
   fi
 else info "Korpus uebersprungen (--skip-corpus)"; fi
 

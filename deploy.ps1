@@ -75,10 +75,10 @@ if (-not $SkipDeps) {
     & python -m pip install -e . "numpy>=1.26"
     if ($LASTEXITCODE -ne 0) { throw "pip install (Kern) fehlgeschlagen." }
     if ($WithEmbedding) {
-        Info "Embedding gewuenscht -> sentence-transformers (+ torch, gross) installieren"
-        & python -m pip install "sentence-transformers>=2.7"
+        Info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
+        & python -m pip install "sentence-transformers>=2.7" hf_transfer
         if ($LASTEXITCODE -ne 0) { throw "pip install sentence-transformers fehlgeschlagen." }
-        OkMsg "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers)"
+        OkMsg "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
     } else {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy)"
     }
@@ -146,11 +146,22 @@ if (-not $SkipCorpus) {
     } else { OkMsg "Trigger-Index vorhanden (corpus/trigger.sqlite)" }
 
     if ($WithEmbedding) {
-        Schritt "Semantischer Embedding-Index (BGE-M3)"
-        if ((-not (Test-Path -LiteralPath "corpus/embedding/vectors.npy")) -or $Force) {
+        Schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
+        python -c "import hf_transfer" 2>$null
+        if ($LASTEXITCODE -eq 0) { $env:HF_HUB_ENABLE_HF_TRANSFER = "1" }
+        # (Neu) bauen, wenn Index fehlt, -Force, ODER der Katalog NEUER ist: neue
+        # Paraphrasen-Anker (catalog/begriffe.yaml) MUESSEN mit-eingebettet werden.
+        $idxDa = Test-Path -LiteralPath "corpus/embedding/vectors.npy"
+        $katNeuer = $idxDa -and ((Get-Item "catalog/begriffe.yaml").LastWriteTime -gt (Get-Item "corpus/embedding/vectors.npy").LastWriteTime)
+        if ((-not $idxDa) -or $Force -or $katNeuer) {
             Info "bettet den Korpus ein (laedt BGE-M3 ~2,3 GB beim ersten Mal) ..."
             Cli @("embedding", "build")
-        } else { OkMsg "Embedding-Index vorhanden (corpus/embedding/)" }
+        } else { OkMsg "Embedding-Index aktuell (corpus/embedding/)" }
+        # Reranker (Schicht 1.7b) ist in der Engine fest aktiv (GPU). Modell vorab
+        # cachen, sonst laedt der ERSTE Request ~600 MB nach. Nur Download, kein GPU.
+        Info "cacht den Reranker (bge-reranker-v2-m3, ~600 MB) ..."
+        & python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3')"
+        if ($LASTEXITCODE -eq 0) { OkMsg "Reranker gecacht" } else { Info "Reranker-Cache fehlgeschlagen (laedt sonst beim 1. Request)" }
     }
 } else { Info "Korpus uebersprungen (-SkipCorpus)" }
 
