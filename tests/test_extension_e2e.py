@@ -42,9 +42,7 @@ def test_definieren_macht_aus_unknown_eine_berater_definition(tmp_path):
                 assert not (u.start <= r.start < u.end)
 
 
-def test_audit_enthaelt_risiken(tmp_path):
-    from risk_layer.audit import baue_audit
+def test_unknown_risiken_werden_eskaliert(tmp_path):
     report = Pipeline(lade_katalog()).run(_text(), unknown=True)
-    audit = baue_audit(report)
-    assert "risiken" in audit
-    assert any(r["status"] == "unknown_risiko" for r in audit["risiken"])
+    assert report.unknowns                                   # mind. ein unknown_risiko
+    assert all(r.status is Status.UNKNOWN_RISIKO for r in report.unknowns)

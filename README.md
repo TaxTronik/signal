@@ -1,20 +1,17 @@
 # Risk-Layer — Schlüsselbegriff-Assistenz für die steuerliche Risikosteuerung
 
-> Das System liest steuerrechtliche Texte und **markiert die unbestimmten
-> Rechtsbegriffe, an denen subsumiert werden muss**. Es beantwortet die
-> Rechtsfrage nicht — es stellt sicher, dass die Sollbruchstelle *gesehen* wird
+> Die Engine liest steuerrechtliche Texte und **markiert die unbestimmten
+> Rechtsbegriffe, an denen subsumiert werden muss**. Sie beantwortet die
+> Rechtsfrage nicht — sie stellt sicher, dass die Sollbruchstelle *gesehen* wird
 > und die zugehörige Definitionsquelle einen Klick entfernt liegt.
 >
 > **Das System lenkt Aufmerksamkeit, es übernimmt keine Subsumtion.** Die
 > Bewertung schuldet der Berufsträger höchstpersönlich (§§ 33, 57 StBerG).
 
-Umsetzung des Lastenhefts *„Schlüsselbegriff-Assistenz"* samt Erweiterungen
-(Stand Juni 2026). Alle Stufen 0–3 sind umgesetzt; darüber hinaus erkennen heute
-**mehrere deterministische Schichten** auch *umschriebene* Sachverhalte ohne LLM
-(Muster, Trigger), ein **semantischer Vorschlags-Modus** (BGE-M3-Embedding) fängt
-Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführt. Die Engine
-ist zudem als **zustandsloser `/v1`-Dienst** in ein Host-System einbettbar
-(`--api-only`, Bearer-Auth) — siehe Abschnitt *„Integration als Engine"*.
+Umsetzung des Lastenhefts *„Schlüsselbegriff-Assistenz"* samt Erweiterungen.
+**Mehrere deterministische Schichten** erkennen auch *umschriebene* Sachverhalte
+ohne LLM (Muster, Trigger), ein **semantischer Vorschlags-Modus** (BGE-M3-Embedding)
+fängt Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführt.
 
 > 📋 Vollständiges Feature-Inventar inkl. benannter Grenzen: **[FEATURES.md](FEATURES.md)**.
 
@@ -25,81 +22,43 @@ ist zudem als **zustandsloser `/v1`-Dienst** in ein Host-System einbettbar
 
 ---
 
-## Schnellstart — die GUI
+## Was es ist — eine headless Engine
 
-Voraussetzung: Python ≥ 3.11. Einzige Laufzeitabhängigkeit des **deterministischen
-Kerns**: **PyYAML**. Die grafische Oberfläche nutzt **nur die Standardbibliothek**
-– kein FastAPI, kein Node, kein Build-Schritt. Optionaler Ausbau (jeweils nur bei
-Bedarf, lazy geladen): `sentence-transformers` für Schicht 1.7 (Semantik),
-`llama-cpp`/`llama-server` für Schicht 2 (LLM), `spacy` für breitere Lemmatisierung.
+Der Risk-Layer ist eine **zustandslose Analyse-Engine** mit zwei Zugängen:
 
-```bash
-pip install pyyaml
-python -m risk_layer.web        # startet die App und öffnet den Browser
+- **HTTP-Vertrag `/v1/*`** (`web.py` + `api_v1.py`) — stabil, zustandslos, Bearer-Auth.
+  Zum Einbetten in ein **Host-System** (z. B. TaxTronik): Text rein, Analyse raus,
+  **kein Persist**. Oberfläche, Mandanten-Persistenz und Audit übernimmt der Host.
+- **CLI** (`cli.py`) — Analyse, Katalog-/Korpus-/Graph-/Embedding-Build, Zitat-Parsing,
+  Rechtsprechungs-Abgleich. Für Automatisierung (n8n) und Wartung.
 
-# optional: semantische Vorschläge (BGE-M3) aktivieren
-pip install sentence-transformers
-risk-layer embedding build      # einmalig — baut den Korpus-Index (+ Paraphrasen-Anker)
-```
+Es gibt **keine eingebaute GUI** und **keinen eigenen Audit-Log** — beides Aufgabe
+des Host-Systems. § 203 StGB ist konstitutiv: zur Laufzeit verlässt **nichts** die
+Maschine außer dem bewusst freigegebenen Recherche-Export (s. u.).
 
-Die App läuft strikt lokal auf `http://127.0.0.1:8000` – **es verlässt nichts die
-Maschine** (§ 203 StGB, /NF10/, /NF60/). Im Browser:
+---
 
-1. Sachverhalt einfügen (oder „Beispiel laden") und **Analysieren**.
-2. Markierungen sind nach Governance-Typ/Status eingefärbt; Klick zeigt die
-   **Begriffskarte** (Norm-Anker, Definitionsquelle, Gefährdungsnotiz).
-3. Mit **Unknown-als-Risiko** werden nicht-katalogisierte, juristisch aufgeladene
-   Begriffe eskaliert – eine gelbe Stelle lässt sich **direkt definieren**
-   (define-on-the-fly) und wird beim nächsten Lauf als Berater-Definition geführt.
-4. Eingebautes **Zitat-Werkzeug** (§ → kanonische ID) und **Downloads** für
-   Audit-Log (JSON) und HTML-Report.
+## Schnellstart
 
-```
-┌────────────────────────────────────────────────────────────────────┐
-│ ⚖️  Schlüsselbegriff-Assistenz            lokal·offline  Katalog v0.1 │
-├────────────────────────────────────────────────────────────────────┤
-│  Treffer 10   Lücken 1   Unknown 1   Berater 2     [FP][FF][IN]…     │
-│ ┌───────────────────────────────────┐ ┌──────────────────────────┐  │
-│ │ …die ⟦organisatorische Eingliede- │ │  organisatorische        │  │
-│ │ rung⟧ war gegeben, weil … ⟦Be-     │ │  Eingliederung   [FF]    │  │
-│ │ triebsaufspaltung⟧ setzt voraus …  │ │  § 2 Abs.2 Nr.2 UStG     │  │
-│ │                                    │ │  Abschn. 2.8 UStAE       │  │
-│ └───────────────────────────────────┘ └──────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────┘
-```
-
-### Der Fall als Arbeitsumgebung
-
-- **Layer-Toggles** über dem Dokument: ① wörtlich · ① Muster · ① Trigger · ② LLM ·
-  ② Heuristik · Berater · ⚑ Streit · Eigen — jede Ebene einzeln ein-/ausblendbar,
-  jede mit eigener Farbe. Darunter das Panel **🧭 Semantische Norm-Vorschläge** (mit
-  Normketten) als Hinweis, der nichts im Text markiert.
-- **Edit-Modus** (✏): eigenen Text mit eigener **Farbe + Label + Notiz + Norm**
-  anstreichen (Auswahl im Dokument, Norm-Suche im Graphen). Klick auf eine eigene
-  Markierung **öffnet den Editor** wieder (Löschen über „Entfernen"); Übernahme
-  **„Als Begriff in Katalog"** (wird Berater-Definition → Katalog
-  wächst durch Nutzung).
-- **Fall-Datenbank**: „Fall speichern 💾" sichert Text, Optionen und eigene
-  Markierungen; „Fälle ▾" listet gespeicherte Fälle zum **Weiterarbeiten**. Fälle
-  liegen lokal unter `faelle/` (Mandantendaten – gitignored, § 203 StGB).
-
-## CLI (für Automatisierung / n8n)
+Voraussetzung: Python ≥ 3.11. Laufzeitabhängigkeiten: **PyYAML** (Kern) + **numpy**
+(Schicht 1.7). Nur Standardbibliothek für HTTP/CLI — kein FastAPI, kein Node, kein
+Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semantik),
+`llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (breitere Lemmatisierung).
 
 ```bash
-pip install -e ".[dev]"             # + pytest für die Tests
+pip install pyyaml numpy
 
-# Sachverhalt analysieren → Konsolen-Zusammenfassung
+# (a) Headless-Engine: bedient ausschließlich das authentifizierte /v1
+RISK_LAYER_TOKEN=<secret> python -m risk_layer.web --host 0.0.0.0
+#   ohne Token ist nur ein Loopback-Bind erlaubt (lokale Entwicklung):
+python -m risk_layer.web        # http://127.0.0.1:8000/v1/
+
+# (b) CLI: Sachverhalt analysieren → Konsolen-Zusammenfassung
 python -m risk_layer.cli analyse examples/beispiel_organschaft.txt
 
-# zusätzlich annotierten HTML-Report + Audit-Log schreiben
-python -m risk_layer.cli analyse examples/beispiel_organschaft.txt \
-    --html out/report.html --audit out/audit.json
-
-# Katalog strukturell prüfen
-python -m risk_layer.cli katalog --check
-
-# stdin-Pipeline (z. B. aus n8n)
-type sachverhalt.txt | python -m risk_layer.cli analyse - --fail-on-luecke
+# optional: semantische Vorschläge (BGE-M3) vorbereiten
+pip install sentence-transformers
+risk-layer embedding build      # einmalig — baut den Korpus-Index (+ Paraphrasen-Anker)
 ```
 
 Als Bibliothek:
@@ -111,6 +70,30 @@ print(report.zusammenfassung())
 for karte in report.luecken:
     print("Lücke:", karte.rechercheauftrag)
 ```
+
+### `/v1`-Endpunkte (der Integrationsvertrag)
+
+`GET /v1/health` · `POST /v1/analyse` · `GET /v1/katalog` ·
+`POST /v1/katalog/definiere` · `GET /v1/normgraph/{aufloesen,suche}` ·
+`POST /v1/embedding/suche` · `GET /v1/llm/status` · `POST /v1/llm/start`. Details + Beispiel-Antworten:
+**[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)** und
+[fixtures/](fixtures/).
+
+```bash
+curl -s http://127.0.0.1:8000/v1/analyse \
+  -H "Authorization: Bearer $RISK_LAYER_TOKEN" -H "Content-Type: application/json" \
+  -d '{"text":"Eine Schätzung der Besteuerungsgrundlagen droht wegen § 42 AO.","mitLLM":false}'
+```
+
+`POST /v1/analyse` liefert **stabile Zeichen-Offsets** (`spans[].start/end`) in den
+exakt übergebenen Text + `text_hash` (= sha256). Die schnelle Phase (`mitLLM:false`)
+ist **deterministisch** — gleicher Text → gleiche Spans. Darüber rendert das
+Host-Overlay. **Auth:** Bearer-Token (`RISK_LAYER_TOKEN`), konstant-zeitig geprüft;
+ein Nicht-Loopback-Bind ohne Token wird abgelehnt.
+
+**Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth bei Netz-Bind),
+`RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook, SSRF),
+`RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`).
 
 ---
 
@@ -130,7 +113,7 @@ Eingabetext
    │
    ▼ AUFLÖSUNG         resolver.py      Definition NUR aus Quelle, sonst Lücke; Normketten (Kaskaden)
    │
-   ▼ REPORT + AUDIT    report.py / audit.py   annot. HTML, Begriffskarten, Semantik-Panel, JSON-Log
+   ▼ ANTWORT           web.py/api_v1.py /v1-JSON: spans, karten, risiken, semantik, summary, text_hash
 ```
 
 **Trennlinie der Zuständigkeit:** Schichten 1/1b/1.5 und die Definitionsauflösung
@@ -138,8 +121,7 @@ sind reiner, reproduzierbarer Code — *trainingsdaten-unabhängig*. Das LLM
 (Schicht 2) und die Semantik (1.7) dürfen ausschließlich *zeigen/vorschlagen*, nie
 *definieren* oder *entscheiden* — erzwungen durch Span-Gate (`schicht2.py`),
 Existenzprüfung im Graphen und den reinen Vorschlags-Modus der Semantik. Alle
-Schichten sind additiv (keine überschreibt die vorige) und in der GUI einzeln
-ein-/ausblendbar.
+Schichten sind additiv (keine überschreibt die vorige).
 
 | Datei | Verantwortung | Lastenheft |
 |---|---|---|
@@ -151,20 +133,19 @@ ein-/ausblendbar.
 | `risk_layer/embedding.py` | Schicht 1.7: BGE-M3-Semantik-Index, Paraphrasen-Anker, Vorschlags-Modus | Erweiterung |
 | `risk_layer/schicht2.py` | LLM-Kandidaten, Schema/GBNF, **Span-Gate** | /LF90/–/LF140/ |
 | `risk_layer/resolver.py` | Definitionsauflösung / Lücken | /LF150/–/LF160/ |
-| `risk_layer/report.py` | annotierte Ansicht, Begriffskarten, Summary | /LF180/–/LF200/ |
-| `risk_layer/audit.py` | Audit-Log je Lauf | /LF210/ |
+| `risk_layer/pipeline.py` | Orchestrierung aller Schichten → `RunReport` | — |
 | `risk_layer/idschema.py` | kanonisches Knoten-ID-Schema (norm/verw/urteil) | Parser-Spez. 1 |
 | `risk_layer/lawmap.py` | Law-Alias-Map (Longest-Match) + Harvest-Hook | Parser-Spez. 2.4 |
 | `risk_layer/zitate.py` | Norm-/Entscheidungszitat-Parser, Kanonisierung | Parser-Spez. 2/3 |
 | `risk_layer/unknown_gate.py` | „Unknown als Risiko"-Gate + offline-Proposer | Erw. §3 /LF270–310/ |
 | `risk_layer/berater.py` | Berater-Definitionen (personal/geteilt, Lebenszyklus) | Erw. §4 /LF320–330/ |
-| `risk_layer/web.py` + `static/` | lokale Web-GUI (stdlib-Server + SPA) + `--api-only` | Stufe 3 |
-| `risk_layer/api_v1.py` | stabiler `/v1`-Maschinen-Vertrag (zustandslos, Bearer-Auth) | Integration |
-| `risk_layer/fall.py` · `aufgabe.py` | Fall-Datenbank + Rechercheaufgaben (lokal, § 203) | Stufe 3 / Erw. |
-| `risk_layer/persistenz.py` | geteilte Store-Primitive: Slug + atomares Schreiben | — |
-| `risk_layer/service.py` | optionaler FastAPI-Service (Ausbaustufe) | /Z80/ |
+| `risk_layer/persistenz.py` | geteilte Store-Primitive (Slug, atomares Schreiben) | — |
+| `risk_layer/web.py` | **headless `/v1`-HTTP-Server** (stdlib, Bearer-Auth) | Integration |
+| `risk_layer/api_v1.py` | stabiler, zustandsloser `/v1`-Vertrag | Integration |
+| `risk_layer/cli.py` | Kommandozeile (analyse, build, zitat, abgleich) | Stufe 0 |
+| `risk_layer/report.py` | annotierter HTML-/Text-Report (CLI-Ausgabe) | /LF180/–/LF200/ |
 | `risk_layer/anonymize.py` | lokale Abstraktion/Anonymisierung (§ 203) | Geheimnisschutz |
-| `risk_layer/recherche.py` | Rechercheauftrag-Export (n8n → Cloud-LLM) | Geheimnisschutz |
+| `risk_layer/recherche.py` | Rechercheauftrag-Export (n8n → Cloud-LLM), §203-Re-Check | Geheimnisschutz |
 | `risk_layer/rss.py` + `abgleich.py` | BFH/BMF-RSS + Abgleich-Schleife | Erw. §5 /LF340–370/ |
 | `risk_layer/llm.py` | Schicht-2-Provider (llama-server / llama-cpp) | Stufe 1 /LF110–140/ |
 | `risk_layer/corpus.py` | gii-Fetcher + Korpus-Config (aus Katalog) | Stufe 2 |
@@ -201,10 +182,9 @@ risk-layer trigger lookup "Bareinnahmen fehlen, die Kasse ist nicht nachvollzieh
 **Schicht 1.7 — Semantik / Embedding** (`embedding.py`). **BGE-M3** bettet die
 Gesetzestexte ein und findet Paraphrasen *ohne geteiltes Fachwort*. Liefert
 **Vorschläge** (Top-k mit Ähnlichkeitswert), **keine harten Marken** — gemessen
-existiert kein robuster Schwellwert (generische Steuernormen überlappen neutrale
-Sätze). Kuratierte **Paraphrasen-Anker** je Norm werden mit-eingebettet und heben
-echte Treffer, ohne den Rauschboden zu senken. Das Modell liefert nur Vektoren;
-verglichen wird gegen den Korpus — nie Modellgedächtnis.
+existiert kein robuster Schwellwert. Kuratierte **Paraphrasen-Anker** je Norm werden
+mit-eingebettet und heben echte Treffer, ohne den Rauschboden zu senken. Das Modell
+liefert nur Vektoren; verglichen wird gegen den Korpus — nie Modellgedächtnis.
 
 ```bash
 risk-layer embedding build               # baut den Index (+ Katalog-Paraphrasen-Anker)
@@ -213,13 +193,11 @@ risk-layer embedding suche "Der Chef hat die Lohnsteuer trotz Geld nicht abgefü
 
 > Der Index führt die **Paragraph-Ebene**; Anker auf Absatz-Ebene werden gekürzt
 > (📌 benannte Schuld, s. [FEATURES.md](FEATURES.md) §3). Ein **lautes Audit**
-> meldet beim Build jeden *toten Anker* (Paraphrase ohne Index-Ziel), damit kein
-> Granularitäts-Mismatch den Recall still dämpft.
+> meldet beim Build jeden *toten Anker* (Paraphrase ohne Index-Ziel).
 
 **Normketten — Fundstellen als Kaskaden.** Eine Fundstelle ist oft eine Kette
 (*„§ 14 KStG iVm § 2 Abs. 2 GewStG"*). Treffer und Vorschläge liefern die **ganze
-Kaskade** — der GewSt-Durchschlag wird sichtbar, nicht nur die Spitze. Siehe das
-`normketten`-Feld im Katalog unten.
+Kaskade** — der GewSt-Durchschlag wird sichtbar, nicht nur die Spitze.
 
 ---
 
@@ -227,8 +205,8 @@ Kaskade** — der GewSt-Durchschlag wird sichtbar, nicht nur die Spitze. Siehe d
 
 `catalog/begriffe.yaml` ist eine **versionierte Datendatei, getrennt vom Code**
 (/LF220/, /NF50/). Eine Katalogänderung erfordert **keinen Code-Deploy**; sie
-wird über Git nachvollzogen (/LF230/). Jede Auswertung referenziert die
-verwendete Katalogversion im Audit-Log.
+wird über Git nachvollzogen (/LF230/). Jede Auswertung führt die verwendete
+Katalogversion in der Antwort mit (`katalog_version`).
 
 ```yaml
 - id: kst_finanzielle_eingliederung
@@ -256,9 +234,9 @@ verwendete Katalogversion im Audit-Log.
   gefaehrdungsnotiz: "Muss vom Beginn des Wirtschaftsjahrs an ununterbrochen bestehen. …"
 ```
 
-`norm_anker` bleibt die flache Liste aller berührten Normen (Graph-Anreicherung).
-`normketten`, `ausloeser` und `paraphrasen` sind **optional** und additiv — fehlen
-sie, verhält sich der Eintrag wie bisher. So bleibt der Katalog rückwärtskompatibel.
+`norm_anker` bleibt die flache Liste aller berührten Normen. `normketten`,
+`ausloeser` und `paraphrasen` sind **optional** und additiv — fehlen sie, verhält
+sich der Eintrag wie bisher (rückwärtskompatibel).
 
 > ⚠️ **Katalogpflege ist der kritische Pfad (/R10/).** Eine nicht eingetragene
 > Entscheidung ist eine unsichtbare Lücke. Norm-Anker und Fundstellen des
@@ -271,10 +249,9 @@ Ein Eintrag **ohne** `definitionsquelle` wird bewusst als **Lücke**
 
 ## Kanonische IDs & Zitat-Parser (das universelle Join)
 
-Der Zitat-Parser (Companion-Spezifikation) hebt jedes Norm-, Verwaltungs- und
-Entscheidungszitat auf eine **kanonische Knoten-ID** — die eine Komponente, die
-Katalog, Gesetze, Verwaltung und Urteile zusammenhält. Reiner Code, ohne
-Gesetzeskorpus lauffähig.
+Der Zitat-Parser hebt jedes Norm-, Verwaltungs- und Entscheidungszitat auf eine
+**kanonische Knoten-ID** — die eine Komponente, die Katalog, Gesetze, Verwaltung
+und Urteile zusammenhält. Reiner Code, ohne Gesetzeskorpus lauffähig.
 
 ```bash
 python -m risk_layer.cli zitat "§ 2 Abs. 2 Nr. 2 UStG"
@@ -294,51 +271,38 @@ python -m risk_layer.cli zitat --urteil "BFH v. 18.1.2023 – XI R 29/22, BStBl.
 | `Abschn. 2.8 … UStAE` | `verw:UStAE:2.8` |
 | `BFH v. 18.1.2023 – XI R 29/22` | `urteil:BFH:XI-R-29/22` |
 
-Die `norm_anker` und `definitionsquelle` des Katalogs werden so automatisch
-kanonisiert und im **Audit-Log** sowie in den **Begriffskarten** mitgeführt.
-Eigenschaften gemäß Spezifikation: Listen/Bereiche/`ff.` werden expandiert bzw.
-als offener Bereich geflaggt; **relative Verweise** („Satz 1") werden bewusst
-als Risiko markiert (`relativ`, niedrige Konfidenz) statt geraten — ihre
-Auflösung über den Kontext-Stack gehört in die Graph-Stufe. Nicht eindeutig
-parsebare Fundstellen (z. B. BMF-Schreiben) liefern bewusst **keine** ID
-(`null`) — niemals geraten.
+Listen/Bereiche/`ff.` werden expandiert bzw. als offener Bereich geflaggt;
+**relative Verweise** („Satz 1") werden bewusst als Risiko markiert (`relativ`,
+niedrige Konfidenz) statt geraten. Nicht eindeutig parsebare Fundstellen liefern
+bewusst **keine** ID (`null`) — niemals geraten.
 
 ## „Unknown als Risiko" & Berater-Definitionen (Erweiterung)
 
 Default-Umkehr: nicht „kenne ich nicht → Schweigen", sondern **„kann ich nicht
-sauber auflösen → Risiko"**. Abdeckung wird vom Eingangskriterium zum
-Ausgabewert — der Katalog muss nicht alles kennen, sondern zuverlässig erkennen,
-was er *nicht* auflöst, und das eskalieren.
-
-**Zustandsmodell je Textstelle:** `treffer` · `luecke` (im Katalog, Quelle
-fehlt) · **`unknown_risiko`** (juristisch aufgeladen, nicht im Katalog → eskaliert)
-· **`berater_definiert`** · `verworfen` (Alltagswort, vom Gate aussortiert).
+sauber auflösen → Risiko"**. Zustände je Textstelle: `treffer` · `luecke` ·
+**`unknown_risiko`** · **`berater_definiert`** · `verworfen`.
 
 **Das Unknown-Gate** kombiniert Signale (nie nur eines): Norm-Nähe (nutzt den
 Zitat-Scanner), definitorische Form („im Sinne des", „setzt voraus, dass" …),
-Negativfilter (Stoppwort/Named Entity/Gesetzeskürzel → Veto), Schwellenlogik.
-Es läuft **offline ohne LLM** (deterministischer Proposer); ein LLM-Signal ist
-additiv einsteckbar. Recall-first: im Zweifel eskalieren.
+Negativfilter (Stoppwort/Named Entity/Gesetzeskürzel → Veto), Schwellenlogik. Es
+läuft **offline ohne LLM**; ein LLM-Signal ist additiv. Recall-first: im Zweifel
+eskalieren.
 
 ```bash
 # eskaliert nicht-katalogisierte, juristisch aufgeladene Begriffe (offline)
 python -m risk_layer.cli analyse sachverhalt.txt --unknown
 
-# Define-on-the-fly: der Katalog wächst durch Nutzung
+# Define-on-the-fly: der Katalog wächst durch Nutzung (CLI oder POST /v1/katalog/definiere)
 python -m risk_layer.cli definiere "Betriebsaufspaltung" \
     --text "Aufteilung in Besitz- und Betriebsunternehmen mit Verflechtung." \
     --berater meine_defs --autor rey --norm "§ 15 EStG"
-
-# beim nächsten Lauf wird die Stelle zu 'berater_definiert' statt 'unknown_risiko'
-python -m risk_layer.cli analyse sachverhalt.txt --unknown --berater meine_defs --nutzer rey
 ```
 
 **Berater-Definitionen** trennen zwei Ebenen hart (Haftung): `scope=personal`
 (nur Autor, frei) und `scope=geteilt` (für andere; erst nach Freigabe kanonisch,
-Lebenszyklus `entwurf → geprüft → freigegeben`, trägt Autor/Review/Konfidenz
-sichtbar). Norm-Anker werden über den Zitat-Parser auf Knoten-IDs gehoben
-(`geankert_an`). Ein laufendes Beispiel liegt unter
-[examples/definitionen/geteilt.yaml](examples/definitionen/geteilt.yaml).
+Lebenszyklus `entwurf → geprüft → freigegeben`). Über `/v1/katalog/definiere`
+(die **einzige** schreibende Operation der Engine) wird vor dem Schreiben gegen
+identifizierende Angaben geprüft (§ 203) — der geteilte Katalog trägt kein Geheimnis.
 
 ## Stufe 2 — Normgraph aus gesetze-im-internet
 
@@ -346,167 +310,79 @@ Der Korpus ist **lokal** die Quelle der Wahrheit; zur Laufzeit wird nie ins Netz
 gegriffen. Das Befüllen ist ein getrennter Build-Schritt:
 
 ```bash
-risk-layer korpus init --voll  # breiter Steuer-Korpus (AO, EStG, KStG, GewStG, UStG, AStG,
-                               #   UmwStG, BewG, ErbStG, GrEStG, HGB, AktG … ~21 Gesetze)
-# (ohne --voll nur die im Katalog referenzierten Gesetze)
-risk-layer korpus fetch    # lädt die xml.zip von gesetze-im-internet.de (einmalig, online)
-risk-layer graph build     # baut den SQLite-Normgraph (Knoten + verweist_auf-Kanten)
-risk-layer graph stats
+risk-layer korpus init --voll  # breiter Steuer-Korpus (~21 Gesetze; ohne --voll nur Katalog-Gesetze)
+risk-layer korpus fetch        # lädt die xml.zip von gesetze-im-internet.de (einmalig, online)
+risk-layer graph build         # baut den SQLite-Normgraph (Knoten + verweist_auf-Kanten)
 risk-layer graph aufloesen "norm:UStG:2:abs2:nr2"
-risk-layer graph dangling  # Verweise auf fehlende Knoten (/T50/, sichtbares Negativwissen)
+risk-layer graph dangling      # Verweise auf fehlende Knoten (/T50/, sichtbares Negativwissen)
 ```
 
-`corpus/gesetze.yaml` ist editierbar — eigene Gesetze (Slug von gesetze-im-internet)
-einfach ergänzen. Liegt ein Graph unter `corpus/graph.sqlite`, hängt die Analyse
-jedem Treffer den **Gesetzeswortlaut aus dem Korpus** an die Begriffskarte
-(`/LF170/`) — Quelle ist die XML, **niemals** das Modell. Granularität:
-§/Absatz/Nummer (Satz-Ebene bewusst ausgelassen, weil heuristisch unsicher).
-Fassungslogik über `gueltig_ab`/`gueltig_bis` (/R30/).
+Liegt ein Graph unter `corpus/graph.sqlite`, hängt die Analyse jedem Treffer den
+**Gesetzeswortlaut aus dem Korpus** an die Karte (`/LF170/`) — Quelle ist die XML,
+**niemals** das Modell. Granularität §/Absatz/Nummer; Fassungslogik über
+`gueltig_ab`/`gueltig_bis` (/R30/).
 
 ## Stufe 1 — lokales LLM (Schicht 2)
 
 Das LLM ist **nur ein zusätzliches Signal**; die Sicherheit liegt im Code:
 Constrained Decoding (JSON-Schema/GBNF) **und** Span-Verifikation. Jeder
-LLM-Kandidat durchläuft danach das Unknown-Gate. Schicht 2 ist **standardmäßig an**.
-
-Zwei Bausteine: das **Modell** (verwaltet das Projekt) und die **Engine**
-(llama.cpp `llama-server`, RDNA4 → Vulkan-Backend; einmalig selbst installieren
-und auf den PATH legen — eine Engine installiert das Projekt nicht aufs System).
+LLM-Kandidat durchläuft danach das Unknown-Gate. Im `/v1`-Vertrag ist Schicht 2
+opt-in (`mitLLM:true`); die Engine verbindet sich dann zum konfigurierten
+`--llm-url` (server-seitig, **nicht** vom Aufrufer wählbar — kein SSRF).
 
 ```bash
 risk-layer modell list                 # Empfehlungen (Default: Qwen3-14B Q5_K_M)
 risk-layer modell download             # lädt das GGUF (resumebar) nach ./models
-risk-layer modell status               # zeigt Modell-Datei, Engine, Erreichbarkeit
-risk-layer modell start                # startet llama-server mit dem Modell (Vulkan, alle Layer auf GPU)
-
-# Analyse nutzt Schicht 2 automatisch, sobald der Server läuft:
-risk-layer analyse sachverhalt.txt --unknown          # --no-schicht2 schaltet ab
+risk-layer modell start                # startet llama-server (Vulkan, alle Layer auf GPU)
+risk-layer analyse sachverhalt.txt --unknown    # --no-schicht2 schaltet ab
 ```
 
-In der **GUI** zeigt der Status-Chip „LLM bereit ✓ / aus"; sind Modell + Engine
-vorhanden, erscheint ein Button **„Modell starten"** (lädt das Modell in den VRAM
-und pollt bis bereit). Die Web-App kann den Server auch beim Start hochfahren
-(`python -m risk_layer.web --llm-autostart`) und beendet ihn beim Schließen.
-
 Ist kein Server erreichbar, läuft die Analyse normal ohne Kandidaten weiter.
-Modell, Quantisierung, Seed und Temperatur (=0) landen im **Audit-Log**
-(/LF140/, /NF20/).
+Modell, Quantisierung, Seed und Temperatur (=0) werden im Provenienzfeld des
+Reports geführt (das Host-System schreibt daraus sein Audit, /LF140/).
+
+**Steuerung über `/v1`:** Das Host-System startet den llama-server per
+`POST /v1/llm/start` (idempotent, blockiert nicht — Bereitschaft pollen) und prüft
+ihn mit `GET /v1/llm/status`. Der Status liefert neben der Erreichbarkeit auch die
+**Queue** — aktive/freie Slots bzw. processing/deferred des llama-server —, damit der
+Host entscheidet, ob er `mitLLM:true` jetzt sendet oder wartet. Modell/Binary kommen
+aus der Engine-Config (kein Request-Input → kein Injection-Vektor). Ein über
+`/v1/llm/start` gestarteter llama-server bekommt `--slots --metrics` automatisch; ein
+**manuell** gestarteter braucht diese Flags, sonst bleibt `queue` null (kein Fehler).
 
 **LLM-Norm-Einordnung (Vorschlag, kein Mapping):** Zu einer erkannten Stelle darf
-das Modell eine einschlägige Norm *vermuten* (`norm_vorschlag`, z. B. „§ 42 AO").
-Der Normgraph prüft dann **ausschließlich die Existenz** des Paragraphen (✓ im
-Korpus / nicht verifizierbar) – es wird **nie** fest gemappt. Das Modell
-interpretiert (Layer 2, „Vorschlag, zu prüfen"), der Graph bestätigt deterministisch
-die Existenz, der Berufsträger entscheidet. So bleibt die Einordnung ehrlich.
+das Modell eine einschlägige Norm *vermuten* (`norm_vorschlag`). Der Normgraph
+prüft dann **ausschließlich die Existenz** des Paragraphen (✓ im Korpus / nicht
+verifizierbar) — es wird **nie** fest gemappt.
 
 ## Geheimnisschutz — Rechercheauftrag an ein externes LLM (§ 203 StGB)
 
 Markierte Stellen lassen sich an ein großes (Cloud-)LLM weitergeben — aber **nur
-abstrahiert**. Der Ablauf erzwingt den Geheimnisschutz:
+abstrahiert**. Der Ablauf (in `anonymize.py` + `recherche.py`, als Bibliothek/CLI
+nutzbar) erzwingt den Geheimnisschutz:
 
 1. **Lokal abstrahieren** (`anonymize.py`): Firmen, Personen, Beträge, Daten,
    Steuer-/Konto-Nummern → stabile Platzhalter (`[Gesellschaft A]` …). Die
-   Rechtsbegriffe bleiben (sie sind kein Geheimnis). Die Rückübersetzungstabelle
-   bleibt **lokal**.
-2. **Mensch prüft & schwärzt nach** (Pflicht) — in der GUI editierbar.
+   Rechtsbegriffe bleiben. Die Rückübersetzungstabelle bleibt **lokal**.
+2. **Mensch prüft & schwärzt nach** (Pflicht).
 3. **Export** nur nach **Re-Check**: findet die Abstraktion noch Identifizierendes,
    wird der Export **verweigert** (ohne bewusstes Erzwingen). Hinaus geht nur der
-   abstrahierte Text + die Rechtsbegriffe + die Frage — via n8n-Webhook oder
-   Download. Die Rückübersetzung wird **nie** mitexportiert. Der **Webhook-Versand**
-   ist default-deny (nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects — SSRF);
-   ein identifizierender Restbefund geht selbst mit `force` **nie** automatisch hinaus
-   (`force` erlaubt dann nur den lokalen Download).
-
-```bash
-# n8n ruft headless:
-POST /api/recherche/entwurf  {text, begriffe}              → {abstrahiert, ersetzungen, frage}
-POST /api/recherche/export   {sachverhalt, begriffe, frage, webhook_url?, force?}
-```
-
-In der GUI: Button **„Rechercheauftrag ↗"** → abstrahierter Text editierbar,
-Ersetzungsliste, Frage, optionale Webhook-URL, „Herunterladen" / „An n8n senden".
+   abstrahierte Text + die Rechtsbegriffe + die Frage. Der **Webhook-Versand** ist
+   default-deny (nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects — SSRF);
+   ein identifizierender Restbefund geht selbst mit `force` **nie** automatisch
+   hinaus (`force` erlaubt dann nur den lokalen Download). Die Rückübersetzung wird
+   **nie** mitexportiert.
 
 ## Rechtsprechungs-Monitor — BFH/BMF-Abgleich (Erweiterung §5)
 
-Ein Worker zieht die RSS-Feeds von **BFH** und **BMF**, extrahiert über den
-Zitat-Parser die berührten Normen und **konfrontiert** sie mit den im Katalog /
-in Berater-Definitionen verankerten Begriffen. Dockt eine neue Entscheidung/
-Verwaltungsanweisung an denselben Norm-Anker an, wird der Begriff zur Prüfung
-vorgelegt — *konfrontieren, nicht entscheiden* (/LF370/).
+`risk-layer abgleich` zieht die RSS-Feeds von **BFH** und **BMF**, extrahiert über
+den Zitat-Parser die berührten Normen und **konfrontiert** sie mit den im Katalog /
+in Berater-Definitionen verankerten Begriffen. Dockt eine neue Entscheidung an
+denselben Norm-Anker an, wird der Begriff zur Prüfung vorgelegt — *konfrontieren,
+nicht entscheiden* (/LF370/). Nur der RSS-Abruf geht ins Netz; bereits gesehene
+Einträge werden gemerkt.
 
-```bash
-risk-layer abgleich                 # neue BFH/BMF-Treffer an getrackten Begriffen
-risk-layer abgleich --berater defs  # auch Berater-Definitionen einbeziehen
-```
-
-GUI: Button **„Rspr-Monitor ⟳"**. Nur der RSS-Abruf geht ins Netz (öffentliche
-Rechtsquellen); das Matching ist lokal. Bereits gesehene Einträge werden
-gemerkt, sodass nur **Neues** gemeldet wird.
-
-## Berater-Annotationen an Katalogkarten
-
-Der Berater kann bestehende Katalogkarten mit **eigenen Infos** unterlegen
-(Notiz, Arbeitsdefinition, eigene Fundstelle) oder fehlende Begriffe neu anlegen
-(define-on-the-fly). In der GUI: pro Karte **„+ Eigene Info ergänzen"**. Technisch
-eine Berater-Definition mit `katalog_id` (annotiert eine Karte, statt als
-eigenständige Markierung zu erscheinen).
-
-## Stufe 3 — Workflow (Zammad → n8n)
-
-Die lokale Web-App ist zugleich der Integrationspunkt: `POST /api/analyse`
-liefert das vollständige JSON (Summary, Spans, Karten, Risiken, **Semantik-
-Vorschläge mit Normketten**, Audit). Ein
-importierbarer Beispiel-Workflow liegt unter
-[examples/n8n_workflow_risk-layer.json](examples/n8n_workflow_risk-layer.json):
-Zammad-Webhook → HTTP-Request auf `/api/analyse` → IF (`luecken + unknown_risiko > 0`)
-→ Eskalation an den Berufsträger. Der Service bindet auf `127.0.0.1`.
-
-## Integration als Engine — stabiler `/v1`-Vertrag + `--api-only`
-
-Neben der GUI-API (`/api/*`, lokal & komfortabel) bietet die Engine einen **stabilen,
-zustandslosen Maschinen-Vertrag** unter `/v1/*` (`api_v1.py`, Details in
-[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)) — gedacht zum Einbetten in ein
-Host-System (z. B. TaxTronik). Strikt getrennt von der GUI:
-
-- **Zustandslos (§ 203):** `/v1/analyse` nimmt Text, gibt die Analyse zurück —
-  **kein** Fall-/Aufgaben-/Audit-Persist. Mandantendaten bleiben im Host; persistiert
-  wird ausschließlich Festwissen (`/v1/katalog/definiere`, Berater-Begriffe).
-- **Stabile Offsets:** `spans[].start/end` indizieren zeichengenau in den exakt
-  übergebenen Text (+ `text_hash` = sha256). Die schnelle Phase (`mitLLM:false`) ist
-  **deterministisch** — gleicher Text → gleiche Spans; darüber rendert das Host-Overlay.
-- **Endpunkte:** `GET /v1/health` · `POST /v1/analyse` · `GET /v1/katalog` ·
-  `POST /v1/katalog/definiere` · `GET /v1/normgraph/{aufloesen,suche}` ·
-  `POST /v1/embedding/suche`.
-
-**`--api-only` — die Netz-/Container-Form.** Die GUI-Oberfläche (`/static` + `/api/*`)
-ist bequem, aber nicht auth-bar (Browser) und persistiert Mandantendaten — sie darf
-**nie ans Netz**. Daher zwei strikt getrennte Betriebsformen:
-
-```bash
-# lokal, GUI (Default): bindet ausschließlich an Loopback
-python -m risk_layer.web
-
-# Netz/Container: NUR das authentifizierte /v1; GUI + /api abgeschaltet
-RISK_LAYER_TOKEN=<secret> python -m risk_layer.web --api-only --host 0.0.0.0
-```
-
-`serve()` erzwingt das: ohne `--api-only` wird ein Nicht-Loopback-Bind **verweigert**;
-mit `--api-only` ist `RISK_LAYER_TOKEN` **Pflicht** (sonst kein Start).
-
-**Absicherung (greift im Netzbetrieb):**
-
-| Schutz | Mechanismus |
-|---|---|
-| Auth | Bearer-Token (`RISK_LAYER_TOKEN`), konstant-zeitig (`hmac.compare_digest`) |
-| Surface-Trennung | `--api-only` schaltet GUI + `/api/*` ab; GUI nur an Loopback |
-| Request-Limit | Body-Cap (8 MiB) **vor** Auth + Socket-Timeout — kein Memory-/slow-read-DoS |
-| Webhook-SSRF | `webhook_url` default-deny: nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects |
-| § 203 beim Export | Restbefund + `force` geht **nie** automatisch über den Webhook (nur lokaler Download) |
-| § 203 in `definiere` | `definition_text` wird vor dem Schreiben gegen identifizierende Angaben geprüft |
-
-**Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth für `/v1`), `RISK_LAYER_WEBHOOK_ALLOW`
-(kommagetrennte Host[:Port]-Allowlist für den Recherche-Webhook), `RISK_LAYER_EMB_DEVICE`
-(Embedding-Encoder-Gerät, Default `cuda`).
+---
 
 ## Sicherheits- und Reproduzierbarkeitsgarantien
 
@@ -516,71 +392,58 @@ mit `--api-only` ist `RISK_LAYER_TOKEN` **Pflicht** (sonst kein Start).
 | keine erfundenen Treffer | jeder Treffer trägt Katalog-ID + wörtlichen Beleg | `test_ab20_*` |
 | Span-Treue = 100 % (Schicht 2) | Pflicht-Gate `verifiziere_span` | `test_ab30_*` |
 | Definition **nie** aus dem Modell | Resolver greift nur auf Katalogquellen zu | `test_ab40_*` |
-| bit-identische Reproduzierbarkeit | rein deterministische Schicht 1 | `test_ab50_*` |
-| Audit-Vollständigkeit | Hash + Katalogversion + (Modell=null) je Lauf | `test_ab60_*` |
-| Zitat-Round-Trip / Gold-Sets | Parser ↔ ID verlustfrei, Norm-/Urteil-Gold-Set | `test_t10/t20/t40` |
-| Span-Verifikation gilt auch für Unknowns | Gate setzt /LF120/ unverändert voraus | `test_unknown_gate` |
-| Berater-Lebenszyklus erzwungen | geteilt nur vorwärts, kanonisch erst nach Freigabe | `test_berater` |
+| bit-identische Reproduzierbarkeit | rein deterministische Schicht 1 (gleiche `/v1`-Antwort) | `test_ab50_*` |
+| Versions-/Provenienz-Vollständigkeit | Hash + Katalogversion + Schicht-2-Info je Lauf | `test_ab60_*` |
+| Netz-Bind nur authentifiziert | Bearer-Token (`hmac.compare_digest`); kein Token ⇒ nur Loopback | `test_web_surface` |
+| kein Pre-Auth-/Body-DoS | Auth vor Body-Read + Body-Cap (8 MiB) + Socket-Timeout | `test_web_surface` |
+| kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects | `test_recherche` |
+| trainingsdaten-unabhängig | Erkennung ruht auf Korpus/Katalog, nicht Modellwissen | — |
 
 ```bash
-python -m pytest -q          # 201 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, Erweiterung,
-                             #            Web-API, /v1-Vertrag, Surface/Auth (--api-only, Token),
-                             #            Stores (Fall/Aufgabe, atomar) + Persistenz, gii/Graph,
-                             #            LLM-Mock + Norm-Vorschlag, Korpus, Modell, Anonymisierung,
-                             #            Rechercheauftrag (SSRF-Allowlist), RSS/Abgleich, AO,
-                             #            Muster/Streit, Trigger-Index, Embedding/Paraphrasen-Anker
+pip install -e ".[dev]" numpy
+python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
+                             #   Surface/Auth, Engine-Analysevertrag, Graph, LLM-Mock +
+                             #   Norm-Vorschlag, Muster/Streit, Trigger, Embedding/Paraphrasen-Anker,
+                             #   Anonymisierung, Rechercheauftrag (SSRF-Allowlist), RSS/Abgleich, AO
 ```
 
 ---
 
-## Roadmap (Lastenheft Kap. 10)
+## Roadmap
 
-- **Stufe 0 — MVP — ✅ umgesetzt:** Schicht 1, Seed-Katalog, annotierte Ansicht,
-  Begriffskarten, Audit-Log. Läuft offline, ohne GPU, nur mit PyYAML.
-- **Stufe 1 — LLM-Kandidaten — ✅ umgesetzt:** JSON-Schema/GBNF + Span-Gate
-  (`schicht2.py`) + Provider (`llm.py`: llama-server HTTP / llama-cpp-python),
-  in Pipeline und GUI verdrahtet, Modell/Quantisierung/Seed/Temp im Audit (/LF140/).
-  Offen bleibt nur das Bereitstellen eines GGUF-Modells auf der Maschine.
-- **Stufe 2 — GraphRAG — ✅ umgesetzt:** kanonisches ID-Schema + Zitat-Parser,
-  gii-Fetcher (`corpus.py`), gii-XML-Ingest (`gii.py`), SQLite-Normgraph mit
-  `verweist_auf`-Kanten + Dangling-Report (`graph.py`), Definitionsauflösung über
-  den Graphen (/LF170/, Gesetzeswortlaut in Karten/GUI), Fassungslogik-Hook.
-  Reife-Reste: Verwaltungs-/Urteilskorpus + typisierte `wird_ausgelegt_durch`-Kanten,
-  Satz-Granularität, Kontext-Stack für relative Verweise (bewusst zuletzt, Spez. 6.8).
-- **Stufe 3 — Oberfläche/Workflow — ✅ umgesetzt:** lokale Web-App
-  (`python -m risk_layer.web`, stdlib-only) mit annotierter Ansicht, Begriffskarten,
-  Gesetzeswortlaut, Unknown-Eskalation, define-on-the-fly, Zitat-Werkzeug und
-  Audit/Report-Download; headless `POST /api/analyse` als n8n-Integrationspunkt
-  inkl. Beispiel-Workflow. Offen: Anbindung an die vierdimensionale Risikomatrix.
-- **Erweiterung „Unknown als Risiko" — ✅ umgesetzt:** Zustandsmodell,
-  Unknown-Gate (offline) und Berater-Definitionen (personal/geteilt, Lebenszyklus,
-  define-on-the-fly). Die **Abgleich-Schleife** (Erw. §5, /LF340–370/) zieht die
-  BFH/BMF-RSS-Feeds und konfrontiert neue Veröffentlichungen mit den getrackten
-  Begriffen (`abgleich.py`, GUI „Rspr-Monitor ⟳") — *konfrontieren, nicht entscheiden*.
-- **Deterministische Erweiterungs-Schichten — ✅ umgesetzt:** Schicht 1b
-  (Beschreibungs-Muster + Streit-Detektor), Schicht 1.5 (IDF-Trigger-Index) und
-  Normketten/Kaskaden — fangen *umschriebene* Sachverhalte ohne LLM, mit den
-  passenden Norm-Ankern. Vollständig in Pipeline, GUI (Layer-Toggles) und Tests.
-- **Semantischer Vorschlags-Modus (Schicht 1.7) — 🟡 umgesetzt mit benannter Grenze:**
-  BGE-M3-Embedding des Korpus + kuratierte Paraphrasen-Anker liefern Norm-Vorschläge
-  für Paraphrasen. Bewusst **kein** hartes Auto-Markieren (gemessen: kein robuster
-  Schwellwert). **Offen (📌):** Index-Granularität auf Absatz-Ebene heben,
-  domänenweite Anker, optionales Embedding-Fine-Tuning. Details: [FEATURES.md](FEATURES.md).
+- **Erkennungs-Kern — ✅ umgesetzt:** Schicht 1 (wörtlich) + 1b (Muster/Streit) +
+  1.5 (Trigger) + Normketten — deterministisch, ohne LLM, mit den passenden
+  Norm-Ankern. Vollständig in Pipeline, `/v1`, CLI und Tests.
+- **Normgraph (Stufe 2) — ✅ umgesetzt:** kanonisches ID-Schema + Zitat-Parser,
+  gii-Fetcher/-Ingest, SQLite-Normgraph mit `verweist_auf`-Kanten + Dangling-Report,
+  Gesetzeswortlaut in den Karten, Fassungslogik-Hook. Reife-Reste: Verwaltungs-/
+  Urteilskorpus + typisierte `wird_ausgelegt_durch`-Kanten, Satz-Granularität,
+  Kontext-Stack für relative Verweise.
+- **LLM (Stufe 1) — ✅ umgesetzt:** JSON-Schema/GBNF + Span-Gate + Provider
+  (llama-server). Offen: GGUF-Modell auf der Maschine bereitstellen.
+- **Integration (`/v1`) — ✅ umgesetzt:** stabiler, zustandsloser Vertrag,
+  Bearer-Auth, **headless** (kein GUI/Persist/Audit in der Engine — das übernimmt
+  das Host-System). Siehe [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
+- **Unknown-als-Risiko + Berater-Definitionen — ✅ umgesetzt** (Zustandsmodell,
+  offline-Gate, Lebenszyklus, define-on-the-fly) inkl. **Abgleich-Schleife** (BFH/BMF).
+- **Semantik (Schicht 1.7) — 🟡 umgesetzt mit benannter Grenze:** BGE-M3 +
+  Paraphrasen-Anker liefern Norm-Vorschläge; bewusst **kein** hartes Auto-Markieren.
+  **Offen (📌):** Index-Granularität auf Absatz-Ebene heben, domänenweite Anker,
+  optionales Embedding-Fine-Tuning. Details: [FEATURES.md](FEATURES.md).
 
 ### Optionale Robustheit: spaCy-Lemmatisierung (/LF50/)
 
-Der MVP-Matcher ist ohne spaCy bereits morphologie-tolerant (Flexion,
-Trenn-/Zusammenschreibung, Aliase). Für noch breitere Kompositazerlegung kann
-`pip install ".[nlp]"` + `python -m spacy download de_core_news_lg` ergänzt
-werden — **ohne** das deterministische Verhalten des Kerns zu ändern.
+Der Matcher ist ohne spaCy bereits morphologie-tolerant. Für breitere
+Kompositazerlegung kann `pip install ".[nlp]"` + `python -m spacy download
+de_core_news_lg` ergänzt werden — **ohne** das deterministische Verhalten zu ändern.
 
 ---
 
 ## Datenschutz (/NF10/, /NF60/)
 
-Sämtliche Verarbeitung läuft **lokal**, ohne Netzaufruf zur Laufzeit. Es werden
-keine Mandantendaten an externe Dienste gesendet (§ 203 StGB, AVV). Laufzeit-
-Ausgaben und Mandantenspeicher (`out/`, `audit/`, Reports, `faelle/`, `aufgaben/`,
-`abgleich/`) sowie Secrets (`.engine_token`, `.env`) sind in `.gitignore` ausgenommen
-und dürfen nicht eingecheckt werden. Die `faelle/`-/`aufgaben/`-Stores schreiben
-**atomar** (temp + `os.replace`) und sind thread-sicher (gemeinsame Engine-Instanz).
+Sämtliche Verarbeitung läuft **lokal**, ohne Netzaufruf zur Laufzeit (Ausnahme:
+der bewusst freigegebene, abstrahierte Recherche-Export und der RSS-Abgleich). Es
+werden keine Mandantendaten an externe Dienste gesendet (§ 203 StGB, AVV). Die
+`/v1`-Engine ist **zustandslos** — sie persistiert keine Mandantendaten; Speicherung
+und Audit liegen beim Host-System. CLI-Ausgaben (`out/`, `*.report.html`) und
+Secrets (`.engine_token`, `.env`) sind in `.gitignore` ausgenommen.

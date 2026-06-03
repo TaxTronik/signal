@@ -20,11 +20,11 @@ liegen wie die Treffer.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from . import ingest as ingest_mod
-from .audit import jetzt_iso
 from .berater import BeraterStore
 from .catalog import Katalog, lade_katalog
 from .idschema import para_level as _para_level
@@ -37,6 +37,11 @@ from .unknown_gate import DefinitorischProposer, UnknownGate, ist_belanglos
 from .zitate import finde_normzitate, norm_zu_zitat, parse_normzitat
 
 _KONFIDENZ_ZU_SIGNAL = {"hoch": 1.0, "mittel": 0.6, "niedrig": 0.3}
+
+
+def jetzt_iso() -> str:
+    """ISO-8601-Zeitstempel (UTC) für ``erzeugt_am`` (war in audit.py)."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _to_orig(omap: list[int], ns: int, ne: int) -> tuple[int, int]:

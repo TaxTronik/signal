@@ -2,7 +2,7 @@
 
 Beispiele:
     risk-layer analyse sachverhalt.txt
-    risk-layer analyse sachverhalt.txt --html out/report.html --audit out/audit.json
+    risk-layer analyse sachverhalt.txt --html out/report.html
     cat text.txt | risk-layer analyse -
     risk-layer katalog --check
 """
@@ -13,7 +13,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from .audit import baue_audit, schreibe_audit
 from .berater import BeraterFehler, BeraterStore
 from .catalog import KatalogFehler, lade_katalog
 from .graph import graph_oeffnen
@@ -74,11 +73,6 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
             encoding="utf-8",
         )
         print(f"\n→ HTML-Report: {html_pfad}", file=sys.stderr)
-
-    if args.audit:
-        audit = baue_audit(report)
-        pfad = schreibe_audit(audit, args.audit)
-        print(f"→ Audit-Log:   {pfad}", file=sys.stderr)
 
     # Exit-Code signalisiert offene Lücken (nützlich für n8n/CI-Eskalation, /Z80/)
     if report.luecken and args.fail_on_luecke:
@@ -157,7 +151,9 @@ def _cmd_modell(args: argparse.Namespace) -> int:
     from . import modell as M
 
     if args.aktion == "engine":
-        print("Lade llama.cpp Vulkan-Engine nach ./engine …")
+        backend = getattr(args, "backend", "auto")
+        muster = M.backend_patterns(backend)
+        print(f"Lade llama.cpp-Engine (Backend: {backend} → {muster[0]}) nach ./engine …")
         letzte = [-1]
 
         def fortschritt(gelesen: int, gesamt: int) -> None:
@@ -168,7 +164,7 @@ def _cmd_modell(args: argparse.Namespace) -> int:
                       end="", flush=True)
 
         try:
-            binp = M.download_engine(fortschritt=fortschritt)
+            binp = M.download_engine(backend=backend, fortschritt=fortschritt)
         except Exception as exc:  # noqa: BLE001
             print(f"\nFehler: {exc}", file=sys.stderr)
             return 1
@@ -381,7 +377,6 @@ def build_parser() -> argparse.ArgumentParser:
     a = sub.add_parser("analyse", help="Text analysieren und Report erzeugen")
     a.add_argument("eingabe", help="Textdatei oder '-' für stdin")
     a.add_argument("--html", help="Pfad für annotierten HTML-Report")
-    a.add_argument("--audit", help="Pfad für Audit-Log (JSON)")
     a.add_argument("--zeitstempel", help="Fester ISO-Zeitstempel (für reproduzierbare Läufe)")
     a.add_argument(
         "--unknown",
@@ -453,6 +448,9 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--modell", help="Modell-Key (Default: qwen3-14b)")
     m.add_argument("--llm-bin", help="Pfad zum llama-server-Binary")
     m.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
+    m.add_argument("--backend", choices=["auto", "cuda", "hip", "vulkan", "cpu"],
+                   default="auto",
+                   help="GPU-Backend für 'engine' (auto: NVIDIA→cuda, AMD→hip, sonst Vulkan/CPU)")
     m.set_defaults(func=_cmd_modell)
 
     d = sub.add_parser("definiere", help="Berater-Definition anlegen (define-on-the-fly)")

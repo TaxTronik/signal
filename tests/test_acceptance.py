@@ -5,12 +5,12 @@ import json
 import pytest
 
 from risk_layer import ingest as ing
-from risk_layer.audit import baue_audit
 from risk_layer.catalog import Katalog, lade_katalog
 from risk_layer.matcher import Schicht1Matcher
 from risk_layer.models import Katalogeintrag, GovernanceTyp, Status, Treffer
 from risk_layer.pipeline import Pipeline
 from risk_layer.resolver import resolve
+from risk_layer.web import antwort_json
 
 
 @pytest.fixture(scope="module")
@@ -117,22 +117,19 @@ def test_ab40_quellen_sind_immer_teilmenge_des_katalogs(pipeline):
 def test_ab50_byte_identische_reproduzierbarkeit(pipeline):
     text = open("examples/beispiel_organschaft.txt", encoding="utf-8").read()
     ts = "2026-05-31T00:00:00+00:00"
-    a = baue_audit(pipeline.run(text, erzeugt_am=ts))
-    b = baue_audit(pipeline.run(text, erzeugt_am=ts))
+    a = antwort_json(pipeline.run(text, erzeugt_am=ts), text)
+    b = antwort_json(pipeline.run(text, erzeugt_am=ts), text)
     assert json.dumps(a, ensure_ascii=False, sort_keys=True) == \
         json.dumps(b, ensure_ascii=False, sort_keys=True)
 
 
-# /AB60/ Audit-Vollständigkeit -----------------------------------------------
+# /AB60/ Vollständigkeit der Versions-/Provenienzangaben ---------------------
 
-def test_ab60_audit_enthaelt_alle_versionsangaben(pipeline):
+def test_ab60_report_traegt_versionsangaben(pipeline):
     report = pipeline.run("Die organisatorische Eingliederung ist zu prüfen.")
-    audit = baue_audit(report)
-    assert audit["eingabe_hash"]
-    assert audit["katalog_version"]
-    assert audit["erzeugt_am"]
-    assert audit["schicht1"]["engine"]
-    assert audit["schicht1"]["deterministisch"] is True
-    # Modellangaben für reine Schicht 1 explizit null (belegt: kein Modell beteiligt)
-    assert audit["schicht2"]["modell"] is None
-    assert "treffer" in audit and len(audit["treffer"]) >= 1
+    assert report.text_hash
+    assert report.katalog_version
+    assert report.erzeugt_am
+    # reine Schicht 1: kein Modell beteiligt (belegt durch schicht2_info=None)
+    assert report.schicht2_info is None
+    assert len(report.karten) >= 1

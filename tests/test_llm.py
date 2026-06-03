@@ -6,7 +6,6 @@ halluzinierender „Provider" kann höchstens einen Fehlalarm erzeugen.
 
 import json
 
-from risk_layer.audit import baue_audit
 from risk_layer.catalog import lade_katalog
 from risk_layer.llm import LlamaServerProvider, _nachziehen
 from risk_layer.models import Status
@@ -50,20 +49,58 @@ def test_provider_kandidaten_nur_woertliche():
     assert "ERFUNDEN" not in spans          # nicht im Text → verworfen
 
 
-def test_pipeline_mit_llm_erzeugt_unknown_und_auditiert_modell():
+def test_pipeline_mit_llm_erzeugt_unknown_und_fuehrt_modell_provenienz():
     report = Pipeline(lade_katalog()).run(TEXT, provider=MockLlama())
     # LLM-Kandidat durchläuft das Unknown-Gate → unknown_risiko
     assert any(r.status is Status.UNKNOWN_RISIKO and "Liebhaberei" in r.matched_text
                for r in report.risiken)
-    # Modell-/Quantisierungs-/Seed-Angaben landen im Audit (/LF140/)
-    audit = baue_audit(report)
-    assert audit["schicht2"]["engine"] == "llama-server"
-    assert audit["schicht2"]["modell"] == "mock-14b"
-    assert audit["schicht2"]["quantisierung"] == "Q5_K_M"
-    assert audit["schicht2"]["temperatur"] == 0.0
+    # Modell-/Quantisierungs-/Seed-Angaben werden im Report-Provenienzfeld geführt
+    # (/LF140/ – das Host-System schreibt daraus sein Audit).
+    info = report.schicht2_info or {}
+    assert info["engine"] == "llama-server"
+    assert info["modell"] == "mock-14b"
+    assert info["quantisierung"] == "Q5_K_M"
+    assert info["temperatur"] == 0.0
 
 
 def test_kein_server_erreichbar_bricht_nicht_ab():
     # echter Provider ohne laufenden Server → leere Kandidatenliste, kein Crash
     prov = LlamaServerProvider("http://127.0.0.1:9")  # ungenutzter Port
     assert prov.kandidaten(TEXT, bekannte_begriffe=[]) == []
+
+
+def test_server_status_degradiert_ohne_server():
+    # Port ohne llama-server → erreichbar False, queue None (kein Crash)
+    from risk_layer.llm import server_status
+    assert server_status("http://127.0.0.1:9", timeout=0.5) == {"erreichbar": False, "queue": None}
+
+
+def test_metrik_parser_liest_prometheus_zaehler():
+    from risk_layer.llm import _metrik
+    txt = ("# HELP llamacpp:requests_processing n\n"
+           "llamacpp:requests_processing 2\n"
+           "llamacpp:requests_deferred 1\n")
+    assert _metrik(txt, "llamacpp:requests_processing") == 2.0
+    assert _metrik(txt, "llamacpp:requests_deferred") == 1.0
+    assert _metrik(txt, "llamacpp:gibtsnicht") is None
+    # Praefix-Kollision: 'foo' darf NICHT 'foo_total' matchen (exakter Token)
+    txt2 = "llamacpp:requests_processing_total 99\nllamacpp:requests_processing 2\n"
+    assert _metrik(txt2, "llamacpp:requests_processing") == 2.0
+    # mit Prometheus-Labels
+    assert _metrik('llamacpp:requests_processing{slot="0"} 3',
+                   "llamacpp:requests_processing") == 3.0
+
+
+def test_queue_info_slot_busy_robust(monkeypatch):
+    from risk_layer import llm
+    slots = [
+        {"id": 0, "is_processing": True},   # aktiv
+        {"id": 1, "is_processing": False},  # idle
+        {"id": 2, "state": 0},              # idle (int)
+        {"id": 3, "state": 1},              # aktiv (int)
+        {"id": 4, "state": "idle"},         # String-state -> NICHT als aktiv zaehlen
+    ]
+    monkeypatch.setattr(llm, "_hole_json", lambda url, **k: slots)
+    q = llm._queue_info("http://x", timeout=0.1)
+    assert q["quelle"] == "slots" and q["slots_gesamt"] == 5
+    assert q["aktiv"] == 2 and q["frei"] == 3   # nur Slot 0 + 3

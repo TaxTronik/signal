@@ -129,6 +129,23 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
     return 200, {"treffer": hits, "engineVersion": V1_VERSION}
 
 
+def _llm_status(app) -> tuple[int, dict[str, Any]]:
+    """GET /v1/llm/status – Erreichbarkeit + Modell/Engine + **Queue** (Slot-/
+    Auslastungszustand) des llama-server. Damit kann das Host-System entscheiden,
+    ob es ``mitLLM:true`` jetzt sendet oder wartet."""
+    return 200, {**app.llm_status(), "engineVersion": V1_VERSION}
+
+
+def _llm_start(app) -> tuple[int, dict[str, Any]]:
+    """POST /v1/llm/start – startet den SERVER-konfigurierten llama-server.
+
+    Kein Request-Input (Modell/Binary kommen aus der Server-Config) → kein
+    Injection-Vektor. Idempotent; blockiert nicht bis fertig – Bereitschaft über
+    GET /v1/llm/status (Feld ``verfuegbar``) pollen.
+    """
+    return 200, {**app.llm_start(), "engineVersion": V1_VERSION}
+
+
 def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
              query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """Zentrale /v1-Weiche. Gibt (HTTP-Status, JSON-dict) zurück.
@@ -147,6 +164,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _normgraph_aufloesen(app, query)
         if pfad == "/v1/normgraph/suche":
             return _normgraph_suche(app, query)
+        if pfad == "/v1/llm/status":
+            return _llm_status(app)
     elif method == "POST":
         if pfad == "/v1/analyse":
             return _analyse(app, payload)
@@ -154,4 +173,6 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _katalog_definiere(app, payload)
         if pfad == "/v1/embedding/suche":
             return _embedding_suche(app, payload)
+        if pfad == "/v1/llm/start":
+            return _llm_start(app)
     return 404, {"error": f"unbekannter /v1-Endpoint: {method} {pfad}"}

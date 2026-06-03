@@ -118,6 +118,29 @@ def test_unbekannter_v1_pfad_404(app):
     assert code == 404
 
 
+def test_v1_llm_status_traegt_queue(app, monkeypatch):
+    """GET /v1/llm/status liefert Status UND Queue (Slot-/Auslastungszustand)."""
+    monkeypatch.setattr(app, "llm_status", lambda: {
+        "url": "http://127.0.0.1:8080", "verfuegbar": True,
+        "queue": {"quelle": "slots", "slots_gesamt": 4, "aktiv": 1, "frei": 3,
+                  "slots": [{"id": 0, "aktiv": True}]},
+        "modell_geladen": True, "binary_vorhanden": True, "von_uns_gestartet": False,
+    })
+    code, obj = dispatch(app, "GET", "/v1/llm/status", {}, {})
+    assert code == 200
+    for key in ("url", "verfuegbar", "queue", "modell_geladen", "binary_vorhanden",
+                "von_uns_gestartet", "engineVersion"):
+        assert key in obj, key
+    assert obj["queue"]["slots_gesamt"] == 4 and obj["queue"]["aktiv"] == 1
+
+
+def test_v1_llm_start_route(app, monkeypatch):
+    """POST /v1/llm/start reicht das Ergebnis durch (+ engineVersion); kein Subprozess."""
+    monkeypatch.setattr(app, "llm_start", lambda: {"ok": False, "fehler": "kein Modell (Test)"})
+    code, obj = dispatch(app, "POST", "/v1/llm/start", {}, {})
+    assert code == 200 and obj["ok"] is False and obj["engineVersion"]
+
+
 def test_analyse_karten_tragen_via_provenienz(app):
     """Jede Karte MUSS via tragen (wörtlich|muster) – die TS-Seite mappt darauf."""
     text = ("Bareinnahmen erscheinen nicht in der Kasse, Belege fehlen. "

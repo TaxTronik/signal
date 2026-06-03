@@ -84,18 +84,14 @@ dämpfen.
 
 ---
 
-## 4. Der Fall als Arbeitsumgebung (GUI) ✅
+## 4. Headless — keine GUI, kein eigenes Audit ✅
 
-- **Layer-Toggles** über dem Dokument: ① wörtlich · ① Muster · ① Trigger · ② LLM ·
-  ② Heuristik · Berater · ⚑ Streit · Eigen — jede Ebene einzeln ein-/ausblendbar,
-  jede mit eigener Farbe.
-- **Edit-Modus** (✏): eigenen Text mit eigener **Farbe + Label + Notiz + Norm**
-  anstreichen (Norm-Suche im Graphen). Klick auf eine eigene Markierung **öffnet
-  den Editor** wieder; Löschen nur über „Entfernen". Übernahme als
-  **Berater-Begriff in den Katalog** (Katalog wächst durch Nutzung).
-- **Fall-Datenbank**: Text, Optionen und eigene Markierungen speichern/laden
-  (`faelle/`, lokal, gitignored — § 203 StGB).
-- **Toasts** statt Seitenmeldungen; Auswahl bleibt während des Annotierens sichtbar.
+Die Engine hat **keine eingebaute Oberfläche** und **keinen eigenen Audit-Log**.
+Anzeige (Highlight-Overlay über `spans[]`), Mandanten-Persistenz und das
+revisionssichere Audit übernimmt das **Host-System** (z. B. TaxTronik) über den
+`/v1`-Vertrag. Die Engine liefert ausschließlich die Analyse — **zustandslos**.
+Jede Markierung trägt ihre `herkunft` (Schicht, Methode, ob Interpretation), damit
+der Host Provenienz, Layer-Filter und Begriffskarten selbst rendern kann.
 
 ---
 
@@ -109,7 +105,8 @@ dämpfen.
 - **Define-on-the-fly**: eine gelbe Stelle direkt definieren → beim nächsten Lauf
   `berater_definiert`. Scopes `personal` / `geteilt` mit Lebenszyklus
   (`entwurf → geprüft → freigegeben`), Autor/Review/Konfidenz sichtbar.
-- **Berater-Annotationen** an bestehenden Katalogkarten („+ Eigene Info ergänzen").
+- **Berater-Annotationen** an bestehenden Katalogkarten (`/v1/katalog/definiere`
+  mit `katalog_id` bzw. CLI `definiere`).
 
 ---
 
@@ -122,7 +119,7 @@ dämpfen.
 - **SQLite-Normgraph** aus *gesetze-im-internet* (gii-XML-Ingest), `verweist_auf`-
   Kanten, Dangling-Report. Treffer bekommen den **Gesetzeswortlaut aus dem Korpus**
   an die Karte — Quelle ist die XML, **nie** das Modell.
-- **Volltext-/Titel-Suche** über alle §§ (für die nutzergesteuerte Norm-Auswahl).
+- **Volltext-/Titel-Suche** über alle §§ (Norm-Auswahl via `/v1/normgraph/suche`).
 - **LLM-Norm-Vorschlag** wird vom Graphen **nur auf Existenz** geprüft (✓ im Korpus
   / nicht verifizierbar) — nie fest gemappt.
 
@@ -132,17 +129,18 @@ dämpfen.
 
 - **Lokale Abstraktion** (`anonymize.py`): Firmen/Personen/Beträge/Daten/Nummern →
   stabile Platzhalter; Rechtsbegriffe bleiben. Rückübersetzungstabelle bleibt lokal.
-- **Pflicht-Mensch-Prüfung** (GUI-editierbar) + **Re-Check-Gate**: findet die
+- **Pflicht-Mensch-Prüfung** (durch den Berufsträger) + **Re-Check-Gate**: findet die
   Abstraktion noch Identifizierendes, wird der Export **verweigert**.
-- **Rechercheauftrag** an ein Cloud-LLM nur abstrahiert (n8n-Webhook/Download);
-  die Rückübersetzung wird **nie** mitexportiert.
+- **Rechercheauftrag** an ein Cloud-LLM nur abstrahiert (n8n-Webhook/Download, als
+  Bibliothek/CLI nutzbar); die Rückübersetzung wird **nie** mitexportiert.
 - **Webhook default-deny (SSRF):** der `webhook_url`-Versand geht nur an Hosts aus
   `RISK_LAYER_WEBHOOK_ALLOW` und folgt keinen Redirects. Ein identifizierender
   Restbefund geht selbst mit `force` **nie** automatisch hinaus (`force` = nur lokaler Download).
 - **`/v1/katalog/definiere`** prüft `definition_text` vor dem Schreiben gegen
   identifizierende Angaben (derselbe Detektor) — der geteilte Katalog trägt kein Geheimnis.
-- **Maschinen-API zustandslos:** `/v1` persistiert keine Mandantendaten; die Fall-/
-  Aufgaben-Stores (`faelle/`, `aufgaben/`) sind lokal, gitignored und schreiben **atomar**.
+- **Maschinen-API zustandslos:** `/v1` persistiert **keine** Mandantendaten — Akten-
+  Persistenz liegt allein beim Host-System. Nur Festwissen (Berater-Katalog) wird
+  geschrieben, und das **atomar** (temp + `os.replace`).
 
 ---
 
@@ -157,17 +155,17 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 
 ## 9. Schnittstellen ✅
 
-- **GUI**: `python -m risk_layer.web` — stdlib-Server + SPA, strikt `127.0.0.1`.
-- **GUI-API** (lokal/komfortabel): `POST /api/analyse` → vollständiges JSON (Summary,
-  Spans, Karten, Risiken, **Semantik-Vorschläge**, Audit). n8n-Beispiel-Workflow liegt bei.
-- **Maschinen-API** (`/v1/*`, `api_v1.py`): stabiler, **zustandsloser** Vertrag zum
-  Einbetten in ein Host-System (TaxTronik) — `analyse` · `katalog` · `katalog/definiere` ·
-  `normgraph/{aufloesen,suche}` · `embedding/suche` · `health`. Stabile Zeichen-Offsets
-  + `text_hash`, deterministische schnelle Phase (`mitLLM:false`). **`--api-only`**
-  bedient **nur** dieses `/v1` (GUI + `/api` abgeschaltet) und verlangt `RISK_LAYER_TOKEN`
-  (Bearer, konstant-zeitig). Details: [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
-- **CLI**: `analyse`, `katalog`, `zitat`, `definiere`, `korpus`, `graph`, `modell`,
-  `abgleich`, **`trigger`** (build/stats/lookup), **`embedding`** (build/stats/suche).
+- **Maschinen-API** (`/v1/*`, `web.py` + `api_v1.py`): der **einzige** Server-Zugang —
+  stabil, **zustandslos**, Bearer-Auth, zum Einbetten in ein Host-System (TaxTronik).
+  `health` · `analyse` · `katalog` · `katalog/definiere` · `normgraph/{aufloesen,suche}` ·
+  `embedding/suche` · `llm/status` · `llm/start`. Stabile Zeichen-Offsets + `text_hash`,
+  deterministische schnelle Phase (`mitLLM:false`). **LLM-Steuerung:** `POST /v1/llm/start`
+  (idempotent) + `GET /v1/llm/status` mit **Queue** (Slot-/Auslastungszustand des
+  llama-server). Ein Nicht-Loopback-Bind erfordert `RISK_LAYER_TOKEN`.
+  Details: [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
+- **CLI**: `analyse` (+ `--html`-Report), `katalog`, `zitat`, `definiere`, `korpus`,
+  `graph`, `modell`, `abgleich`, **`trigger`** (build/stats/lookup), **`embedding`**
+  (build/stats/suche).
 - **Bibliothek**: `from risk_layer import analyse`.
 
 ---
@@ -181,19 +179,18 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 | Span-Treue = 100 % (Schicht 1b/1.5/2) | Pflicht-Gate / span-treue Offsets |
 | Definition **nie** aus dem Modell | Resolver greift nur auf Katalog/Korpus zu |
 | Norm **nie** fest gemappt | Graph prüft nur Existenz; LLM/Embedding = Vorschlag |
-| bit-identische Reproduzierbarkeit | rein deterministische Schichten 1/1b/1.5 |
-| Audit-Vollständigkeit | Hash + Katalogversion + Modell/Seed je Lauf |
+| bit-identische Reproduzierbarkeit | rein deterministische Schichten 1/1b/1.5 (gleiche `/v1`-Antwort) |
+| Versions-/Provenienz-Vollständigkeit | Report trägt Hash + Katalogversion + Schicht-2-Info (Host schreibt Audit) |
 | trainingsdaten-unabhängig | Erkennung ruht auf Korpus/Katalog, nicht Modellwissen |
-| Netz-Bind nur authentifiziert | `--api-only` schaltet GUI/-api ab; `/v1` Bearer-Token (`hmac.compare_digest`) |
-| kein Pre-Auth-DoS | Request-Body-Cap (8 MiB) **vor** der Auth + Socket-Timeout |
+| Netz-Bind nur authentifiziert | Bearer-Token (`hmac.compare_digest`); kein Token ⇒ nur Loopback |
+| kein Pre-Auth-/Body-DoS | Auth **vor** Body-Read + Body-Cap (8 MiB) + Socket-Timeout |
 | kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects |
-| Stores torn-read-frei | `faelle/`/`aufgaben/` schreiben atomar (temp + `os.replace`) + Lock |
+| Katalog-Schreibvorgang torn-read-frei | Berater-Store schreibt atomar (temp + `os.replace`) |
 
-**Tests:** `python -m pytest -q` → **201 grün** (deterministischer Kern,
-Parser-Gold-Sets, GUI-API, **`/v1`-Vertrag + Surface/Auth** (`--api-only`, Token),
-**Stores Fall/Aufgabe (atomar) + Persistenz**, Graph, LLM-Mock + Norm-Vorschlag,
-Muster/Streit, Trigger, Embedding/Paraphrasen-Anker, Anonymisierung,
-**Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
+**Tests:** `python -m pytest -q` → **185 grün** (deterministischer Kern,
+Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth**, Engine-Analysevertrag + Persistenz,
+Graph, LLM-Mock + Norm-Vorschlag, Muster/Streit, Trigger, Embedding/Paraphrasen-Anker,
+Anonymisierung, **Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
 
 ---
 
@@ -206,6 +203,6 @@ Muster/Streit, Trigger, Embedding/Paraphrasen-Anker, Anonymisierung,
   relativ ab. Wer die halbe Domäne ankert, muss die andere Hälfte mitziehen.
 - **Embedding-Fine-Tuning** auf Steuer-Paraphrasen (Domänengewinn) als Alternative
   zu mehr Ankern.
-- **Trigger-Kuratierungs-GUI** (`geprueft`-Flag im Browser setzen, „nur geprüfte").
+- **Trigger-Kuratierung**: `geprueft`-Flag pflegen + „nur geprüfte" filtern (Host/CLI).
 - **Verwaltungs-/Urteilskorpus** + typisierte `wird_ausgelegt_durch`-Kanten;
   Kontext-Stack für relative Verweise.

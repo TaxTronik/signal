@@ -22,8 +22,8 @@ ist gut. Der Schnitt:
 | Rspr: `RssFeed`, `TaxNewsItem` | Zitat-Parser, kanonisches ID-Schema |
 
 **Konsequenz:** Risk-Layers eigene Speicher (`faelle/`, `aufgaben/`, eigenes
-Audit, „Nutzer"-Strings) werden in der Integration **abgeschaltet** — sie waren
-Standalone-Gerüst. Die Engine wird **zustandslos bzgl. Mandantendaten**.
+Audit, „Nutzer"-Strings) wurden **entfernt** — sie waren Standalone-Gerüst. Die
+Engine ist **zustandslos bzgl. Mandantendaten**.
 
 ## 2. Das wichtigste Architekturprinzip: zustandslose Engine (§ 203)
 
@@ -132,9 +132,10 @@ zwar netzintern, aber mandantendatenführend angefragt wird. Kein offener Port.
 
 ## 4. API-Vertrag der Engine (Risk-Layer-Seite — ✅ GEBAUT & getestet)
 
-Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, 8 Vertragstests
-(`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN` (ist
-keins gesetzt, wird nicht geprüft → lokale Dev/GUI). Engine-Version: `1.0.0`.
+Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
+(`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
+konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.0.0`.
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
@@ -197,8 +198,28 @@ Body: `{begriff, definition_text, autor?, scope?, norm_anker?[], governance_typ?
 Body: `{text, k?: int}` → `{treffer: [ {norm_id, zitat, titel, sim} ]}` (je Norm
 nur ein Treffer, dedupliziert). Leer, wenn kein Embedding-Index gebaut.
 
-Wegfallend in der Integration (Standalone-Gerüst, bleibt nur für die lokale GUI):
-`/api/fall/*`, `/api/mandant/*`, `/api/aufgabe/*`, eigenes Audit-/Recherche-Persist.
+### `GET /v1/llm/status`
+→ `{url, verfuegbar: bool, queue, modell_geladen, binary_vorhanden, von_uns_gestartet}`.
+`queue` zeigt den **Slot-/Auslastungszustand** des llama-server:
+`{quelle:"slots", slots_gesamt, aktiv, frei, slots:[{id, aktiv}]}` (aus `/slots`) bzw.
+`{quelle:"metrics", aktiv, wartend}` (aus `/metrics`). Ein über `POST /v1/llm/start`
+gestarteter llama-server wird **automatisch mit `--slots --metrics`** hochgefahren →
+Queue sofort verfügbar. Ein **manuell** gestarteter Server braucht diese Flags selbst,
+sonst bleibt `queue` `null` (kein Fehler — der Indikator zeigt dann nur
+verfügbar/lädt ohne Auslastungszahlen). So kann TaxTronik entscheiden, ob es
+`mitLLM:true` jetzt sendet oder wartet/pollt.
+
+### `POST /v1/llm/start`
+Startet den llama-server für Schicht 2. **Kein Request-Input** — Modell/Binary kommen
+aus der Engine-Config (`--llm-model`/`--llm-bin`/`RISK_LAYER`-Default), also kein
+Injection-Vektor. Idempotent (`{ok:true, hinweis:"läuft bereits"}`, falls schon
+erreichbar); blockiert **nicht** bis fertig → Bereitschaft über `GET /v1/llm/status`
+(`verfuegbar`) pollen. → `{ok, startet?, modell?, url?, fehler?}`.
+
+**Vollständig entfernt** (macht alles TaxTronik): die GUI (`/static`, `/api/*`),
+die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Service
+(`service.py`) und der **eigene Audit-Log** (`audit.py`). Die Engine kennt nur noch
+`/v1` (+ CLI für Build/Wartung) und ist zustandslos.
 
 ### Deployment (✅ `Dockerfile` gebaut)
 `docker build -t risk-layer .` (schlank) bzw. `--build-arg WITH_EMBEDDING=1`
@@ -266,8 +287,8 @@ ein naives Mapping bräche — bitte in `packages/risk-layer/src/mapping.ts` und
    (NUR `engineVersion` ist camelCase). Der §4-Contract oben schrieb `textHash`/
    `katalogVersion` — **das ist die Skizze, nicht die Realität.** `mapping.ts` muss
    von snake_case lesen; ein zod-Schema gegen camelCase würde beim ersten echten
-   Call fehlschlagen. (Engine bewusst nicht umbenannt: bricht GUI + 177 Tests; die
-   Übersetzung gehört in den TS-Adapter, dessen Job genau das ist.)
+   Call fehlschlagen. (Engine bewusst nicht umbenannt: bräche den stabilen Contract
+   + die Tests; die Übersetzung gehört in den TS-Adapter, dessen Job genau das ist.)
 
 6. **Karten-`status` ≠ TCMS-`RiskStatus`.** Eine Karte trägt `status` aus
    {`treffer`, `luecke`, `kandidat`, `unknown_risiko`, `berater_definiert`,

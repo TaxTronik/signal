@@ -24,7 +24,7 @@ def _text():
 def test_analyse_json_vertrag(tmp_path):
     app = Anwendung(None, str(tmp_path))
     res = app.analyse(_text(), unknown=False, berater=False, nutzer=None)
-    for schluessel in ("text", "summary", "spans", "karten", "risiken", "audit", "katalog_version"):
+    for schluessel in ("text", "summary", "spans", "karten", "risiken", "katalog_version"):
         assert schluessel in res
     # Spans referenzieren auf Karten/Risiken
     for s in res["spans"]:
@@ -67,10 +67,3 @@ def test_define_on_the_fly_zyklus(tmp_path):
                for r in nach["risiken"])
     assert not any(r["status"] == "unknown_risiko" and "Betriebsaufspaltung" in r["titel"]
                    for r in nach["risiken"])
-
-
-def test_report_html_endpoint_inhalt(tmp_path):
-    app = Anwendung(None, str(tmp_path))
-    html = app.report_html(_text(), unknown=True, berater=False, nutzer=None)
-    assert "<!doctype html>" in html.lower()
-    assert "Annotiertes Dokument" in html

@@ -17,12 +17,30 @@ Text steht. Modell-/Quantisierungs-/Seed-/Temperatur-Angaben gehen ins Audit
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 import urllib.error
 import urllib.request
 from typing import Any
 
 from .schicht2 import KANDIDATEN_JSON_SCHEMA, SYSTEMPROMPT
+
+_log = logging.getLogger("risk_layer.llm")
+
+
+def _env_timeout(default: float = 300.0) -> float:
+    """Schicht-2-Generierung kann bei großem Text / langsamer GPU minutenlang
+    dauern. Default großzügig (sonst werden valide, nur späte Antworten
+    verworfen); per ``RISK_LAYER_LLM_TIMEOUT`` (Sekunden) durch das Host-System
+    tunebar."""
+    roh = os.environ.get("RISK_LAYER_LLM_TIMEOUT")
+    if roh:
+        try:
+            return float(roh)
+        except ValueError:
+            _log.warning("RISK_LAYER_LLM_TIMEOUT=%r ungültig — nutze %.0fs", roh, default)
+    return default
 
 
 def server_verfuegbar(base_url: str = "http://127.0.0.1:8080", *, timeout: float = 2.0) -> bool:
@@ -32,6 +50,91 @@ def server_verfuegbar(base_url: str = "http://127.0.0.1:8080", *, timeout: float
             return 200 <= r.status < 500
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
         return False
+
+
+def _hole_bytes(url: str, *, timeout: float, cap: int = 1_048_576) -> bytes | None:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310
+            return r.read(cap) if r.status == 200 else None
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
+        return None
+
+
+def _hole_json(url: str, *, timeout: float) -> Any:
+    roh = _hole_bytes(url, timeout=timeout)
+    if roh is None:
+        return None
+    try:
+        return json.loads(roh.decode("utf-8", "replace"))
+    except json.JSONDecodeError:
+        return None
+
+
+def _metrik(text: str, name: str) -> float | None:
+    """Liest einen Prometheus-Zähler. Matcht den Metrik-Namen als GANZEN Token
+    (auch mit ``{labels}``) – kein bloßes Präfix, sonst faengt z. B. die Suche nach
+    ``foo`` faelschlich ``foo_total``."""
+    for zeile in text.splitlines():
+        zeile = zeile.strip()
+        if not zeile or zeile.startswith("#"):
+            continue
+        teile = zeile.split()
+        if len(teile) < 2:
+            continue
+        key = teile[0]
+        if key == name or key.startswith(name + "{"):
+            try:
+                return float(teile[-1])
+            except ValueError:
+                return None
+    return None
+
+
+def _queue_info(base: str, *, timeout: float) -> dict[str, Any] | None:
+    """Slot-/Queue-Zustand des llama-server. Primär ``/slots`` (direkte Sicht je
+    Slot), Fallback ``/metrics`` (Prometheus). ``None``, wenn der Server beides
+    nicht exponiert (llama-server braucht ``--slots`` bzw. ``--metrics``)."""
+    slots = _hole_json(f"{base}/slots", timeout=timeout)
+    if isinstance(slots, list):
+        kompakt: list[dict[str, Any]] = []
+        aktiv = 0
+        for s in slots:
+            if not isinstance(s, dict):
+                continue
+            # is_processing (neuere llama.cpp) ist maßgeblich; sonst state als INT
+            # (0 = idle). Bewusst KEIN bool() auf state, damit ein String-state
+            # ('idle') keinen idle-Slot faelschlich als aktiv zaehlt.
+            ip = s.get("is_processing")
+            if ip is not None:
+                busy = bool(ip)
+            else:
+                st = s.get("state", 0)
+                busy = isinstance(st, (int, float)) and st != 0
+            aktiv += int(busy)
+            kompakt.append({"id": s.get("id"), "aktiv": bool(busy)})
+        return {"quelle": "slots", "slots_gesamt": len(kompakt),
+                "aktiv": aktiv, "frei": len(kompakt) - aktiv, "slots": kompakt}
+    roh = _hole_bytes(f"{base}/metrics", timeout=timeout)
+    if roh is not None:
+        txt = roh.decode("utf-8", "replace")
+        proc = _metrik(txt, "llamacpp:requests_processing")
+        wartend = _metrik(txt, "llamacpp:requests_deferred")
+        if proc is not None or wartend is not None:
+            return {"quelle": "metrics", "aktiv": proc, "wartend": wartend}
+    return None
+
+
+def server_status(base_url: str = "http://127.0.0.1:8080", *, timeout: float = 2.0) -> dict[str, Any]:
+    """Erreichbarkeit + Queue/Slot-Zustand eines llama-server.
+
+    Returns ``{erreichbar: bool, queue: {...}|None}``. ``queue`` zeigt die
+    Auslastung (aktive/freie Slots bzw. processing/deferred), damit das
+    Host-System entscheiden kann, ob es ``mitLLM:true`` jetzt sendet oder wartet.
+    """
+    base = base_url.rstrip("/")
+    if not server_verfuegbar(base, timeout=timeout):
+        return {"erreichbar": False, "queue": None}
+    return {"erreichbar": True, "queue": _queue_info(base, timeout=timeout)}
 
 
 def _user_prompt(segment_text: str, bekannte_begriffe: list[str],
@@ -161,7 +264,7 @@ class LlamaServerProvider:
         quantisierung: str = "unbekannt",
         seed: int = 0,
         temperatur: float = 0.0,
-        timeout: float = 120.0,
+        timeout: float | None = None,
         n_predict: int = 768,
         pruefe_verfuegbar: bool = True,
     ):
@@ -170,7 +273,7 @@ class LlamaServerProvider:
         self.quantisierung = quantisierung
         self.seed = seed
         self.temperatur = temperatur
-        self.timeout = timeout
+        self.timeout = _env_timeout() if timeout is None else timeout
         self.n_predict = n_predict
         self.pruefe_verfuegbar = pruefe_verfuegbar
 
@@ -220,7 +323,20 @@ class LlamaServerProvider:
             return []
         try:
             roh_text = self._infer(segment_text, bekannte_begriffe)
-        except (urllib.error.URLError, TimeoutError, ConnectionError, OSError, KeyError):
+        except TimeoutError:
+            # Server erreichbar, aber Generierung > timeout: valide Kandidaten
+            # gehen verloren. NICHT still – sonst unsichtbar (Diagnose-Falle).
+            _log.warning(
+                "Schicht-2 LLM-Timeout nach %.0fs (%s) — Kandidaten verworfen. "
+                "RISK_LAYER_LLM_TIMEOUT erhöhen oder schnelleres Backend/Modell nutzen.",
+                self.timeout, self.base_url)
+            return []
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            _log.warning("Schicht-2 LLM nicht erreichbar (%s): %s — Kandidaten verworfen.",
+                         self.base_url, exc)
+            return []
+        except KeyError as exc:
+            _log.warning("Schicht-2 LLM: unerwartetes Antwortformat (%s) — Kandidaten verworfen.", exc)
             return []
         return _nachziehen(segment_text, _kandidaten_aus_text(roh_text))
 

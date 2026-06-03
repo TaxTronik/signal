@@ -18,6 +18,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tarfile
 import urllib.parse
 import urllib.request
 import zipfile
@@ -155,44 +156,152 @@ def finde_llama_server(explizit: str | None = None,
 
 
 # ---------------------------------------------------------------------------
-# Engine-Beschaffung (llama.cpp Vulkan-Release von GitHub)
+# Backend-Erkennung (GPU-Vendor → passendes llama.cpp-Release)
 # ---------------------------------------------------------------------------
 
-def finde_engine_asset(pattern: str = "bin-win-vulkan-x64", *, timeout: float = 30.0
-                       ) -> tuple[str, str] | None:
-    """Sucht in den letzten Releases das passende Vulkan-Binary-Archiv."""
+def _gpu_namen() -> list[str]:
+    """GPU-Bezeichnungen (best effort, plattformabhängig, ohne Zusatzpakete)."""
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"],
+                capture_output=True, text=True, timeout=15)
+        else:
+            out = subprocess.run(["lspci"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [z.strip() for z in out.stdout.splitlines() if z.strip()]
+
+
+def erkenne_gpu_vendor() -> str | None:
+    """``'nvidia'`` | ``'amd'`` | ``None`` – Best-Effort-Erkennung des Herstellers."""
+    if shutil.which("nvidia-smi"):
+        return "nvidia"
+    if shutil.which("rocminfo") or shutil.which("rocm-smi") or Path("/opt/rocm").exists():
+        return "amd"
+    blob = " ".join(_gpu_namen()).lower()
+    if any(s in blob for s in ("nvidia", "geforce", "rtx", "quadro", "tesla")):
+        return "nvidia"
+    if any(s in blob for s in ("amd", "radeon", "instinct")):
+        return "amd"
+    return None
+
+
+# Geordnete Asset-Muster (best → Fallback) je OS + Backend. Substrings, damit
+# Versions-Bumps der Releases (cuda-12.x, rocm-7.x) nicht brechen. Compute-
+# Backends (CUDA/HIP) VOR Vulkan: schneller UND robust headless/RDP – Vulkan ist
+# eine Grafik-API und fällt ohne aktives Display in einen langsamen Pfad. CPU zuletzt.
+_BACKEND_WIN: dict[str, list[str]] = {
+    "nvidia": ["bin-win-cuda-12", "bin-win-cuda-13", "bin-win-vulkan-x64", "bin-win-cpu-x64"],
+    "cuda":   ["bin-win-cuda-12", "bin-win-cuda-13"],
+    "amd":    ["bin-win-hip-radeon", "bin-win-vulkan-x64", "bin-win-cpu-x64"],
+    "hip":    ["bin-win-hip-radeon"],
+    "rocm":   ["bin-win-hip-radeon"],
+    "vulkan": ["bin-win-vulkan-x64"],
+    "cpu":    ["bin-win-cpu-x64"],
+}
+_BACKEND_LINUX: dict[str, list[str]] = {
+    # llama.cpp liefert KEIN Linux-CUDA-Prebuilt → NVIDIA fällt auf Vulkan zurück
+    # (volle CUDA-Speed nur via Source-/Docker-Build, siehe Deploy-Doku).
+    "nvidia": ["bin-ubuntu-vulkan-x64", "bin-ubuntu-x64"],
+    "cuda":   ["bin-ubuntu-vulkan-x64", "bin-ubuntu-x64"],
+    "amd":    ["bin-ubuntu-rocm", "bin-ubuntu-vulkan-x64", "bin-ubuntu-x64"],
+    "hip":    ["bin-ubuntu-rocm"],
+    "rocm":   ["bin-ubuntu-rocm"],
+    "vulkan": ["bin-ubuntu-vulkan-x64"],
+    "cpu":    ["bin-ubuntu-x64"],
+}
+
+
+def backend_patterns(backend: str = "auto") -> list[str]:
+    """Geordnete Release-Asset-Muster für OS + (erkanntes) Backend."""
+    if backend == "auto":
+        backend = erkenne_gpu_vendor() or "cpu"
+    table = _BACKEND_WIN if sys.platform == "win32" else _BACKEND_LINUX
+    return table.get(backend, table["cpu"])
+
+
+# ---------------------------------------------------------------------------
+# Engine-Beschaffung (llama.cpp-Release von GitHub, backend-aware)
+# ---------------------------------------------------------------------------
+
+def _release_assets(*, timeout: float = 30.0) -> list[tuple[str, str]]:
+    """``(name, url)`` aller Assets der letzten Releases (neueste zuerst)."""
     req = urllib.request.Request(GITHUB_RELEASES, headers={
         "User-Agent": "risk-layer/0.1", "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
         releases = json.load(r)
+    return [(a["name"], a["browser_download_url"])
+            for rel in releases for a in rel.get("assets", [])]
+
+
+def _waehle_asset(assets: list[tuple[str, str]], pattern: str, *, cudart: bool = False
+                  ) -> tuple[str, str] | None:
+    """Erstes Archiv, dessen Name ``pattern`` enthält. ``cudart`` trennt das
+    CUDA-Runtime-Paket (``cudart-…``) vom eigentlichen Engine-Build."""
     p = pattern.lower()
-    for rel in releases:
-        for a in rel.get("assets", []):
-            name = a["name"].lower()
-            if p in name and name.endswith(".zip"):
-                return a["name"], a["browser_download_url"]
+    for name, url in assets:
+        low = name.lower()
+        if low.startswith("cudart") != cudart:
+            continue
+        if p in low and (low.endswith(".zip") or low.endswith(".tar.gz")):
+            return name, url
     return None
 
 
+def finde_engine_asset(pattern: str = "bin-win-vulkan-x64", *, timeout: float = 30.0
+                       ) -> tuple[str, str] | None:
+    """Erstes passendes (Nicht-cudart-)Engine-Archiv in den letzten Releases."""
+    return _waehle_asset(_release_assets(timeout=timeout), pattern)
+
+
+def _lade_und_entpacke(name: str, url: str, ziel_dir: Path,
+                       fortschritt: Callable[[int, int], None] | None) -> None:
+    arch = ziel_dir / name
+    download_datei(url, arch, fortschritt=fortschritt)
+    if name.lower().endswith(".zip"):
+        with zipfile.ZipFile(arch) as zf:
+            zf.extractall(ziel_dir)
+    else:  # .tar.gz (Linux-Builds)
+        with tarfile.open(arch) as tf:
+            tf.extractall(ziel_dir, filter="data")
+    arch.unlink()
+
+
 def download_engine(ziel_dir: Path | str = DEFAULT_ENGINE_DIR, *,
-                    pattern: str = "bin-win-vulkan-x64",
+                    backend: str = "auto", pattern: str | None = None,
                     fortschritt: Callable[[int, int], None] | None = None) -> str | None:
-    """Lädt die llama.cpp-Vulkan-Engine und entpackt sie nach ``ziel_dir``.
+    """Lädt die zum ``backend`` passende llama.cpp-Engine und entpackt sie.
+
+    ``backend``: ``'auto'|'cuda'|'hip'|'vulkan'|'cpu'``. ``'auto'`` erkennt den
+    GPU-Hersteller (NVIDIA→CUDA, AMD→HIP) und nimmt Vulkan/CPU als Fallback.
+    ``pattern`` überschreibt die Auto-Wahl mit einem exakten Asset-Muster.
 
     NETZZUGRIFF (Build-Schritt). Bindet KEINE GPU, startet nichts. Gibt den Pfad
-    zum ``llama-server``-Binary zurück (oder None, falls nicht gefunden).
+    zum ``llama-server``-Binary zurück (oder None, falls nicht auffindbar).
     """
-    treffer = finde_engine_asset(pattern)
-    if not treffer:
-        raise RuntimeError(f"Kein Engine-Release zu '{pattern}' gefunden.")
-    name, url = treffer
     ziel_dir = Path(ziel_dir)
+    muster = [pattern] if pattern else backend_patterns(backend)
+    assets = _release_assets()
+    treffer = gewaehlt = None
+    for p in muster:
+        treffer = _waehle_asset(assets, p)
+        if treffer:
+            gewaehlt = p
+            break
+    if not treffer:
+        raise RuntimeError(
+            f"Kein Engine-Release für Backend '{backend}' gefunden "
+            f"(geprüfte Muster: {', '.join(muster)}). Auf Linux+NVIDIA gibt es kein "
+            "Prebuilt – llama.cpp aus Source oder via Docker (server-cuda) bauen.")
     ziel_dir.mkdir(parents=True, exist_ok=True)
-    zip_pfad = ziel_dir / name
-    download_datei(url, zip_pfad, fortschritt=fortschritt)
-    with zipfile.ZipFile(zip_pfad) as zf:
-        zf.extractall(ziel_dir)
-    zip_pfad.unlink()
+    _lade_und_entpacke(*treffer, ziel_dir, fortschritt)
+    # CUDA: zugehörige Runtime-DLLs (cudart) ins gleiche Verzeichnis (Windows).
+    if gewaehlt and "cuda" in gewaehlt and sys.platform == "win32":
+        cud = _waehle_asset(assets, gewaehlt, cudart=True)
+        if cud:
+            _lade_und_entpacke(*cud, ziel_dir, fortschritt)
     return finde_llama_server(engine_dir=ziel_dir)
 
 
@@ -225,6 +334,11 @@ class LlamaServerManager:
             "--port", str(self.port),
             "-c", str(self.n_ctx),
             "-ngl", str(self.n_gpu_layers),  # alle Layer auf die GPU (Vulkan)
+            # Damit /v1/llm/status die QUEUE liefert: /slots (Sicht je Slot) +
+            # /metrics (Prometheus-Fallback). Ohne diese Flags antwortet der
+            # llama-server nur auf /health → Queue bliebe null.
+            "--slots",
+            "--metrics",
             *self.extra,
         ]
 

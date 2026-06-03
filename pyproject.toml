@@ -15,7 +15,6 @@ dependencies = [
 [project.optional-dependencies]
 # Stufe 0 (MVP) läuft ohne diese Extras. Sie gehören zu den Ausbaustufen.
 nlp = ["spacy>=3.7"]          # /LF50/ Lemmatisierung (de_core_news_lg) – optionaler Robustheitspfad
-service = ["fastapi>=0.110", "uvicorn>=0.29"]  # /LF: Orchestrierung (Stufe 3)
 llm = ["llama-cpp-python>=0.2"]  # Schicht 2 (Stufe 1) – Kandidatenerkennung
 embedding = ["numpy>=1.26", "sentence-transformers>=2.7"]  # Schicht 1.7 (BGE-M3)
 dev = ["pytest>=8.0"]
@@ -32,7 +31,7 @@ build-backend = "setuptools.build_meta"
 packages = ["risk_layer"]
 
 [tool.setuptools.package-data]
-risk_layer = ["py.typed", "static/*"]
+risk_layer = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
