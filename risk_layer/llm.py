@@ -138,7 +138,8 @@ def server_status(base_url: str = "http://127.0.0.1:8080", *, timeout: float = 2
 
 
 def _user_prompt(segment_text: str, bekannte_begriffe: list[str],
-                 kontext_normen: list[str] | None = None, abweichung: bool = False) -> str:
+                 kontext_normen: list[str] | None = None, abweichung: bool = False,
+                 denk_suffix: str = "") -> str:
     bekannt = ", ".join(bekannte_begriffe) if bekannte_begriffe else "(keine)"
     kontext = ""
     if kontext_normen:
@@ -154,7 +155,10 @@ def _user_prompt(segment_text: str, bekannte_begriffe: list[str],
     return (
         f"{kontext}{bekannt_zeile}\n\n"
         f"--- TEXT ---\n{segment_text}\n--- ENDE ---\n\n"
-        "Gib NUR das JSON nach Schema zurück. /no_think"
+        # denk_suffix MODELL-BEWUSST: Qwen3 braucht "/no_think", sonst geht es TROTZ
+        # JSON-Schema in den Thinking-Modus und liefert nur hastigen Minimal-Output
+        # (gemessen: 8 -> 1 Kandidat). Granite & Co. brauchen es NICHT (schadet Recall).
+        f"Gib NUR das JSON nach Schema zurück.{denk_suffix}"
     )
 
 
@@ -286,6 +290,24 @@ class LlamaServerProvider:
             "temperatur": self.temperatur,
         }
 
+    def _modell_name(self) -> str:
+        """Am Server geladener Modellname (gecacht, via /v1/models) – fuer die
+        modell-bewusste Prompt-Steuerung (z. B. Thinking-Suffix)."""
+        if getattr(self, "_modell_cache", None) is None:
+            name = self.modell or ""
+            d = _hole_json(f"{self.base_url}/v1/models", timeout=3.0)
+            if isinstance(d, dict):
+                daten = d.get("data") or d.get("models") or []
+                if daten and isinstance(daten[0], dict):
+                    name = str(daten[0].get("id") or daten[0].get("name") or name)
+            self._modell_cache = name
+        return self._modell_cache
+
+    def _denk_suffix(self) -> str:
+        """Qwen3 braucht '/no_think' (sonst Thinking-Modus trotz JSON-Schema); andere
+        Modelle (Granite, …) brauchen es nicht und es daempft deren Recall."""
+        return " /no_think" if "qwen" in self._modell_name().lower() else ""
+
     def _infer(self, segment_text: str, bekannte_begriffe: list[str]) -> str:
         """Chat-Completion mit dem MODELL-EIGENEN Chat-Template (instruct!) +
         erzwungenem JSON-Schema (/LF110/). Gibt den Antworttext zurück."""
@@ -294,7 +316,7 @@ class LlamaServerProvider:
                 {"role": "system", "content": SYSTEMPROMPT},
                 {"role": "user", "content": _user_prompt(
                     segment_text, bekannte_begriffe, getattr(self, "_kontext", None),
-                    getattr(self, "_abweichung", False))},
+                    getattr(self, "_abweichung", False), denk_suffix=self._denk_suffix())},
             ],
             "temperature": self.temperatur,
             "seed": self.seed,

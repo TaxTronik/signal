@@ -89,7 +89,9 @@ SYSTEMPROMPT = (
     "Buchführungs-/Aufzeichnungs-/Kassenmängel (Schätzungsanlass), nachträglich "
     "bekannt gewordene Tatsachen, künstliche/funktionslose Gestaltungen, "
     "Haftungsauslöser (Steuern trotz Mitteln nicht abgeführt), abweichende "
-    "wirtschaftliche Zurechnung. Lieber einen Hinweis zu viel."
+    "wirtschaftliche Zurechnung. Markiere GROSSZÜGIG und EINZELN: jede umschriebene "
+    "Stelle als eigenen Treffer, lieber mehr als weniger (Schicht 2 ist bewusst "
+    "übermarkierend; das nachgelagerte Gate filtert)."
 )
 
 
