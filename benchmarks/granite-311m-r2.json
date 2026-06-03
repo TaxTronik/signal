@@ -1,0 +1,82 @@
+{
+  "encoder": "granite-311m-r2",
+  "dim": 768,
+  "katalog_version": "0.3.0",
+  "stand": "2026-06-03T17:06:10+00:00",
+  "index": {
+    "anker_frei": 2857,
+    "mit_anker": 2905
+  },
+  "hand_mit_anker": {
+    "n": 15,
+    "recall@5": 0.867,
+    "recall@10": 1.0,
+    "mrr": 0.807,
+    "verfehlt": 0,
+    "pro_gebiet": {
+      "AO": [
+        11,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        1,
+        1
+      ]
+    }
+  },
+  "hand_anker_frei": {
+    "n": 15,
+    "recall@5": 0.333,
+    "recall@10": 0.4,
+    "mrr": 0.245,
+    "verfehlt": 9,
+    "pro_gebiet": {
+      "AO": [
+        4,
+        13
+      ],
+      "EStG": [
+        1,
+        1
+      ],
+      "KStG": [
+        0,
+        1
+      ]
+    }
+  },
+  "katalog_anker_frei": {
+    "n": 48,
+    "recall@5": 0.125,
+    "recall@10": 0.146,
+    "mrr": 0.075,
+    "verfehlt": 41,
+    "pro_gebiet": {
+      "AO": [
+        2,
+        26
+      ],
+      "AStG": [
+        1,
+        2
+      ],
+      "EStG": [
+        1,
+        3
+      ],
+      "KStG": [
+        1,
+        9
+      ],
+      "UStG": [
+        1,
+        8
+      ]
+    }
+  },
+  "abstention_marge": -0.034
+}

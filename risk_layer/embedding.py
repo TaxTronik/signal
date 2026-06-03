@@ -123,6 +123,11 @@ class BgeM3Encoder:
                         pass
                     from sentence_transformers import SentenceTransformer  # lazy
                     self._modell = SentenceTransformer(self._modell_name, device=self._device)
+                    hole = (getattr(self._modell, "get_embedding_dimension", None)
+                            or self._modell.get_sentence_embedding_dimension)
+                    d = hole()                  # ST renames die Methode; beides abfangen
+                    if d:                       # echte Dimension übernehmen (modellabhängig)
+                        self.dim = int(d)
         return self._modell
 
     def encode(self, texts: list[str]) -> np.ndarray:
@@ -136,14 +141,31 @@ class BgeM3Encoder:
         return np.asarray(vecs, dtype=np.float32)
 
 
+class GraniteR2Encoder(BgeM3Encoder):
+    """IBM Granite-Embedding-311M-Multilingual-R2 (ModernBERT, Apache-2.0, mehr-
+    sprachig inkl. Deutsch). Erbt Lazy-Load/Lock/ROCm-Workaround von BgeM3Encoder;
+    die echte Dimension wird beim Laden erkannt. Für den Encoder-Head-to-Head
+    gegen BGE-M3 (tools/embedding_bench.py --encoder granite-311m-r2)."""
+
+    name = "granite-311m-r2"
+    dim = 768
+
+    def __init__(self, device: str | None = None):
+        super().__init__(modell="ibm-granite/granite-embedding-311m-multilingual-r2",
+                         device=device)
+
+
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
                     device: str | None = None) -> Encoder:
-    """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash.
+    """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash;
+    ``granite-311m-r2`` das mehrsprachige Granite-R2 (ModernBERT).
 
-    ``device`` wird an BGE-M3 durchgereicht. Für Einzelabfragen (Web-Request) ist
-    CPU sinnvoll: hält die GPU frei (z. B. fürs Spielen) und ist für einen Satz
-    schnell genug. Der Index-BUILD nutzt dagegen explizit die GPU.
+    ``device`` wird durchgereicht. Für Einzelabfragen (Web-Request) ist CPU
+    sinnvoll: hält die GPU frei und ist für einen Satz schnell genug. Der Index-
+    BUILD nutzt dagegen explizit die GPU.
     """
+    if name in ("granite-311m-r2", "granite-r2", "granite"):
+        return GraniteR2Encoder(device=device)
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
