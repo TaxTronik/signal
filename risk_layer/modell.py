@@ -53,6 +53,17 @@ MODELLE: dict[str, ModellInfo] = {
                             "Empfehlung: Sweet Spot 16 GB, starke deutsche Rechtssprache"),
     "qwen3-8b": ModellInfo("qwen3-8b", "Qwen3-8B", "Qwen/Qwen3-8B-GGUF", "Q6_K", 6.7,
                            "mehr Kontext-Headroom, schneller"),
+    # IBM Granite 4.1 (aktuelle Linie, Apache-2.0; die 4.x-Reihe setzt auf hybride
+    # Mamba-2/Transformer-Architektur -> bandbreiten-freundlich, ideal fuer den hier
+    # GPU-bandbreiten-limitierten Generierungs-Engpass). Kleinere Gewichte als das
+    # 14B -> mehr tok/s. Head-to-Head gegen Qwen3-14B auf den Cases.
+    # (Hybrid braucht eine recente llama.cpp; wird beim ersten Laden bestaetigt.)
+    "granite-4.1-8b": ModellInfo(
+        "granite-4.1-8b", "Granite-4.1-8B", "ibm-granite/granite-4.1-8b-GGUF",
+        "Q5_K_M", 5.8, "IBM 4.1, Apache-2.0; ~halbe Gewichte vs. 14B -> schneller"),
+    "granite-4.1-3b": ModellInfo(
+        "granite-4.1-3b", "Granite-4.1-3B", "ibm-granite/granite-4.1-3b-GGUF",
+        "Q5_K_M", 2.1, "IBM 4.1, Apache-2.0; sehr schnell (Speed-Anker)"),
 }
 DEFAULT_MODELL = "qwen3-14b"
 

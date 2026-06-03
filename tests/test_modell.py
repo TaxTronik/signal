@@ -15,6 +15,14 @@ def test_registry_default_ist_qwen3_14b():
     assert info.quant == "Q5_K_M"
 
 
+def test_registry_granite_eintraege():
+    # Verifizierte, oeffentliche IBM-Granite-4.1-GGUF (Apache-2.0) fuer den Head-to-Head.
+    g8 = M.MODELLE["granite-4.1-8b"]
+    assert g8.repo == "ibm-granite/granite-4.1-8b-GGUF" and g8.quant == "Q5_K_M"
+    assert "granite-4.1-3b" in M.MODELLE
+    assert M.DEFAULT_MODELL == "qwen3-14b"   # Default bleibt unveraendert
+
+
 def test_datei_url_form():
     url = M.datei_url("Qwen/Qwen3-14B-GGUF", "Qwen3-14B-Q5_K_M.gguf")
     assert url == "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q5_K_M.gguf?download=true"
