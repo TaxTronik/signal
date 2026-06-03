@@ -171,6 +171,19 @@ class JinaV5Encoder(BgeM3Encoder):
                          device=device, trust_remote_code=True)
 
 
+class Qwen3Encoder(BgeM3Encoder):
+    """Qwen3-Embedding-0.6B (Apache-2.0, stark mehrsprachig). ⚠️ am stärksten
+    instruktions-abhängig (Queries wollen eigentlich einen Instruction-Prefix);
+    hier symmetrisch out-of-the-box gemessen (konsistent mit den anderen) →
+    untertreibt Qwen tendenziell am meisten."""
+
+    name = "qwen3-emb-0.6b"
+    dim = 1024
+
+    def __init__(self, device: str | None = None):
+        super().__init__(modell="Qwen/Qwen3-Embedding-0.6B", device=device)
+
+
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
                     device: str | None = None) -> Encoder:
     """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash;
@@ -185,6 +198,8 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
         return GraniteR2Encoder(device=device)
     if name in ("jina-v5", "jina-v5-small-retrieval", "jina"):
         return JinaV5Encoder(device=device)
+    if name in ("qwen3", "qwen3-emb-0.6b", "qwen3-embedding"):
+        return Qwen3Encoder(device=device)
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
