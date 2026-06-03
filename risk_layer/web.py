@@ -78,6 +78,16 @@ class Anwendung:
         except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
             _log.warning("Embedding-Encoder nicht ladbar (%s) — Engine laeuft ohne Schicht 1.7.", exc)
             self.embedding = self.embedding_encoder = None
+        # Schicht-1.7b-Reranker (Cross-Encoder): NUR auf GPU – fp16 macht ihn ~25x
+        # schneller (~1 s/Dok), auf CPU waere fp32 die 12-s-Falle. Lazy (Modell laedt
+        # beim ersten Reranking). Hebt held-out-Recall ~2x; optional/degradierend.
+        self.reranker = None
+        if self.embedding_encoder is not None and "cuda" in (_emb_dev or ""):
+            try:
+                from .reranker import reranker_oeffnen
+                self.reranker = reranker_oeffnen(device=_emb_dev)
+            except Exception as exc:  # noqa: BLE001 – Rerank ist optional, nie Show-Stopper
+                _log.warning("Reranker nicht ladbar (%s) — Schicht 1.7 ohne Rerank.", exc)
         self.llm_url = llm_url        # Schicht 2 (mitLLM:true) verbindet sich hierher
         self.llm_model = llm_model    # expliziter GGUF-Pfad (sonst Registry-Default)
         self.llm_bin = llm_bin        # llama-server-Binary
@@ -122,7 +132,8 @@ class Anwendung:
                                    abweichung=abweichung, trigger=self.trigger,
                                    detektor=True, streit=True,
                                    embedding=self.embedding,
-                                   embedding_encoder=self.embedding_encoder)
+                                   embedding_encoder=self.embedding_encoder,
+                                   reranker=self.reranker)
         return antwort_json(report, text)
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -68,6 +68,14 @@ class CrossEncoderReranker:
                         pass
                     from sentence_transformers import CrossEncoder  # lazy
                     self._modell = CrossEncoder(self._modell_name, device=self._device)
+                    # fp16 auf der GPU: ~25x schneller (11,9 s -> 0,47 s je Dokument).
+                    # fp32 ist auf RDNA4/ROCm eine Falle – dieselbe Lektion wie beim LLM.
+                    # CPU bleibt fp32 (half() wird dort nicht unterstützt).
+                    try:
+                        if next(self._modell.model.parameters()).device.type == "cuda":
+                            self._modell.model.half()
+                    except Exception:
+                        pass
         return self._modell
 
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
