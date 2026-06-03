@@ -188,6 +188,13 @@ class Begriffskarte:
     ist_streitig: bool = False
     streit_signal: str = ""
 
+    @property
+    def wertungsoffen(self) -> bool:
+        """Inhärent wertungsoffener Begriff (governance_typ IN): braucht Subsumtion,
+        UNABHÄNGIG davon, ob im Text ein Streit-Wort fällt. Eigener Flag, NICHT Streit
+        (= Disput im Text) — die fachliche Sollbruchstelle, die der Berater prüfen muss."""
+        return self.eintrag.governance_typ is GovernanceTyp.IN
+
     def herkunft(self) -> dict[str, Any]:
         """Epistemische Provenienz – Haftungssoftware muss die Schicht ausweisen."""
         if self.via == "muster":

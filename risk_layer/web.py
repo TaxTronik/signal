@@ -244,6 +244,7 @@ def _karte_json(k: Begriffskarte) -> dict[str, Any]:
         "normketten": [kette.as_dict() for kette in e.normketten],
         "quellen": _quellen_json(k.quellen),
         "governance_typ": e.governance_typ.value,
+        "wertungsoffen": k.wertungsoffen,
         "schadensintensitaet": e.schadensintensitaet,
         "kaskadenreichweite": e.kaskadenreichweite,
         "gefaehrdungsnotiz": e.gefaehrdungsnotiz.strip(),
@@ -278,7 +279,7 @@ def _spans_json(karten: list[Begriffskarte], risiken: list[Risikomarkierung]) ->
         spans.append({
             "start": k.treffer.start, "end": k.treffer.end, "status": k.status.value,
             "cls": cls, "titel": k.eintrag.begriff_kanonisch, "layer": layer,
-            "via": k.via, "streitig": k.ist_streitig,
+            "via": k.via, "streitig": k.ist_streitig, "wertungsoffen": k.wertungsoffen,
             "ref": {"type": "karte", "index": i},
         })
     for j, r in enumerate(risiken):
