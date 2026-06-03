@@ -15,10 +15,25 @@ ohne sentence-transformers liefert ``reranker_oeffnen`` einfach ``None``.
 
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any, Protocol, runtime_checkable
 
 from .idschema import para_level
+
+# Bi-Encoder-Top-N, die der Cross-Encoder umsortiert (mehr Headroom = mehr Chance,
+# einen vom Bi-Encoder vergrabenen Treffer hochzuholen).
+RERANK_TOPN = 20
+
+
+def rerank_schwelle() -> float:
+    """Mindest-Rerank-Score, ab dem ein Vorschlag überhaupt erscheint (Abstention).
+    Gemessen (Gold): bei 0,10 fallen ALLE neutralen Sätze raus, 10/15 Positive
+    bleiben. Per ``RISK_LAYER_RERANK_SCHWELLE`` tunebar."""
+    try:
+        return float(os.environ.get("RISK_LAYER_RERANK_SCHWELLE", "0.10"))
+    except ValueError:
+        return 0.10
 
 
 @runtime_checkable
@@ -119,9 +134,15 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
 def rerank_normen(reranker: Reranker | None, query: str,
                   normen: list[dict[str, Any]], doc_fn, k: int) -> list[dict[str, Any]]:
     """Sortiert die Norm-Kandidaten eines Satzes per Cross-Encoder um (gegen
-    ``doc_fn(norm_id)``) und gibt die Top-k zurück. Ohne Reranker: einfach Top-k."""
+    ``doc_fn(norm_id)``) und gibt die Top-k zurück; jede Marke trägt ihren
+    ``rerank``-Score (für Abstention/Anzeige). Ohne Reranker: einfach Top-k."""
     if reranker is None or len(normen) <= 1:
         return normen[:k]
     scores = reranker.score([(query, doc_fn(n["norm_id"])) for n in normen])
-    rang = sorted(range(len(normen)), key=lambda i: scores[i], reverse=True)
-    return [normen[i] for i in rang[:k]]
+    rang = sorted(range(len(normen)), key=lambda i: scores[i], reverse=True)[:k]
+    out: list[dict[str, Any]] = []
+    for i in rang:
+        marke = dict(normen[i])
+        marke["rerank"] = round(scores[i], 3)
+        out.append(marke)
+    return out

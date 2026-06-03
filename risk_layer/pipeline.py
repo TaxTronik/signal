@@ -33,6 +33,8 @@ from .idschema import para_level as _para_level
 from .matcher import Schicht1Matcher
 from .models import Risikomarkierung, RunReport, Status, Treffer
 from .muster import MusterMatcher, StreitDetektor, saetze_mit_offset
+from .reranker import (RERANK_TOPN, baue_norm_doc_fn, rerank_normen,
+                       rerank_schwelle)
 from .resolver import anreichern_mit_berater, anreichern_mit_graph, resolve_alle
 from .schicht2 import KandidatenProvider, erkenne_kandidaten
 from .unknown_gate import DefinitorischProposer, UnknownGate, ist_belanglos
@@ -273,6 +275,7 @@ class Pipeline:
         streit: bool = False,
         embedding=None,
         embedding_encoder=None,
+        reranker=None,
         smart_windowing: bool = False,
         fenster_max_chars: int = _FENSTER_MAX_CHARS,
     ) -> RunReport:
@@ -442,18 +445,34 @@ class Pipeline:
             # (§ 43 GmbHG) UND die steuerliche Haftung (§ 69/34 AO) eng beieinander –
             # beide zu zeigen ist fachlich RICHTIGER als nur den Spitzenreiter. Im
             # Vorschlags-Modus ist breitere Nachbarschaft ein Feature, kein Rauschen.
+            # Optionaler Reranker (Schicht 1.7b): Bi-Encoder holt einen BREITEREN
+            # Pool (Top-N, niedrigerer Floor), der Cross-Encoder sortiert ANKER-
+            # BEWUSST um und filtert per Schwelle (Abstention). Hebt held-out-Recall
+            # ~2x, ohne Encoder-Wechsel. Ohne Reranker: Verhalten exakt wie bisher.
+            rr_doc = (baue_norm_doc_fn(self.katalog, graph)
+                      if (reranker is not None and graph is not None) else None)
+            topn = RERANK_TOPN if rr_doc is not None else 5
+            floor = 0.35 if rr_doc is not None else 0.50
+            schwelle = rerank_schwelle()
             for m in embedding.kandidaten_pro_satz(text, embedding_encoder,
-                                                   k=5, min_sim=0.50):
+                                                   k=topn, min_sim=floor):
+                normen = m["normen"]
+                if rr_doc is not None:
+                    normen = rerank_normen(reranker, m["text"], normen, rr_doc, 5)
+                    normen = [n for n in normen if n.get("rerank", 1.0) >= schwelle]
+                    if not normen:
+                        continue                # Abstention: kein relevanter § für den Satz
                 semantik_vorschlaege.append({
                     "start": m["start"], "end": m["end"], "satz": m["text"],
                     "normen": [{"zitat": n["zitat"], "id": n["norm_id"],
                                 "titel": n["titel"], "sim": n["sim"],
+                                "rerank": n.get("rerank"),
                                 "gestuetzt": True, "im_korpus": True,
                                 # volle Kaskade anhängen (Katalog-Lookup), damit der
                                 # Vorschlag die Folgeglieder zeigt, nicht nur die Spitze.
                                 "ketten": self._ketten_nach_norm.get(
                                     _para_level(n["norm_id"]), [])}
-                               for n in m["normen"]],
+                               for n in normen],
                 })
 
         # Schicht 2 – deterministischer Heuristik-Proposer (offline), wenn angefordert.
