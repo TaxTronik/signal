@@ -8,6 +8,7 @@ import pytest
 
 from risk_layer.idschema import NormID
 from risk_layer.zitate import (
+    finde_normzitate,
     norm_zu_zitat,
     parse_entscheidung,
     parse_normzitat,
@@ -128,3 +129,22 @@ def test_fg_mit_ort():
     uid = parse_entscheidung("FG Hamburg v. 1.2.2018 – 2 K 245/17")
     assert uid.gericht == "FGHamburg"
     assert uid.aktenzeichen == "2-K-245/17"
+
+
+# Freitext-Scan: weiterhin korrekt UND gegen polynomialen Lazy-Scan begrenzt ----
+
+def test_finde_normzitate_findet_normale_zitate():
+    ids = {a.norm_id.to_id() for a in finde_normzitate(
+        "Siehe § 162 Abs. 1 Satz 2 AO und § 42 AO.") if a.norm_id}
+    assert any(i.startswith("norm:AO:162") for i in ids)
+    assert "norm:AO:42" in ids
+
+
+def test_finde_normzitate_bounded_gegen_redos():
+    import time
+    # "§ 1 " + langer Nicht-Gesetz-Schwanz: die {0,80}-Begrenzung verhindert den
+    # polynomialen Lazy-Scan (frueher *?). Muss schnell zurueckkehren.
+    boese = "§ 1 " + ("a " * 1000000) + "AO"
+    t = time.time()
+    finde_normzitate(boese)
+    assert time.time() - t < 2.0

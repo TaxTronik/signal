@@ -30,7 +30,11 @@ def _scan_pattern(lawmap: LawMap) -> re.Pattern[str]:
     pat = _SCAN_PATTERN_CACHE.get(lawmap)
     if pat is None:
         law_alt = "|".join(re.escape(a) for a in lawmap.alle_aliase())
-        pat = re.compile(rf"(?:§§?|\bArt\.)\s*\d+[\w.\s,–\-]*?\b(?:{law_alt})\b")
+        # {0,80}? statt *?: echte Zitate zwischen §-Nummer und Gesetz sind kurz
+        # (laengste Kette < 60 Zeichen). Die Begrenzung verhindert einen polynomialen
+        # Lazy-Scan auf gecraftetem Nutzertext ("§1 " + langer Nicht-Gesetz-Schwanz),
+        # da finde_normzitate im mitLLM-Pfad ueber den GANZEN Text laeuft.
+        pat = re.compile(rf"(?:§§?|\bArt\.)\s*\d+[\w.\s,–\-]{{0,80}}?\b(?:{law_alt})\b")
         _SCAN_PATTERN_CACHE[lawmap] = pat
     return pat
 
@@ -260,7 +264,7 @@ _GERICHT_RE = re.compile(
     r"\s*(?P<ger>BVerfG|BVerwG|BFH|BGH|EuGH|EuG|FG\s+[A-ZÄÖÜ][^\s,]+|FG)"
 )
 _DATUM_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{4}")
-_AZ_RE = re.compile(r"[A-Za-z0-9][\w .\-]*?\d{1,4}/\d{2,4}")
+_AZ_RE = re.compile(r"[A-Za-z0-9][\w .\-]{0,40}?\d{1,4}/\d{2,4}")  # begrenzt (kein Lazy-Blowup)
 _FUNDSTELLE_RE = re.compile(r"[A-ZÄÖÜ][A-Za-zÄÖÜ.]*\.?\s*[IVX]*\s*\d{4},\s*\d+")
 
 _GERICHT_QUELLENTYP = {
