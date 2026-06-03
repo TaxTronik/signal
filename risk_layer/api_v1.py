@@ -93,6 +93,16 @@ def _katalog_definiere(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     return 200, app.definiere(payload)
 
 
+def _katalog_norm_kuratieren(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/katalog/norm_kuratieren – katalog-weite Norm-Kuratierung an EINEM
+    Begriff: {katalog_id, norm, aktion: verwerfen|ergaenzen|zuruecksetzen, scope, autor}.
+    Rein strukturell (Begriff-ID + Norm-Zitat + aktion + Autor-Tag) – KEIN Fall-/
+    Mandantentext, daher § 203-unkritisch und fallzustandslos. Die Engine hält nur den
+    Katalog-State; die Handlung (wer/wann) auditiert der Host in seiner Chain."""
+    res = app.kuratiere_norm(payload)
+    return (200 if res.get("ok") else 400), res
+
+
 def _normgraph_aufloesen(app, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """GET /v1/normgraph/aufloesen?id=norm:AO:162 – einen Knoten auflösen."""
     nid = (query.get("id") or [""])[0]
@@ -171,6 +181,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _analyse(app, payload)
         if pfad == "/v1/katalog/definiere":
             return _katalog_definiere(app, payload)
+        if pfad == "/v1/katalog/norm_kuratieren":
+            return _katalog_norm_kuratieren(app, payload)
         if pfad == "/v1/embedding/suche":
             return _embedding_suche(app, payload)
         if pfad == "/v1/llm/start":

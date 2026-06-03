@@ -156,6 +156,26 @@ class Anwendung:
         return {"ok": True, "id": d.id, "scope": d.scope, "geankert_an": list(d.geankert_an),
                 "katalog_id": d.katalog_id}
 
+    def kuratiere_norm(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Katalog-weite Norm-Kuratierung (verwerfen/ergaenzen/zuruecksetzen) an einem
+        Katalogbegriff. Katalog-State, fallzustandslos, KEIN Audit (der Host
+        protokolliert die Handlung in seiner Chain)."""
+        katalog_id = (payload.get("katalog_id") or "").strip()
+        if not katalog_id or not any(e.id == katalog_id for e in self.katalog):
+            return {"ok": False, "fehler": f"unbekannte katalog_id: {katalog_id!r}"}
+        with self._berater_lock:
+            store = BeraterStore(self.berater_dir)
+            try:
+                store.kuratiere_norm(
+                    katalog_id, payload.get("norm", ""), payload.get("aktion", ""),
+                    scope=payload.get("scope", "personal"),
+                    autor=payload.get("autor") or "berater",
+                    datum=payload.get("datum") or date.today().isoformat())
+            except BeraterFehler as exc:
+                return {"ok": False, "fehler": str(exc)}
+        return {"ok": True, "katalog_id": katalog_id, "norm": payload.get("norm", ""),
+                "aktion": payload.get("aktion", ""), "scope": payload.get("scope", "personal")}
+
     # -- Schicht-2-LLM-Steuerung (über /v1/llm/*) ---------------------------
     def _modell_pfad(self) -> str | None:
         from . import modell as M
@@ -215,11 +235,21 @@ class Anwendung:
 # JSON-Aufbereitung (der /v1-Antwort-Vertrag)
 # ---------------------------------------------------------------------------
 
-def _norm_anker_json(norm_anker: tuple[str, ...] | list[str]) -> list[dict[str, Any]]:
+def _norm_anker_json(norm_anker: tuple[str, ...] | list[str],
+                     kuratierung: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Norm-Vorschläge einer Karte mit Provenienz: jede trägt ``quelle`` (katalog|
+    berater) + ``verworfen`` (aus der katalog-weiten Berater-Kuratierung). Die Norm
+    bleibt VORSCHLAG — der Berater verwirft/ergänzt, nichts ist verbindlich."""
+    kur = kuratierung or {}
+    verworfen_ids = kur.get("verworfen") or set()
     out: list[dict[str, Any]] = []
     for zitat in norm_anker:
         ids = [a.norm_id.to_id() for a in parse_normzitat(zitat) if a.norm_id]
-        out.append({"zitat": zitat, "ids": ids})
+        out.append({"zitat": zitat, "ids": ids, "quelle": "katalog",
+                    "verworfen": any(i in verworfen_ids for i in ids)})
+    for erg in (kur.get("ergaenzt") or []):
+        out.append({"zitat": erg["zitat"], "ids": [erg["id"]],
+                    "quelle": "berater", "verworfen": False})
     return out
 
 
@@ -240,7 +270,7 @@ def _karte_json(k: Begriffskarte) -> dict[str, Any]:
         "matched_text": k.treffer.matched_text,
         "start": k.treffer.start,
         "end": k.treffer.end,
-        "norm_anker": _norm_anker_json(e.norm_anker),
+        "norm_anker": _norm_anker_json(e.norm_anker, k.norm_kuratierung),
         "normketten": [kette.as_dict() for kette in e.normketten],
         "quellen": _quellen_json(k.quellen),
         "governance_typ": e.governance_typ.value,

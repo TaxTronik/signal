@@ -180,6 +180,9 @@ class Begriffskarte:
     gesetzestext: list[dict[str, Any]] = field(default_factory=list)
     # Berater-Annotationen an dieser Karte (eigene Infos, Quellen, Notizen)
     berater_notizen: list[dict[str, Any]] = field(default_factory=list)
+    # Katalog-weite Norm-Kuratierung dieses Begriffs (verworfene/ergänzte Normen);
+    # vom Resolver aus dem BeraterStore gesetzt: {"verworfen": set[id], "ergaenzt": [...]}
+    norm_kuratierung: dict[str, Any] = field(default_factory=dict)
     # Abweichungs-Check: das LLM ordnet dieselbe Stelle einer ANDEREN Norm zu (Hinweis)
     abweichung: list[dict[str, Any]] = field(default_factory=list)
     # Herkunft des Treffers: "wörtlich" (Surface-Form) oder "muster" (Schicht 1b)

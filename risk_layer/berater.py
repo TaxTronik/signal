@@ -121,12 +121,36 @@ def _validiere(d: BeraterDefinition) -> None:
         raise BeraterFehler(f"[{d.id}] review_status muss {REVIEW_REIHENFOLGE} sein")
 
 
+@dataclass
+class NormKuratierung:
+    """Katalog-weite Norm-Kuratierung zu EINEM Katalogbegriff — KEIN Fallzustand,
+    KEIN Audit (die Handlung auditiert der Host in seiner Chain). ``aktion``:
+    ``verwerfen`` (vorgeschlagene Katalog-Norm ablehnen) oder ``ergaenzen`` (eigene
+    Norm). Schlüssel = (katalog_id, norm_id, scope): ``personal`` gilt nur fürs eigene
+    Autor-Tag, ``geteilt`` für alle. Begriff-scoped, NICHT textstellen-scoped (§ 203:
+    kein Fall-/Mandantenbezug)."""
+
+    katalog_id: str
+    norm_zitat: str
+    norm_id: str
+    aktion: str        # "verwerfen" | "ergaenzen"
+    scope: str         # "personal" | "geteilt"
+    autor: str
+    eingetragen_am: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"katalog_id": self.katalog_id, "norm_zitat": self.norm_zitat,
+                "norm_id": self.norm_id, "aktion": self.aktion, "scope": self.scope,
+                "autor": self.autor, "eingetragen_am": self.eingetragen_am}
+
+
 class BeraterStore:
     """Lädt/persistiert Berater-Definitionen (je Scope eine YAML-Datei)."""
 
     def __init__(self, verzeichnis: str | Path):
         self.dir = Path(verzeichnis)
         self._eintraege: list[BeraterDefinition] = []
+        self._kuratierungen: list[NormKuratierung] = []
         self._laden()
 
     # --- Persistenz -----------------------------------------------------
@@ -143,6 +167,16 @@ class BeraterStore:
             data = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
             for raw in data:
                 self._eintraege.append(self._aus_dict(raw, scope))
+        # Norm-Kuratierung (eine Datei, Scope je Record).
+        self._kuratierungen = []
+        kpfad = self.dir / "norm_kuratierung.yaml"
+        if kpfad.exists():
+            for raw in (yaml.safe_load(kpfad.read_text(encoding="utf-8")) or []):
+                self._kuratierungen.append(NormKuratierung(
+                    katalog_id=str(raw["katalog_id"]), norm_zitat=str(raw.get("norm_zitat", "")),
+                    norm_id=str(raw["norm_id"]), aktion=str(raw["aktion"]),
+                    scope=str(raw.get("scope", "personal")), autor=str(raw.get("autor", "")),
+                    eingetragen_am=str(raw.get("eingetragen_am", ""))))
 
     def _speichern(self, scope: str) -> None:
         rows = [d.as_dict() for d in self._eintraege if d.scope == scope]
@@ -150,6 +184,54 @@ class BeraterStore:
             self._datei(scope),
             yaml.safe_dump(rows, allow_unicode=True, sort_keys=False),
         )
+
+    def _speichern_kuratierung(self) -> None:
+        atomar_schreiben(
+            self.dir / "norm_kuratierung.yaml",
+            yaml.safe_dump([k.as_dict() for k in self._kuratierungen],
+                           allow_unicode=True, sort_keys=False),
+        )
+
+    def kuratiere_norm(self, katalog_id: str, norm: str, aktion: str, *,
+                       scope: str, autor: str, datum: str) -> NormKuratierung | None:
+        """Katalog-weit eine Norm an einem Begriff ``verwerfen``/``ergaenzen``/
+        ``zuruecksetzen``. Idempotent: gleicher Schlüssel (katalog_id, norm_id, scope)
+        wird ersetzt; ``zuruecksetzen`` entfernt ihn (Undo). KEIN Audit hier — der Host
+        protokolliert die Handlung in seiner Chain."""
+        if aktion not in ("verwerfen", "ergaenzen", "zuruecksetzen"):
+            raise BeraterFehler(f"aktion muss verwerfen|ergaenzen|zuruecksetzen sein, nicht {aktion!r}")
+        if scope not in ("personal", "geteilt"):
+            raise BeraterFehler("scope muss personal|geteilt sein")
+        norm_id = next((a.norm_id.to_id() for a in parse_normzitat(norm) if a.norm_id), "")
+        if not norm_id:
+            raise BeraterFehler(f"Norm-Zitat nicht auflösbar: {norm!r}")
+        # gleichen Schlüssel entfernen (idempotent / Undo), dann ggf. neu anlegen
+        self._kuratierungen = [k for k in self._kuratierungen
+                               if not (k.katalog_id == katalog_id and k.norm_id == norm_id
+                                       and k.scope == scope)]
+        rec = None
+        if aktion != "zuruecksetzen":
+            rec = NormKuratierung(katalog_id, norm.strip(), norm_id, aktion, scope, autor, datum)
+            self._kuratierungen.append(rec)
+        self._speichern_kuratierung()
+        return rec
+
+    def kuratierung_fuer(self, katalog_id: str, *, nutzer: str | None = None) -> dict[str, Any]:
+        """Geltende Norm-Kuratierung eines Begriffs: ALLE geteilten + die personlichen
+        des anfragenden Nutzers. Liefert ``{'verworfen': set[norm_id],
+        'ergaenzt': [{'zitat','id'}]}``."""
+        verworfen: set[str] = set()
+        ergaenzt: list[dict[str, str]] = []
+        for k in self._kuratierungen:
+            if k.katalog_id != katalog_id:
+                continue
+            if k.scope == "personal" and k.autor != nutzer:
+                continue                       # fremde personliche Kuratierung gilt nicht
+            if k.aktion == "verwerfen":
+                verworfen.add(k.norm_id)
+            else:
+                ergaenzt.append({"zitat": k.norm_zitat, "id": k.norm_id})
+        return {"verworfen": verworfen, "ergaenzt": ergaenzt}
 
     @staticmethod
     def _aus_dict(raw: dict[str, Any], scope: str) -> BeraterDefinition:
