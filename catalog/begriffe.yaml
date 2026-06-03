@@ -46,6 +46,9 @@ begriffe:
       - "Stimmrechtsmehrheit"
     norm_anker:
       - "§ 2 Abs. 2 Nr. 2 UStG"
+    paraphrasen:
+      - "Der Organträger verfügt über die entscheidende Stimmrechtsmehrheit und kann Mehrheitsbeschlüsse in der Tochter durchsetzen."
+      - "Die Beteiligung vermittelt der Mutter die Mehrheit der Stimmrechte in der Tochter."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "Abschn. 2.8 Abs. 5 UStAE"
@@ -72,6 +75,9 @@ begriffe:
       - "wirtschaftliche Verflechtung"
     norm_anker:
       - "§ 2 Abs. 2 Nr. 2 UStG"
+    paraphrasen:
+      - "Die Tochter ist durch mehr als nur unerhebliche Leistungsbeziehungen wirtschaftlich in das Unternehmen des Organträgers eingebunden."
+      - "Beide Unternehmen sind wirtschaftlich so verflochten, dass die Tätigkeit der Tochter das Gesamtunternehmen der Mutter fördert oder ergänzt."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "Abschn. 2.8 Abs. 6 UStAE"
@@ -96,6 +102,9 @@ begriffe:
       - "personelle Verflechtung"
     norm_anker:
       - "§ 2 Abs. 2 Nr. 2 UStG"
+    paraphrasen:
+      - "Die Mutter beherrscht die laufende Geschäftsführung der Tochter und kann ihren Willen im Tagesgeschäft tatsächlich durchsetzen."
+      - "Durch Personenidentität in der Geschäftsführung oder institutionell abgesicherte Eingriffsrechte steuert die Mutter die laufende Geschäftsführung der Tochter."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "Abschn. 2.8 Abs. 7 bis 10 UStAE"
@@ -122,6 +131,9 @@ begriffe:
       - "abweichende Willensbildung verhindert"
     norm_anker:
       - "§ 2 Abs. 2 Nr. 2 UStG"
+    paraphrasen:
+      - "Der Organträger kann seinen Willen in der Organgesellschaft durchsetzen und abweichende Entscheidungen verhindern."
+      - "Die Beherrschung ist so stark, dass die Tochter keine vom Organträger abweichende Willensbildung durchsetzen kann."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "Abschn. 2.8 Abs. 7 UStAE"
@@ -181,6 +193,9 @@ begriffe:
       - "Durchführung des Ergebnisabführungsvertrags"
     norm_anker:
       - "§ 14 Abs. 1 Satz 1 Nr. 3 KStG"
+    paraphrasen:
+      - "Der Gewinnabführungsvertrag wird über die Jahre tatsächlich gelebt, nicht nur auf dem Papier."
+      - "Die vereinbarte Gewinnabführung und Verlustübernahme wird real vollzogen."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "R 14.5 KStR"
@@ -206,6 +221,9 @@ begriffe:
       - "Anteilsübertragung von mehr als 50 %"
     norm_anker:
       - "§ 8c Abs. 1 KStG"
+    paraphrasen:
+      - "Mehr als die Hälfte der Anteile wechselt den Eigentümer, und die Verluste der Gesellschaft gehen unter."
+      - "Ein neuer Investor übernimmt über 50 % der Anteile; die Verlustvorträge fallen weg."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "BMF v. 28.11.2017 – IV C 2 - S 2745-a/09/10002 :004 (BStBl I 2017, 1645)"
@@ -265,6 +283,9 @@ begriffe:
       - "Veranlassung durch das Gesellschaftsverhältnis"
     norm_anker:
       - "§ 8 Abs. 3 Satz 2 KStG"
+    paraphrasen:
+      - "Die GmbH zahlt ihrem Gesellschafter ein überhöhtes Gehalt, das einem fremden Dritten nie gewährt würde."
+      - "Der Gesellschafter lässt sich von der eigenen Firma etwas zu einem unüblich hohen Preis vergüten."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "R 8.5 KStR"
@@ -487,6 +508,9 @@ begriffe:
       - "kein grobes Verschulden"
     norm_anker:
       - "§ 173 Abs. 1 Nr. 2 AO"
+    paraphrasen:
+      - "Der Steuerpflichtige hat eine Tatsache aus grober Nachlässigkeit nicht angegeben."
+      - "Weil der Steuerpflichtige grob fahrlässig handelte, kann der Bescheid nicht mehr zu seinen Gunsten geändert werden."
     definitionsquelle:
       - typ: "Verwaltung"
         fundstelle: "AEAO zu § 173 Nr. 5"
