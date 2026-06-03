@@ -43,6 +43,22 @@ _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 # damit Daten/Betraege (1.000,00) und Steuernummern nicht faelschlich greifen; der
 # Lookbehind verhindert einen Treffer mitten in einer laengeren Zahl.
 _TELEFON = re.compile(r"(?<!\d)(?:\+49|0)[\d /()-]{6,}\d\b")
+# Anschrift (§ 203): Strasse + Hausnummer, optional direkt + PLZ + Ort -> EINE
+# Anschrift ("Johannes-Gutwein Str. 8, 36304 Alsfeld"). Alle Quantoren bounded
+# (kein '*'/'+' vor einem ueberspringbaren Anker) -> ReDoS-frei.
+_STRASSE_SUFFIX = r"(?i:stra(?:ß|ss)e|str\.|weg|platz|allee|gasse|ring|damm|ufer|chaussee)"
+_PLZ_ORT_TAIL = (r"(?:\s*,?\s+\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+"
+                 r"(?:[ -][A-ZÄÖÜ][a-zäöüß]+){0,2})?")
+# angehaengtes Suffix: "Hauptstraße 5", "Bahnhofstr. 12", "Gartenweg 3"
+_ADRESSE_ATTACHED = re.compile(
+    r"\b[A-ZÄÖÜ][a-zäöüßA-Za-z\-]{1,38}" + _STRASSE_SUFFIX
+    + r"\s+\d{1,4}\s?[a-z]?\b" + _PLZ_ORT_TAIL)
+# separates Suffix: "Johannes-Gutwein Str. 8", "Am Alten Markt Platz 2"
+_ADRESSE_SEPARAT = re.compile(
+    r"\b[A-ZÄÖÜ][a-zäöüßA-Za-z.\-]+(?:\s+[A-ZÄÖÜ][a-zäöüßA-Za-z.\-]+){0,2}\s+"
+    + _STRASSE_SUFFIX + r"\s+\d{1,4}\s?[a-z]?\b" + _PLZ_ORT_TAIL)
+# Standalone PLZ + Ort (ohne vorausgehende Strasse): "36304 Alsfeld"
+_PLZ_ORT = re.compile(r"\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+(?:[ -][A-ZÄÖÜ][a-zäöüß]+){0,2}\b")
 # „M-GmbH" → der reine Buchstaben-Stub als Mandantenkürzel (nach Rechtsform-Ersetzung übrig)
 # (durch _FIRMA bereits erfasst)
 
@@ -72,7 +88,7 @@ class _Zaehler:
 
     _LABEL = {"firma": "Gesellschaft", "person": "Person", "betrag": "Betrag",
               "datum": "Datum", "steuernr": "Steuernummer", "iban": "Konto",
-              "email": "E-Mail", "telefon": "Telefon"}
+              "email": "E-Mail", "telefon": "Telefon", "adresse": "Adresse"}
     _BUCHST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     def __init__(self) -> None:
@@ -99,6 +115,9 @@ _REGELN: list[tuple[str, re.Pattern]] = [
     ("iban", _IBAN),
     ("steuernr", _STEUERNR),
     ("email", _EMAIL),
+    ("adresse", _ADRESSE_ATTACHED),   # Strasse+Nr.(+PLZ/Ort) VOR Firma/Person/Betrag
+    ("adresse", _ADRESSE_SEPARAT),
+    ("adresse", _PLZ_ORT),
     ("firma", _FIRMA_KOMPAKT),
     ("firma", _FIRMA_SPACED),
     ("person", _PERSON),

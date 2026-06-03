@@ -51,3 +51,24 @@ def test_telefon_stiehlt_keine_betraege_oder_daten():
     typen = {e.typ for e in r.ersetzungen}
     assert "telefon" not in typen
     assert "datum" in typen and "betrag" in typen
+
+
+def test_volle_anschrift_wird_anonymisiert():
+    # § 203: Strasse + Hausnummer + PLZ + Ort sind identifizierend.
+    r = anonymisiere("Wohnhaft Johannes-Gutwein Str. 8, 36304 Alsfeld, seit 2020.")
+    assert "Johannes-Gutwein Str. 8" not in r.abstrahiert
+    assert "36304 Alsfeld" not in r.abstrahiert
+    assert "adresse" in {e.typ for e in r.ersetzungen}
+
+
+def test_angehaengte_strasse_und_plz_standalone():
+    r = anonymisiere("Kanzlei in der Hauptstraße 5; Sitz in 60311 Frankfurt.")
+    assert "Hauptstraße 5" not in r.abstrahiert
+    assert "60311 Frankfurt" not in r.abstrahiert
+
+
+def test_adresse_stiehlt_keine_rechtsbegriffe_oder_betraege():
+    r = anonymisiere("Die organisatorische Eingliederung; gezahlt wurden 1.250.000 EUR.")
+    typen = {e.typ for e in r.ersetzungen}
+    assert "organisatorische Eingliederung" in r.abstrahiert
+    assert "betrag" in typen and "adresse" not in typen
