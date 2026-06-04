@@ -79,7 +79,10 @@ DISCOVERY_SYSTEM = (
 def baue_user_prompt(zitat: str, titel: str, wortlaut: str, *,
                      enable_normrelation: bool = False) -> str:
     typen = [
-        "begriff (unbestimmter Rechtsbegriff im Text)",
+        "begriff (NUR auslegungs-/wertungsbedürftiger unbestimmter Rechtsbegriff — z. B. "
+        "'angemessen', 'unverzüglich', 'wichtiger Grund', 'Zumutbarkeit', 'Treu und Glauben'. "
+        "NICHT: Legaldefinitionen, Behörden-/Eigennamen, bloße Aufzählungsglieder, schlichte "
+        "Sachbegriffe. textgrundlage = der GANZE (Teil-)Satz, in dem er steht, nicht nur das Wort)",
         "paraphrase (Laien-/Kanzleisprache für GENAU diesen §, KEINE Wortlautkopie)",
         "cross_ref (eine ANDERE, im Wortlaut genannte Norm; die Fremdnorm MUSS als Zitat "
         "in 'bezugsnorm' stehen, 'ziel_norm' = dieser §, 'relation' = verweist_auf)",
@@ -186,6 +189,10 @@ def verarbeite_kandidaten(
                 continue
             if n_para >= MAX_PARAPHRASEN:
                 continue
+        # begriff-Gate: bloßes Wort ohne Kontext-Beleg (textgrundlage == inhalt) ist kein
+        # erkennbar UNBESTIMMTER Rechtsbegriff -> raus (killt die Substantiv-Flut).
+        if typ == "begriff" and _norm(inhalt) == _norm(tg):
+            continue
 
         funktion = str(k.get("funktion", "unklar")).strip()
         if funktion not in FUNKTION:

@@ -108,6 +108,18 @@ def test_begriff_traegt_keine_relation():
     assert len(out) == 1 and out[0].relation == "keine" and out[0].bezugsnorm == ""
 
 
+def test_begriff_bloesses_wort_raus():
+    # textgrundlage == inhalt (nur das Wort) -> kein Beleg für Unbestimmtheit -> raus;
+    # mit umgebendem Satz als textgrundlage bleibt der begriff.
+    roh = [
+        {"typ": "begriff", "inhalt": "schädlich", "textgrundlage": "schädlich", "konfidenz": "hoch"},
+        {"typ": "begriff", "inhalt": "schädlich",
+         "textgrundlage": "Mehr als 50 Prozent der Anteile gelten als schädlich", "konfidenz": "hoch"},
+    ]
+    out = _verarbeite(roh)
+    assert len(out) == 1 and out[0].textgrundlage.startswith("Mehr als 50")
+
+
 def test_deckel_sechs_pro_paragraph():
     roh = [{"typ": "begriff", "inhalt": f"b{i}", "textgrundlage": "Besteuerungsgrundlagen",
             "konfidenz": "hoch"} for i in range(8)]
