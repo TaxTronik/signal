@@ -71,6 +71,9 @@ def main() -> int:
                     help="Discovery-Trainingspaare (Quelle der Extra-Anker für B1)")
     ap.add_argument("--k", type=int, default=5, help="Top-k Kontext-Normen pro Fall")
     ap.add_argument("--limit", type=int, default=0, help="nur N Gold-Fälle (0 = alle)")
+    ap.add_argument("--ankerfrei", action="store_true",
+                    help="Index OHNE Katalog-Anker (isoliert den Discovery-Beitrag: "
+                         "B0=graph-only, B1=graph+Discovery — dort ist Retrieval schwach genug)")
     ap.add_argument("--save", default="benchmarks/grounding-eval.json")
     args = ap.parse_args()
 
@@ -103,10 +106,13 @@ def main() -> int:
     else:
         print(f"WARN: {disc_pfad} nicht gefunden — B1 = B0 (keine Discovery-Anker).", file=sys.stderr)
 
-    print(f"Gold: {len(gold)} Fälle | Discovery-Extra-Anker: {len(extra)} | k={args.k}", file=sys.stderr)
+    kat_idx = None if args.ankerfrei else kat       # anker-frei isoliert den Discovery-Beitrag
+    basis = "graph-only" if args.ankerfrei else "Katalog-Anker"
+    print(f"Gold: {len(gold)} Fälle | Discovery-Extra-Anker: {len(extra)} | k={args.k} | "
+          f"Basis-Index: {basis}", file=sys.stderr)
     print("Baue Indizes (Basis + Discovery) …", file=sys.stderr)
-    idx0 = EmbeddingIndex.build(graph, enc, katalog=kat)
-    idx1 = EmbeddingIndex.build(graph, enc, katalog=kat, extra_anker=extra)
+    idx0 = EmbeddingIndex.build(graph, enc, katalog=kat_idx)
+    idx1 = EmbeddingIndex.build(graph, enc, katalog=kat_idx, extra_anker=extra)
 
     prov = LlamaServerProvider(args.llm_url)   # /no_think setzt der Provider modell-bewusst selbst
     tally = {"A": 0, "B0": 0, "B1": 0}

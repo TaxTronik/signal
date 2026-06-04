@@ -102,11 +102,27 @@ def main() -> int:
     graph = graph_oeffnen()
     print(f"Encoder: {enc.name} (dim {enc.dim})")
 
+    # Optionale Discovery-Anker in den anker-freien Index (Level-1-Isolation:
+    # hebt/senkt das Reinkippen der Discovery-Paraphrasen das reine Retrieval?).
+    # Leckage-Ausschluss: Discovery-Anker == Bench-Anfrage fliegt raus.
+    extra: list[tuple[str, str]] = []
+    if "--extra-anker-from" in sys.argv:
+        import yaml
+        from risk_layer.finetune import bench_query_set
+        bq = bench_query_set(kat, POSITIVE)
+        pfad = Path(sys.argv[sys.argv.index("--extra-anker-from") + 1])
+        for d in (yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}).get("kandidaten", []):
+            inh, ziel = str(d.get("inhalt", "")), str(d.get("ziel_norm_id", ""))
+            if inh.strip() and ziel and " ".join(inh.lower().split()) not in bq:
+                extra.append((inh, ziel))
+
     # Zwei Indizes: MIT Anker = Produktionsbedingung; OHNE Anker = reine Encoder-
     # Rohkraft (und macht die Katalog-Paraphrasen zu echten Held-out-Anfragen).
-    idx_ohne = EmbeddingIndex.build(graph, enc, katalog=None)
+    idx_ohne = EmbeddingIndex.build(graph, enc, katalog=None, extra_anker=extra)
     idx_mit = EmbeddingIndex.build(graph, enc, katalog=kat)
-    print(f"Index: {len(idx_ohne.ids)} anker-frei | {len(idx_mit.ids)} mit Anker")
+    print(f"Index: {len(idx_ohne.ids)} anker-frei"
+          + (f" (+{len(extra)} Discovery-Anker)" if extra else "")
+          + f" | {len(idx_mit.ids)} mit Anker")
 
     # Optionaler Reranker: --reranker bge-reranker-v2-m3 (Top-20 -> anker-bewusst -> Top-k).
     rr = doc_fn = None
