@@ -228,7 +228,7 @@ class EmbeddingIndex:
     # -- Bau ----------------------------------------------------------------
     @classmethod
     def build(cls, graph, encoder: Encoder, *, max_zeichen: int = 1500,
-              katalog=None) -> "EmbeddingIndex":
+              katalog=None, extra_anker=None) -> "EmbeddingIndex":
         """Bettet alle §-Knoten (Paragraph-Ebene) des Normgraphen ein.
 
         Ist ``katalog`` gesetzt, werden zusätzlich die kuratierten LAIEN-Paraphrasen
@@ -323,6 +323,18 @@ class EmbeddingIndex:
                     titel.append(para_meta[ziel][1])
                     texte.append(ph.strip())
                     n_anker += 1
+
+        # Zusätzliche externe Anker (text, ziel_norm_id) — z. B. Discovery-Paraphrasen.
+        # Eingebettet als Vektor auf die §-Ebene der Zielnorm, OHNE den Katalog zu
+        # ändern (für Grounding-Evals / Was-wäre-wenn).
+        for text, ziel_roh in (extra_anker or []):
+            ziel = ziel_roh if ziel_roh in para_meta else para_level(str(ziel_roh))
+            if ziel in para_meta and str(text).strip():
+                ids.append(ziel)
+                zitate.append(para_meta[ziel][0])
+                titel.append(para_meta[ziel][1])
+                texte.append(str(text).strip())
+                n_anker += 1
 
         vecs = encoder.encode(texte) if texte else np.zeros((0, encoder.dim), np.float32)
         idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name)
