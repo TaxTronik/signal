@@ -30,7 +30,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 from risk_layer.discovery import (                       # noqa: E402
     besteht_review_gate, besteht_training_gate, discovery_paragraph,
-    iter_paragraphen, server_verfuegbar,
+    erkenne_modell, iter_paragraphen, server_verfuegbar,
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
 
@@ -53,6 +53,8 @@ def main() -> int:
     ap.add_argument("--out", default="discovery", help="Zielverzeichnis (gitignored)")
     ap.add_argument("--timeout", type=float, default=300.0)
     ap.add_argument("--no-think", action="store_true", help="/no_think anhängen (Qwen)")
+    ap.add_argument("--model", default="",
+                    help="Modellname für den Chat-Request (vLLM PFLICHT). Leer = Auto via /v1/models")
     ap.add_argument("--enable-normrelation", action="store_true",
                     help="normrelation-Kandidaten zulassen (Default aus: Pass-1-Rauschen)")
     args = ap.parse_args()
@@ -62,8 +64,14 @@ def main() -> int:
         print("Kein Normgraph (corpus/graph.sqlite) — erst 'graph build'.", file=sys.stderr)
         return 2
     if not server_verfuegbar(args.llm_url, timeout=3.0):
-        print(f"Kein llama-server unter {args.llm_url}.", file=sys.stderr)
+        print(f"Kein LLM-Server unter {args.llm_url}.", file=sys.stderr)
         return 2
+    modell = args.model or erkenne_modell(args.llm_url)
+    if not modell:
+        print(f"WARN: kein Modellname ermittelt ({args.llm_url}/v1/models leer) — "
+              "bei vLLM via --model angeben.", file=sys.stderr)
+    else:
+        print(f"LLM-Modell: {modell}", file=sys.stderr)
 
     @lru_cache(maxsize=None)
     def ist_im_graph(nid: str) -> bool:
@@ -79,7 +87,7 @@ def main() -> int:
         kandidaten = discovery_paragraph(
             args.llm_url, node, ist_im_graph=ist_im_graph,
             verweist_ids=_verweist_ids(graph, node["id"]),
-            timeout=args.timeout, no_think=args.no_think,
+            model=modell, timeout=args.timeout, no_think=args.no_think,
             enable_normrelation=args.enable_normrelation)
         alle.extend(kandidaten)
         if n % 50 == 0:

@@ -24,7 +24,7 @@ from typing import Any, Callable, Iterable, Iterator
 
 from .corpus import art_fuer, source_rank
 from .idschema import para_level
-from .llm import _finde_span, _kandidaten_aus_text, server_verfuegbar
+from .llm import _finde_span, _hole_json, _kandidaten_aus_text, server_verfuegbar
 from .zitate import parse_normzitat
 
 # --- Vokabular (Contract v2.1) ----------------------------------------------
@@ -287,14 +287,28 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None) -> Iterator[dict[
 
 # --- LLM-Aufruf (eigenständig; gleiche llama-server-Plumbing wie Schicht 2) ---
 
-def _chat(base_url: str, system: str, user: str, *,
+def erkenne_modell(base_url: str, *, timeout: float = 10.0) -> str:
+    """Geladener Modellname via GET /v1/models (vLLM UND llama-server exponieren das).
+    vLLM verlangt diesen Namen im Chat-Request; leer, wenn nicht ermittelbar."""
+    d = _hole_json(f"{base_url.rstrip('/')}/v1/models", timeout=timeout)
+    if isinstance(d, dict):
+        daten = d.get("data") or d.get("models") or []
+        if daten and isinstance(daten[0], dict):
+            return str(daten[0].get("id") or daten[0].get("name") or "")
+    return ""
+
+
+def _chat(base_url: str, system: str, user: str, *, model: str = "",
           timeout: float = 300.0, n_predict: int = 1024, no_think: bool = False) -> str:
+    # OpenAI-kompatibler Body (vLLM + llama-server): 'model' ist bei vLLM PFLICHT;
+    # KEIN 'cache_prompt' (llama.cpp-spezifisch -> vLLM lehnt unbekannte Felder ggf. ab).
     body = {
+        "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user + (" /no_think" if no_think else "")},
         ],
-        "temperature": 0.0, "seed": 0, "max_tokens": n_predict, "cache_prompt": True,
+        "temperature": 0.0, "seed": 0, "max_tokens": n_predict,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "discovery", "schema": DISCOVERY_JSON_SCHEMA, "strict": True},
@@ -311,6 +325,7 @@ def _chat(base_url: str, system: str, user: str, *,
 def discovery_paragraph(base_url: str, node: dict[str, Any], *,
                         ist_im_graph: Callable[[str], bool],
                         verweist_ids: Iterable[str],
+                        model: str = "",
                         timeout: float = 300.0, no_think: bool = False,
                         enable_normrelation: bool = False) -> list[Kandidat]:
     """Ein § → verifizierte Kandidaten. Leerer Lauf bei Server-/Format-Problemen
@@ -318,7 +333,8 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
     user = baue_user_prompt(node["zitat"], node["titel"], node["text"],
                             enable_normrelation=enable_normrelation)
     try:
-        content = _chat(base_url, DISCOVERY_SYSTEM, user, timeout=timeout, no_think=no_think)
+        content = _chat(base_url, DISCOVERY_SYSTEM, user, model=model,
+                        timeout=timeout, no_think=no_think)
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
             KeyError, IndexError, json.JSONDecodeError):
         return []
@@ -332,5 +348,5 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
 __all__ = [
     "Kandidat", "verarbeite_kandidaten", "besteht_review_gate", "besteht_training_gate",
     "iter_paragraphen", "discovery_paragraph", "DISCOVERY_SYSTEM", "baue_user_prompt",
-    "DISCOVERY_JSON_SCHEMA", "server_verfuegbar",
+    "DISCOVERY_JSON_SCHEMA", "server_verfuegbar", "erkenne_modell",
 ]
