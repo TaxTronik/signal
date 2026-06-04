@@ -332,15 +332,14 @@ def _chat(base_url: str, system: str, user: str, *, model: str = "",
         return json.load(resp)["choices"][0]["message"]["content"]
 
 
-def discovery_paragraph(base_url: str, node: dict[str, Any], *,
-                        ist_im_graph: Callable[[str], bool],
-                        verweist_ids: Iterable[str],
-                        model: str = "",
-                        timeout: float = 300.0, no_think: bool = False,
-                        enable_begriff: bool = False,
-                        enable_normrelation: bool = False) -> list[Kandidat]:
-    """Ein § → verifizierte Kandidaten. Leerer Lauf bei Server-/Format-Problemen
-    (nie crashen — Discovery ist ein Batch über tausende §)."""
+def roh_kandidaten(base_url: str, node: dict[str, Any], *, model: str = "",
+                   timeout: float = 300.0, no_think: bool = False,
+                   enable_begriff: bool = False,
+                   enable_normrelation: bool = False) -> list[dict[str, Any]]:
+    """Nur der LLM-Teil: roh-Kandidaten eines §. THREAD-SAFE (reines HTTP +
+    Parsing, KEIN Graph-Zugriff) → so lassen sich die LLM-Calls parallelisieren,
+    während die graph-gebundene verarbeite_kandidaten im Hauptthread bleibt. Leer
+    bei Server-/Format-Problemen (nie crashen — Batch über tausende §)."""
     user = baue_user_prompt(node["zitat"], node["titel"], node["text"],
                             enable_begriff=enable_begriff,
                             enable_normrelation=enable_normrelation)
@@ -350,8 +349,23 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
             KeyError, IndexError, json.JSONDecodeError):
         return []
+    return _kandidaten_aus_text(content)
+
+
+def discovery_paragraph(base_url: str, node: dict[str, Any], *,
+                        ist_im_graph: Callable[[str], bool],
+                        verweist_ids: Iterable[str],
+                        model: str = "",
+                        timeout: float = 300.0, no_think: bool = False,
+                        enable_begriff: bool = False,
+                        enable_normrelation: bool = False) -> list[Kandidat]:
+    """Ein § → verifizierte Kandidaten (LLM + Graph). Im Concurrency-Pfad NICHT
+    direkt nutzen (Graph nicht thread-safe) — dort roh_kandidaten parallel +
+    verarbeite_kandidaten im Hauptthread."""
+    roh = roh_kandidaten(base_url, node, model=model, timeout=timeout, no_think=no_think,
+                         enable_begriff=enable_begriff, enable_normrelation=enable_normrelation)
     return verarbeite_kandidaten(
-        _kandidaten_aus_text(content), quell_norm=node["id"], quell_law=node["law"],
+        roh, quell_norm=node["id"], quell_law=node["law"],
         node_text=node["text"], node_titel=node["titel"],
         verweist_ids=verweist_ids, ist_im_graph=ist_im_graph,
         enable_begriff=enable_begriff, enable_normrelation=enable_normrelation)
@@ -359,6 +373,6 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
 
 __all__ = [
     "Kandidat", "verarbeite_kandidaten", "besteht_review_gate", "besteht_training_gate",
-    "iter_paragraphen", "discovery_paragraph", "DISCOVERY_SYSTEM", "baue_user_prompt",
-    "DISCOVERY_JSON_SCHEMA", "server_verfuegbar", "erkenne_modell",
+    "iter_paragraphen", "discovery_paragraph", "roh_kandidaten", "DISCOVERY_SYSTEM",
+    "baue_user_prompt", "DISCOVERY_JSON_SCHEMA", "server_verfuegbar", "erkenne_modell",
 ]
