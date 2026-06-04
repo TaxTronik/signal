@@ -12,12 +12,21 @@
 - law: EStDV
   slug: estdv_1955
   url: https://www.gesetze-im-internet.de/estdv_1955/xml.zip
+- law: LStDV
+  slug: lstdv
+  url: https://www.gesetze-im-internet.de/lstdv/xml.zip
 - law: KStG
   slug: kstg_1977
   url: https://www.gesetze-im-internet.de/kstg_1977/xml.zip
+- law: KStDV
+  slug: kstdv_1977
+  url: https://www.gesetze-im-internet.de/kstdv_1977/xml.zip
 - law: GewStG
   slug: gewstg
   url: https://www.gesetze-im-internet.de/gewstg/xml.zip
+- law: GewStDV
+  slug: gewstdv_1955
+  url: https://www.gesetze-im-internet.de/gewstdv_1955/xml.zip
 - law: UStG
   slug: ustg_1980
   url: https://www.gesetze-im-internet.de/ustg_1980/xml.zip
@@ -39,6 +48,9 @@
 - law: ErbStG
   slug: erbstg_1974
   url: https://www.gesetze-im-internet.de/erbstg_1974/xml.zip
+- law: ErbStDV
+  slug: erbstdv_1998
+  url: https://www.gesetze-im-internet.de/erbstdv_1998/xml.zip
 - law: GrEStG
   slug: grestg_1983
   url: https://www.gesetze-im-internet.de/grestg_1983/xml.zip

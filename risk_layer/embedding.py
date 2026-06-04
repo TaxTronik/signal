@@ -193,6 +193,8 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
         return Qwen3Encoder(device=device)
     if name in ("qwen3-4b", "qwen3-emb-4b"):
         return Qwen3Encoder(device=device, variante="4B")
+    if name in ("qwen3-8b", "qwen3-emb-8b"):
+        return Qwen3Encoder(device=device, variante="8B")
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
