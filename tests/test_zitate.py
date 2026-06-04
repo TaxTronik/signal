@@ -148,3 +148,23 @@ def test_finde_normzitate_bounded_gegen_redos():
     t = time.time()
     finde_normzitate(boese)
     assert time.time() - t < 2.0
+
+
+# LawMap MUSS den Korpus abdecken --------------------------------------------
+
+def test_seed_deckt_korpus():
+    """Jedes Gesetz in corpus/gesetze.yaml muss über die LawMap auflösen, sonst
+    parsen Zitate darauf zu LAW='?' (genau der *DV-Bug: Gesetz im Korpus, aber
+    nicht im Parser). Liest die kanonische Liste, deckt damit künftige Gesetze
+    automatisch ab."""
+    from risk_layer.corpus import lade_config
+    from risk_layer.lawmap import DEFAULT_LAWMAP
+
+    gesetze = lade_config()
+    if not gesetze:
+        pytest.skip("keine corpus/gesetze.yaml vorhanden")
+    fehlend = [g.law for g in gesetze if DEFAULT_LAWMAP.resolve(g.law) != g.law]
+    assert not fehlend, f"LawMap deckt diese Korpus-Gesetze nicht ab: {fehlend}"
+    # End-to-end: '§ 1 {law}' parst sauber zur §-ID (kein ':st'-Artefakt, kein '?')
+    for g in gesetze:
+        assert _ids(f"§ 1 {g.law}") == [f"norm:{g.law}:1"], g.law

@@ -31,6 +31,19 @@ SEED_ALIASE: dict[str, str] = {
     "GrEStG": "GrEStG",
     "SolzG": "SolzG",
     "FGO": "FGO",
+    # Durchführungsverordnungen + übrige Korpus-Gesetze. Longest-Match trennt die
+    # DV vom Stammgesetz (z. B. "GewStDV" vor "GewStG"). Diese Liste MUSS den
+    # Korpus (corpus/gesetze.yaml) abdecken — sonst lösen Zitate auf diese Gesetze
+    # nicht auf (LAW=?); test_zitate.test_seed_deckt_korpus sichert das ab.
+    "EStDV": "EStDV",
+    "LStDV": "LStDV",
+    "KStDV": "KStDV",
+    "GewStDV": "GewStDV",
+    "UStDV": "UStDV",
+    "ErbStDV": "ErbStDV",
+    "GrStG": "GrStG",
+    "InvStG": "InvStG",
+    "StBerG": "StBerG",
     # Sonderliste (keine gii-amtabk): Art.-zitierte / EU- / Verfassungsrecht
     "GG": "GG",
     "MwStSystRL": "MwStSystRL",
