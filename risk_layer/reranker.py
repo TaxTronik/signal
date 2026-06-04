@@ -82,6 +82,68 @@ class CrossEncoderReranker:
             return [float(x) for x in m.predict(paare)]
 
 
+class Qwen3Reranker:
+    """Qwen3-Reranker (0.6B/4B/8B) — KEIN CrossEncoder, sondern ein Causal-LM, das
+    je (Query, Doc) die Wahrscheinlichkeit von 'yes' (relevant) liefert. Eigene
+    Inferenz über transformers (yes/no-Logit am letzten Token). Multilingual; fp16
+    auf der GPU. Bewertet weiterhin gegen KORPUS-Doc (anker-bewusst), nicht Modellwissen."""
+
+    INSTRUCTION = ("Beurteile, ob die Rechtsnorm (Document) den im Sachverhalt (Query) "
+                   "beschriebenen Rechtsbegriff/Sachverhalt trifft.")
+    PREFIX = ('<|im_start|>system\nJudge whether the Document meets the requirements based '
+              'on the Query and the Instruct provided. Note that the answer can only be '
+              '"yes" or "no".<|im_end|>\n<|im_start|>user\n')
+    SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+
+    def __init__(self, variante: str = "4B", device: str | None = None):
+        self.name = f"qwen3-reranker-{variante.lower()}"
+        self._modell_name = f"Qwen/Qwen3-Reranker-{variante}"
+        self._device = device
+        self._model = None
+        self._lock = threading.Lock()
+
+    def _laden(self):
+        if self._model is None:
+            with self._lock:
+                if self._model is None:
+                    patch_rocm_dist()
+                    import torch
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+                    tok = AutoTokenizer.from_pretrained(self._modell_name, padding_side="left")
+                    dev = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+                    dtype = torch.float16 if "cuda" in str(dev) else torch.float32
+                    model = AutoModelForCausalLM.from_pretrained(
+                        self._modell_name, torch_dtype=dtype).to(dev).eval()
+                    self._tok, self._dev = tok, dev
+                    self._yes = tok.convert_tokens_to_ids("yes")
+                    self._no = tok.convert_tokens_to_ids("no")
+                    self._pre = tok(self.PREFIX, add_special_tokens=False).input_ids
+                    self._suf = tok(self.SUFFIX, add_special_tokens=False).input_ids
+                    self._model = model
+        return self._model
+
+    def score(self, paare: list[tuple[str, str]]) -> list[float]:
+        if not paare:
+            return []
+        import torch
+        self._laden()
+        out: list[float] = []
+        with self._lock:                            # forward-Pass serialisieren
+            for i in range(0, len(paare), 16):      # Batches à 16
+                batch = paare[i:i + 16]
+                ids = []
+                for q, d in batch:
+                    t = f"<Instruct>: {self.INSTRUCTION}\n<Query>: {q}\n<Document>: {d}"
+                    mid = self._tok(t, add_special_tokens=False, truncation=True, max_length=1024).input_ids
+                    ids.append(self._pre + mid + self._suf)
+                inp = self._tok.pad({"input_ids": ids}, padding=True, return_tensors="pt").to(self._dev)
+                with torch.no_grad():
+                    logits = self._model(**inp).logits[:, -1, :]   # links gepaddet -> letztes Token real
+                yn = logits[:, [self._no, self._yes]].float()
+                out.extend(float(x) for x in torch.softmax(yn, dim=1)[:, 1])
+        return out
+
+
 def reranker_oeffnen(name: str = "auto", *, device: str | None = None) -> Reranker | None:
     """``auto``/``bge-reranker-v2-m3`` -> Cross-Encoder, falls verfügbar; sonst None.
     ``aus`` schaltet ab. Fehlt sentence-transformers, degradiert ``auto`` zu None."""
@@ -95,6 +157,9 @@ def reranker_oeffnen(name: str = "auto", *, device: str | None = None) -> Rerank
             if name != "auto":
                 raise
             return None
+    if name.startswith("qwen3-reranker"):
+        var = "0.6B" if name.endswith("0.6b") else "8B" if name.endswith("8b") else "4B"
+        return Qwen3Reranker(variante=var, device=device)
     return CrossEncoderReranker(modell=name, device=device)
 
 
