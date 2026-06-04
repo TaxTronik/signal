@@ -202,6 +202,12 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
         except Exception:
             if name == "bge-m3":
                 raise
+    # Lokaler Modellpfad (z. B. fine-getuntes Artefakt) → BgeM3-kompatibler ST-Encoder.
+    # So lädt embedding_bench das Fine-Tune-Artefakt als Akzeptanz-Gate.
+    if Path(name).exists():
+        enc = BgeM3Encoder(modell=name, device=device)
+        enc.name = name
+        return enc
     return HashEncoder(dim=dim)
 
 

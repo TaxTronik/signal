@@ -4,9 +4,11 @@
 # /v1-Engine: Abhaengigkeiten, LLM-Modell (GGUF) + passende llama.cpp-Engine
 # herunterladen, Normkorpus/Graph/Trigger(/Embedding) bauen, Auth-Token. Idempotent.
 #
-# Engine-Backend (--backend, Default auto): AMD->rocm, sonst Vulkan/CPU. Fuer
-# NVIDIA gibt es KEIN Linux-Prebuilt -> Auto faellt auf Vulkan; volle CUDA-Speed
-# nur via llama.cpp aus Source/Docker (server-cuda). Ohne llama-server laufen alle
+# Engine-Backend (--backend, Default auto): NVIDIA->cuda, AMD->rocm, sonst Vulkan/CPU.
+# Auf NVIDIA-Boxen (z. B. B300/Blackwell) wird zudem ein Blackwell-faehiges torch
+# (--cuda-wheel, Default cu128) installiert, sonst nutzt sentence-transformers die GPU
+# nicht. Falls kein CUDA-llama-server-Prebuilt: Discovery/LLM spricht jeden OpenAI-
+# kompatiblen /v1-Endpoint an (z. B. vLLM) via --llm-url. Ohne llama-server laufen alle
 # deterministischen Layer + /v1; nur 'mitLLM:true' ist inaktiv.
 #
 # Beispiele:
@@ -21,7 +23,7 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; VOLL=0; FORCE=0; START=0
-MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000
+MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -37,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --backend)        BACKEND="${2:?--backend braucht einen Wert}"; shift ;;
     --host)           BIND_HOST="${2:?--host braucht einen Wert}"; shift ;;
     --port)           PORT="${2:?--port braucht einen Wert}"; shift ;;
+    --cuda-wheel)     CUDA_WHEEL="${2:?--cuda-wheel braucht einen Wert (z. B. cu128, cu124)}"; shift ;;
     -h|--help)        sed -n '3,20p' "$0"; exit 0 ;;
     *) echo "unbekanntes Flag: $1" >&2; exit 2 ;;
   esac
@@ -68,6 +71,14 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
   "$PY" -m pip install --upgrade pip >/dev/null
   "$PY" -m pip install -e . "numpy>=1.26"
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
+    # NVIDIA: Blackwell-faehiges torch ZUERST aus dem CUDA-Wheel (sonst zieht
+    # sentence-transformers ggf. ein zu altes/CPU-torch -> GPU ungenutzt). Default
+    # cu128 deckt Blackwell (sm_100/sm_120); per --cuda-wheel anpassbar.
+    if command -v nvidia-smi >/dev/null 2>&1; then
+      info "NVIDIA erkannt -> Blackwell-faehiges torch ($CUDA_WHEEL) vorab installieren"
+      "$PY" -m pip install torch --index-url "https://download.pytorch.org/whl/$CUDA_WHEEL" \
+        || info "torch-CUDA-Install fehlgeschlagen -> sentence-transformers waehlt torch selbst"
+    fi
     info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
     "$PY" -m pip install "sentence-transformers>=2.7" hf_transfer
     ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
@@ -132,14 +143,19 @@ if [[ $SKIP_CORPUS -eq 0 ]]; then
   fi
 
   if [[ ! -f corpus/graph.sqlite || $FORCE -eq 1 ]]; then cli graph build; else ok "Normgraph vorhanden (corpus/graph.sqlite)"; fi
-  if [[ ! -f corpus/trigger.sqlite || $FORCE -eq 1 ]]; then cli trigger build; else ok "Trigger-Index vorhanden (corpus/trigger.sqlite)"; fi
+  # Trigger-Index neu bauen, wenn er fehlt, --force, ODER der Graph neuer ist
+  # (Korpus-Aenderung, z. B. neue Gesetze/DVs -> der Index muss sie aufnehmen).
+  if [[ ! -f corpus/trigger.sqlite || $FORCE -eq 1 ]] || [[ corpus/graph.sqlite -nt corpus/trigger.sqlite ]]; then cli trigger build; else ok "Trigger-Index aktuell (corpus/trigger.sqlite)"; fi
 
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
     schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
     if "$PY" -c "import hf_transfer" 2>/dev/null; then export HF_HUB_ENABLE_HF_TRANSFER=1; fi
-    # (Neu) bauen, wenn Index fehlt, --force, ODER der Katalog NEUER ist: neue
-    # Paraphrasen-Anker (catalog/begriffe.yaml) MUESSEN mit-eingebettet werden.
-    if [[ ! -f corpus/embedding/vectors.npy || $FORCE -eq 1 ]] || [[ catalog/begriffe.yaml -nt corpus/embedding/vectors.npy ]]; then
+    # Bauen, wenn Index fehlt, --force, der Katalog NEUER ist (neue Paraphrasen-
+    # Anker in catalog/begriffe.yaml) ODER der Graph neuer ist (Korpus-Aenderung,
+    # z. B. neue Gesetze/DVs) — beides MUSS mit-eingebettet werden.
+    if [[ ! -f corpus/embedding/vectors.npy || $FORCE -eq 1 ]] \
+       || [[ catalog/begriffe.yaml -nt corpus/embedding/vectors.npy ]] \
+       || [[ corpus/graph.sqlite -nt corpus/embedding/vectors.npy ]]; then
       info "bettet den Korpus ein (laedt BGE-M3 ~2,3 GB beim ersten Mal) ..."
       cli embedding build
     else ok "Embedding-Index aktuell (corpus/embedding/)"; fi

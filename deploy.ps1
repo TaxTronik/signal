@@ -141,19 +141,26 @@ if (-not $SkipCorpus) {
         Cli @("graph", "build")
     } else { OkMsg "Normgraph vorhanden (corpus/graph.sqlite)" }
 
-    if ((-not (Test-Path -LiteralPath "corpus/trigger.sqlite")) -or $Force) {
+    # Trigger neu, wenn er fehlt, -Force, ODER der Graph neuer ist (Korpus-Aenderung,
+    # z. B. neue Gesetze/DVs -> der Index muss sie aufnehmen).
+    $trigDa = Test-Path -LiteralPath "corpus/trigger.sqlite"
+    $graphNeuerT = $trigDa -and ((Get-Item "corpus/graph.sqlite").LastWriteTime -gt (Get-Item "corpus/trigger.sqlite").LastWriteTime)
+    if ((-not $trigDa) -or $Force -or $graphNeuerT) {
         Cli @("trigger", "build")
-    } else { OkMsg "Trigger-Index vorhanden (corpus/trigger.sqlite)" }
+    } else { OkMsg "Trigger-Index aktuell (corpus/trigger.sqlite)" }
 
     if ($WithEmbedding) {
         Schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
         python -c "import hf_transfer" 2>$null
         if ($LASTEXITCODE -eq 0) { $env:HF_HUB_ENABLE_HF_TRANSFER = "1" }
-        # (Neu) bauen, wenn Index fehlt, -Force, ODER der Katalog NEUER ist: neue
-        # Paraphrasen-Anker (catalog/begriffe.yaml) MUESSEN mit-eingebettet werden.
+        # Bauen, wenn Index fehlt, -Force, der Katalog NEUER ist (neue Paraphrasen-
+        # Anker in catalog/begriffe.yaml) ODER der Graph neuer ist (Korpus-Aenderung,
+        # z. B. neue Gesetze/DVs) — beides MUSS mit-eingebettet werden.
         $idxDa = Test-Path -LiteralPath "corpus/embedding/vectors.npy"
-        $katNeuer = $idxDa -and ((Get-Item "catalog/begriffe.yaml").LastWriteTime -gt (Get-Item "corpus/embedding/vectors.npy").LastWriteTime)
-        if ((-not $idxDa) -or $Force -or $katNeuer) {
+        $idxZeit = if ($idxDa) { (Get-Item "corpus/embedding/vectors.npy").LastWriteTime } else { $null }
+        $katNeuer = $idxDa -and ((Get-Item "catalog/begriffe.yaml").LastWriteTime -gt $idxZeit)
+        $graphNeuer = $idxDa -and ((Get-Item "corpus/graph.sqlite").LastWriteTime -gt $idxZeit)
+        if ((-not $idxDa) -or $Force -or $katNeuer -or $graphNeuer) {
             Info "bettet den Korpus ein (laedt BGE-M3 ~2,3 GB beim ersten Mal) ..."
             Cli @("embedding", "build")
         } else { OkMsg "Embedding-Index aktuell (corpus/embedding/)" }
