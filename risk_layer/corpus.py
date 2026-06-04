@@ -33,7 +33,10 @@ GII_SLUG = {
     "UStG": "ustg_1980",
     "KStG": "kstg_1977",
     "GewStG": "gewstg",
+    "GewStDV": "gewstdv_1955",
     "EStG": "estg",
+    "EStDV": "estdv_1955",
+    "LStDV": "lstdv",
     "AStG": "astg",
     "AktG": "aktg",
     "GmbHG": "gmbhg",
@@ -47,10 +50,9 @@ GII_SLUG = {
     "FGO": "fgo",
     "StBerG": "stberg",
     "BGB": "bgb",
-    "EStDV": "estdv_1955",
     "UStDV": "ustdv_1980",
-    "GewStDV": "gewstdv",
-    "KStDV": "kstdv_1994",
+    "KStDV": "kstdv_1977",
+    "ErbStDV": "erbstdv_1998",
     "GrStG": "grstg_1973",
     "SolzG": "solzg_1995",
     "InvStG": "invstg_2018",
@@ -63,10 +65,27 @@ GII_SLUG = {
 
 # Breiter Steuer-Korpus: relevante Gesetze einer Steuerkanzlei (Mehrgesetz-Sachverhalte).
 STEUER_KORPUS: tuple[str, ...] = (
-    "AO", "FGO", "EStG", "EStDV", "KStG", "GewStG",
-    "UStG", "UStDV", "AStG", "UmwStG", "UmwG", "BewG", "ErbStG", "GrEStG",
+    "AO", "FGO", "EStG", "EStDV", "LStDV", "KStG", "KStDV", "GewStG", "GewStDV",
+    "UStG", "UStDV", "AStG", "UmwStG", "UmwG", "BewG", "ErbStG", "ErbStDV", "GrEStG",
     "GrStG", "SolzG", "InvStG", "HGB", "AktG", "GmbHG", "StBerG", "GG",
 )
+
+# Authority-Klasse: welche Korpus-Gesetze Rechtsverordnungen sind. gii
+# klassifiziert Gesetz/Verordnung nicht zuverlässig in EINEM Feld, daher eine
+# kuratierte Liste als Quelle der Wahrheit; gesetze.yaml 'art' kann überschreiben.
+VERORDNUNGEN: frozenset[str] = frozenset(
+    {"EStDV", "UStDV", "LStDV", "KStDV", "GewStDV", "ErbStDV"}
+)
+
+
+def art_fuer(law: str) -> str:
+    """Authority-Klasse eines LAW-Codes: 'verordnung' oder (Default) 'gesetz'."""
+    return "verordnung" if law in VERORDNUNGEN else "gesetz"
+
+
+def source_rank(art: str) -> str:
+    """Abgeleiteter Rang fürs Discovery-Output (keine doppelte Wahrheit in der Config)."""
+    return "statutory_regulation" if art == "verordnung" else "statute"
 
 
 def steuer_korpus() -> list["Gesetz"]:
@@ -75,7 +94,7 @@ def steuer_korpus() -> list["Gesetz"]:
     for law in STEUER_KORPUS:
         slug = slug_fuer(law)
         if slug:
-            aus.append(Gesetz(law=law, slug=slug, url=gii_url(slug)))
+            aus.append(Gesetz(law=law, slug=slug, url=gii_url(slug), art=art_fuer(law)))
     return aus
 
 
@@ -94,6 +113,7 @@ class Gesetz:
     law: str
     slug: str
     url: str
+    art: str = "gesetz"   # Authority-Klasse: gesetz | verordnung
 
 
 def ableiten_aus_katalog(katalog: Katalog) -> list[Gesetz]:
@@ -111,7 +131,7 @@ def ableiten_aus_katalog(katalog: Katalog) -> list[Gesetz]:
         slug = slug_fuer(law)
         if not slug:
             continue
-        gesehen[law] = Gesetz(law=law, slug=slug, url=gii_url(slug))
+        gesehen[law] = Gesetz(law=law, slug=slug, url=gii_url(slug), art=art_fuer(law))
     return list(gesehen.values())
 
 
@@ -122,7 +142,12 @@ def config_pfad(korpus: Path = DEFAULT_KORPUS) -> Path:
 def schreibe_config(gesetze: list[Gesetz], korpus: Path = DEFAULT_KORPUS) -> Path:
     pfad = config_pfad(korpus)
     pfad.parent.mkdir(parents=True, exist_ok=True)
-    rows = [{"law": g.law, "slug": g.slug, "url": g.url} for g in gesetze]
+    rows = []
+    for g in gesetze:
+        row = {"law": g.law, "slug": g.slug, "url": g.url}
+        if g.art != "gesetz":          # nur die Abweichung (Verordnung) markieren
+            row["art"] = g.art
+        rows.append(row)
     pfad.write_text(
         "# Normtext-Korpus – editierbare Gesetzesliste (aus dem Katalog abgeleitet).\n"
         "# 'slug' ist die gesetze-im-internet-Kennung; eigene Gesetze einfach ergänzen.\n"
@@ -137,7 +162,8 @@ def lade_config(korpus: Path = DEFAULT_KORPUS) -> list[Gesetz]:
     if not pfad.exists():
         return []
     rows = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
-    return [Gesetz(law=r["law"], slug=r["slug"], url=r.get("url") or gii_url(r["slug"])) for r in rows]
+    return [Gesetz(law=r["law"], slug=r["slug"], url=r.get("url") or gii_url(r["slug"]),
+                   art=(r.get("art") or art_fuer(r["law"]))) for r in rows]
 
 
 def xml_verzeichnis(korpus: Path = DEFAULT_KORPUS) -> Path:

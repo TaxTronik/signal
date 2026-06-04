@@ -35,6 +35,9 @@ runs/
 # Abgleich-Zustand (gesehene RSS-Einträge)
 abgleich/
 
+# Discovery-Output (LLM-Kandidaten, Review-Queue) – Vorschläge, kein Festwissen
+discovery/
+
 # Mandantendaten (§ 203 StGB): die /v1-Engine ist zustandslos und schreibt diese
 # Stores NICHT mehr – aber lokal vorhandene Alt-Daten dürfen NIE eingecheckt werden
 # (die Daten überleben den entfernten Store-Code).
