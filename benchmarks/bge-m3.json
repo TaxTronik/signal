@@ -1,11 +1,12 @@
 {
   "encoder": "bge-m3",
   "dim": 1024,
+  "reranker": null,
   "katalog_version": "0.3.0",
-  "stand": "2026-06-03T16:04:02+00:00",
+  "stand": "2026-06-04T19:13:47+00:00",
   "index": {
-    "anker_frei": 2857,
-    "mit_anker": 2905
+    "anker_frei": 2899,
+    "mit_anker": 2947
   },
   "hand_mit_anker": {
     "n": 15,
@@ -32,7 +33,7 @@
     "n": 15,
     "recall@5": 0.6,
     "recall@10": 0.733,
-    "mrr": 0.379,
+    "mrr": 0.373,
     "verfehlt": 4,
     "pro_gebiet": {
       "AO": [
@@ -51,13 +52,13 @@
   },
   "katalog_anker_frei": {
     "n": 48,
-    "recall@5": 0.167,
+    "recall@5": 0.146,
     "recall@10": 0.292,
-    "mrr": 0.113,
+    "mrr": 0.112,
     "verfehlt": 34,
     "pro_gebiet": {
       "AO": [
-        3,
+        2,
         26
       ],
       "AStG": [

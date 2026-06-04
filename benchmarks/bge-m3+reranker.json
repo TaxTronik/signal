@@ -3,10 +3,10 @@
   "dim": 1024,
   "reranker": "bge-reranker-v2-m3",
   "katalog_version": "0.3.0",
-  "stand": "2026-06-03T18:29:56+00:00",
+  "stand": "2026-06-04T19:15:13+00:00",
   "index": {
-    "anker_frei": 2857,
-    "mit_anker": 2905
+    "anker_frei": 2899,
+    "mit_anker": 2947
   },
   "hand_mit_anker": {
     "n": 15,
