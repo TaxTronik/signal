@@ -331,6 +331,12 @@ class LlamaServerProvider:
                 "json_schema": {"name": "kandidaten", "schema": KANDIDATEN_JSON_SCHEMA, "strict": True},
             },
         }
+        # Reasoning-Modelle (Qwen3.5+) denken sonst bis max_tokens und emittieren KEIN
+        # content (alles in reasoning_content) -> 0 Kandidaten. enable_thinking=False
+        # schaltet das ab (getestet: finish=stop, JSON in content). qwen-gated, da der
+        # Kwarg nicht jedes Chat-Template kennt; /no_think bleibt als Fallback.
+        if "qwen" in self._modell_name().lower():
+            body["chat_template_kwargs"] = {"enable_thinking": False}
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
             data=json.dumps(body).encode("utf-8"),

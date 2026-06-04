@@ -53,6 +53,15 @@ MODELLE: dict[str, ModellInfo] = {
                             "Gruendlich-Modus: breiterer Recall, aber langsam (GEMV-limitiert auf RDNA4)"),
     "qwen3-8b": ModellInfo("qwen3-8b", "Qwen3-8B", "Qwen/Qwen3-8B-GGUF", "Q6_K", 6.7,
                            "mehr Kontext-Headroom, schneller"),
+    # Qwen3.5-4B (kein offizielles GGUF -> unsloth-Community-GGUF). LLM-A/B gegen
+    # granite: ist das LLM (Level-2-Verwertung) der Engpass? Klein + schnell, lokal.
+    "qwen3.5-4b": ModellInfo("qwen3.5-4b", "Qwen3.5-4B", "unsloth/Qwen3.5-4B-GGUF", "Q4_K_M", 2.5,
+                             "Qwen3.5 4B (unsloth GGUF); /no_think setzt der Provider selbst"),
+    # Liquid LFM2.5-8B-A1B: 8B total / 1B aktiv (extrem sparse MoE) -> sehr schnell.
+    # LLM-A/B-Kandidat. ACHTUNG: LFM2.5 ist neu -> braucht eine recente llama.cpp-Engine
+    # (sonst 'unknown architecture' beim Laden -> ggf. 'modell engine' neu ziehen).
+    "lfm2.5-8b-a1b": ModellInfo("lfm2.5-8b-a1b", "LFM2.5-8B-A1B", "LiquidAI/LFM2.5-8B-A1B-GGUF",
+                                "Q5_K_M", 5.5, "Liquid LFM2.5 MoE (1B aktiv), offizielles GGUF"),
     # IBM Granite 4.1 (aktuelle Linie, Apache-2.0; die 4.x-Reihe setzt auf hybride
     # Mamba-2/Transformer-Architektur -> bandbreiten-freundlich, ideal fuer den hier
     # GPU-bandbreiten-limitierten Generierungs-Engpass). Kleinere Gewichte als das
