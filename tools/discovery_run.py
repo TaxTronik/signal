@@ -21,6 +21,13 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Windows-Konsole (cp1252) verschluckt sonst '→'/'§' u. ä. in den Status-Prints.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 from risk_layer.discovery import (                       # noqa: E402
     besteht_review_gate, besteht_training_gate, discovery_paragraph,
     iter_paragraphen, server_verfuegbar,
@@ -46,6 +53,8 @@ def main() -> int:
     ap.add_argument("--out", default="discovery", help="Zielverzeichnis (gitignored)")
     ap.add_argument("--timeout", type=float, default=300.0)
     ap.add_argument("--no-think", action="store_true", help="/no_think anhängen (Qwen)")
+    ap.add_argument("--enable-normrelation", action="store_true",
+                    help="normrelation-Kandidaten zulassen (Default aus: Pass-1-Rauschen)")
     args = ap.parse_args()
 
     graph = graph_oeffnen()
@@ -70,7 +79,8 @@ def main() -> int:
         kandidaten = discovery_paragraph(
             args.llm_url, node, ist_im_graph=ist_im_graph,
             verweist_ids=_verweist_ids(graph, node["id"]),
-            timeout=args.timeout, no_think=args.no_think)
+            timeout=args.timeout, no_think=args.no_think,
+            enable_normrelation=args.enable_normrelation)
         alle.extend(kandidaten)
         if n % 50 == 0:
             print(f"  … {n} §  /  {len(alle)} Kandidaten", file=sys.stderr)

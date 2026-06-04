@@ -15,13 +15,14 @@ TEXT = ("Wird das Einkommen geschätzt, sind die Besteuerungsgrundlagen zu ermit
 TITEL = "Schätzung"
 QUELL = "norm:EStDV:8"          # Verordnungs-§ (für Default-Authority)
 LAW = "EStDV"
-IM_GRAPH = {"norm:EStDV:8", "norm:EStG:51"}
+IM_GRAPH = {"norm:EStDV:8", "norm:EStG:51", "norm:HGB:22"}
 
 
-def _verarbeite(roh, verweist=()):
+def _verarbeite(roh, verweist=(), enable_normrelation=False):
     return verarbeite_kandidaten(
         roh, quell_norm=QUELL, quell_law=LAW, node_text=TEXT, node_titel=TITEL,
-        verweist_ids=verweist, ist_im_graph=lambda nid: nid in IM_GRAPH)
+        verweist_ids=verweist, ist_im_graph=lambda nid: nid in IM_GRAPH,
+        enable_normrelation=enable_normrelation)
 
 
 def test_textgrundlage_muss_im_paragraph_stehen():
@@ -35,8 +36,8 @@ def test_textgrundlage_muss_im_paragraph_stehen():
 
 def test_authority_wird_abgeleitet_nicht_geglaubt():
     roh = [
-        {"typ": "cross_ref", "inhalt": "a", "textgrundlage": "schädlich", "ziel_norm": "§ 8 EStDV", "konfidenz": "hoch"},
-        {"typ": "cross_ref", "inhalt": "b", "textgrundlage": "geschätzt", "ziel_norm": "§ 51 EStG", "konfidenz": "hoch"},
+        {"typ": "begriff", "inhalt": "a", "textgrundlage": "schädlich", "ziel_norm": "§ 8 EStDV", "konfidenz": "hoch"},
+        {"typ": "begriff", "inhalt": "b", "textgrundlage": "geschätzt", "ziel_norm": "§ 51 EStG", "konfidenz": "hoch"},
     ]
     out = {k.inhalt: k for k in _verarbeite(roh)}
     assert out["a"].quelle_typ == "verordnung" and out["a"].source_rank == "statutory_regulation"
@@ -59,27 +60,52 @@ def test_paraphrase_keine_wortlautkopie():
     assert [k.inhalt for k in out] == ["die Anteile sind fürs Finanzamt futsch"]
 
 
-def test_relation_nur_wenn_gestuetzt():
+def test_cross_ref_braucht_fremdnorm_im_graph():
     roh = [
-        {"typ": "cross_ref", "inhalt": "ermächtigung", "textgrundlage": "schädlich",
-         "ziel_norm": "§ 8 EStDV", "bezugsnorm": "§ 51 EStG", "relation": "ermaechtigungsbezug", "konfidenz": "hoch"},
-        {"typ": "normrelation", "inhalt": "gegennorm", "textgrundlage": "geschätzt",
-         "bezugsnorm": "§ 99 KStG", "relation": "konkretisiert", "konfidenz": "hoch"},
+        # Fremdnorm in bezugsnorm + im Graph -> gehalten, relation verweist_auf
+        {"typ": "cross_ref", "inhalt": "verweist auf HGB", "textgrundlage": "schädlich",
+         "bezugsnorm": "§ 22 HGB", "konfidenz": "hoch"},
+        # Fremdnorm nicht im Graph -> raus
+        {"typ": "cross_ref", "inhalt": "x", "textgrundlage": "geschätzt",
+         "bezugsnorm": "§ 999 HGB", "konfidenz": "hoch"},
+        # keine parsebare Fremdnorm (nur Prosa in inhalt) -> raus
+        {"typ": "cross_ref", "inhalt": "§ 22 des Handelsgesetzbuchs", "textgrundlage": "Verluste",
+         "konfidenz": "hoch"},
     ]
-    out = {k.inhalt: k for k in _verarbeite(roh, verweist={"norm:EStG:51"})}
-    assert out["ermächtigung"].relation == "ermaechtigungsbezug"
-    assert out["ermächtigung"].bezugsnorm_id == "norm:EStG:51"
-    # ungestützt -> Relation fällt auf 'keine', Bezugsnorm wird verworfen
-    assert out["gegennorm"].relation == "keine" and out["gegennorm"].bezugsnorm == ""
+    out = _verarbeite(roh)
+    assert len(out) == 1
+    k = out[0]
+    assert k.typ == "cross_ref" and k.relation == "verweist_auf"
+    assert k.bezugsnorm_id == "norm:HGB:22" and k.ziel_norm_id == QUELL
 
 
-def test_relation_gestuetzt_ueber_wortlaut():
-    # bezugsnorm steht wörtlich im §-Text -> trägt auch ohne verweist_auf-Kante
-    text_roh = [{"typ": "cross_ref", "inhalt": "c", "textgrundlage": "schädlich",
-                 "bezugsnorm": "Mehr als 50 Prozent", "relation": "verweist_auf", "konfidenz": "hoch"}]
-    # 'Mehr als 50 Prozent' parst zu keiner Norm-ID -> bezug_id leer -> nicht gestützt -> keine
-    out = _verarbeite(text_roh)
-    assert out[0].relation == "keine"
+def test_cross_ref_kein_selbstbezug():
+    roh = [{"typ": "cross_ref", "inhalt": "self", "textgrundlage": "schädlich",
+            "bezugsnorm": "§ 8 EStDV", "konfidenz": "hoch"}]   # == Quell-§
+    assert _verarbeite(roh) == []
+
+
+def test_normrelation_default_aus_und_an():
+    roh = [{"typ": "normrelation", "inhalt": "konkretisiert HGB", "textgrundlage": "schädlich",
+            "bezugsnorm": "§ 22 HGB", "relation": "konkretisiert", "konfidenz": "hoch"}]
+    assert _verarbeite(roh) == []                                  # Flag aus -> verworfen
+    out = _verarbeite(roh, verweist={"norm:HGB:22"}, enable_normrelation=True)
+    assert len(out) == 1 and out[0].relation == "konkretisiert"
+    assert out[0].bezugsnorm_id == "norm:HGB:22"
+
+
+def test_normrelation_an_aber_ungestuetzt_raus():
+    # Flag an, aber kein Verweis/Wortlaut/Titel -> raus (anders als cross_ref: streng)
+    roh = [{"typ": "normrelation", "inhalt": "x", "textgrundlage": "geschätzt",
+            "bezugsnorm": "§ 22 HGB", "relation": "konkretisiert", "konfidenz": "hoch"}]
+    assert _verarbeite(roh, enable_normrelation=True) == []
+
+
+def test_begriff_traegt_keine_relation():
+    roh = [{"typ": "begriff", "inhalt": "Schätzung", "textgrundlage": "geschätzt",
+            "bezugsnorm": "§ 22 HGB", "relation": "verweist_auf", "konfidenz": "hoch"}]
+    out = _verarbeite(roh)
+    assert len(out) == 1 and out[0].relation == "keine" and out[0].bezugsnorm == ""
 
 
 def test_deckel_sechs_pro_paragraph():

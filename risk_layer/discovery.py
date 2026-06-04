@@ -32,10 +32,8 @@ TYP = ("begriff", "paraphrase", "cross_ref", "normrelation")
 FUNKTION = ("begriff", "tatbestandsmerkmal", "rechtsfolge", "definition",
             "pruefhinweis", "relation", "unklar")
 RELATION = ("verweist_auf", "konkretisiert", "ermaechtigungsbezug", "keine")
-RELATIONAL = ("verweist_auf", "konkretisiert", "ermaechtigungsbezug")
 KONFIDENZ = ("hoch", "mittel", "niedrig")
 TRAINING_TYPEN = ("paraphrase", "begriff")
-TRAINING_FUNKTIONEN = ("tatbestandsmerkmal", "rechtsfolge", "definition", "pruefhinweis")
 
 MAX_PRO_PARAGRAPH = 6
 MAX_PARAPHRASEN = 3
@@ -78,16 +76,26 @@ DISCOVERY_SYSTEM = (
 )
 
 
-def baue_user_prompt(zitat: str, titel: str, wortlaut: str) -> str:
+def baue_user_prompt(zitat: str, titel: str, wortlaut: str, *,
+                     enable_normrelation: bool = False) -> str:
+    typen = [
+        "begriff (unbestimmter Rechtsbegriff im Text)",
+        "paraphrase (Laien-/Kanzleisprache für GENAU diesen §, KEINE Wortlautkopie)",
+        "cross_ref (eine ANDERE, im Wortlaut genannte Norm; die Fremdnorm MUSS als Zitat "
+        "in 'bezugsnorm' stehen, 'ziel_norm' = dieser §, 'relation' = verweist_auf)",
+    ]
+    if enable_normrelation:
+        typen.append("normrelation (konkretisiert|ermaechtigungsbezug zu einer Fremdnorm in "
+                     "'bezugsnorm'; KEIN Selbstbezug)")
     return (
         f"Paragraph: {zitat}\nTitel: {titel}\n--- WORTLAUT ---\n{wortlaut}\n--- ENDE ---\n\n"
-        "Schlage Kandidaten vor.\n"
-        "typ: begriff (unbestimmter Rechtsbegriff im Text) · paraphrase (Laien-/"
-        "Kanzleisprache für GENAU diesen §, KEINE Wortlautkopie) · cross_ref (andere "
-        "Norm, die ein Berater mitprüft — NUR wenn Wortlaut/Verweis darauf zeigt) · "
-        "normrelation (gegen/spezial/verweist).\n"
-        "funktion: begriff|tatbestandsmerkmal|rechtsfolge|definition|pruefhinweis|"
-        "relation|unklar.\n"
+        "Schlage Kandidaten vor.\ntyp: " + " · ".join(typen) + "\n"
+        "funktion (mit Beispielen): begriff ('Aktiengesellschaft') · tatbestandsmerkmal "
+        "('ohne Rücksicht auf den Gegenstand des Unternehmens') · rechtsfolge ('gilt als "
+        "Handelsgesellschaft') · definition ('als kleine Aktiengesellschaften gelten …') · "
+        "pruefhinweis ('prüfe, ob die Voraussetzungen erfüllt sind') · relation (Verweis "
+        "auf andere Norm) · unklar (nur wenn nichts passt). Wähle funktion möglichst NICHT 'unklar'.\n"
+        "Bei cross_ref gehört die referenzierte Norm als Zitat in 'bezugsnorm', NICHT in 'inhalt'.\n"
         "Gib NUR das JSON nach Schema zurück."
     )
 
@@ -137,10 +145,16 @@ def verarbeite_kandidaten(
     node_titel: str,
     verweist_ids: Iterable[str],
     ist_im_graph: Callable[[str], bool],
+    enable_normrelation: bool = False,
 ) -> list[Kandidat]:
     """Verifiziert + verortet jeden Roh-Kandidaten (Anti-Halluzination), leitet
     Authority ab, erdet Relationen, dedupliziert und deckelt (≤6/§, ≤3 Paraphrasen).
-    Höhere Konfidenz zuerst, damit die Deckel die besten behalten."""
+    Höhere Konfidenz zuerst, damit die Deckel die besten behalten.
+
+    cross_ref/normrelation MÜSSEN eine parsebare Fremdnorm in ``bezugsnorm`` tragen
+    (kein Selbstbezug): cross_ref ist über die Graph-Existenz der Fremdnorm gestützt,
+    normrelation (nur bei ``enable_normrelation``) eng über Verweis/Wortlaut/Titel.
+    begriff/paraphrase tragen nie eine Relation."""
     verweist_para = {para_level(i) for i in verweist_ids}
     text_low = node_text.lower()
     titel_low = (node_titel or "").lower()
@@ -155,6 +169,8 @@ def verarbeite_kandidaten(
         typ = str(k.get("typ", "")).strip()
         if typ not in TYP:
             continue
+        if typ == "normrelation" and not enable_normrelation:
+            continue                            # Pass-1-Default: normrelation aus (Rauschen)
         inhalt = str(k.get("inhalt", "")).strip()
         tg = str(k.get("textgrundlage", "")).strip()
         if not inhalt or not tg:
@@ -186,23 +202,27 @@ def verarbeite_kandidaten(
         quelle_typ = art_fuer(ziel_law)
         ziel_im_graph = bool(ziel_id) and ist_im_graph(ziel_id)
 
-        # Relation NUR halten, wenn die Bezugsnorm aus Verweis/Graph/Wortlaut/Titel trägt.
-        relation = str(k.get("relation", "keine")).strip()
-        if relation not in RELATION:
-            relation = "keine"
-        bezug = str(k.get("bezugsnorm", "")).strip()
-        bezug_id = _erste_id(bezug) if bezug else ""
-        gestuetzt = bool(bezug_id) and (
-            para_level(bezug_id) in verweist_para
-            or _norm(bezug) in text_low
-            or _norm(bezug) in titel_low
-        )
-        if relation in RELATIONAL and not gestuetzt:
-            relation = "keine"
-        if relation == "keine":
-            bezug, bezug_id = "", ""
+        # Relationen: nur cross_ref/normrelation tragen eine Fremdnorm (in bezugsnorm);
+        # begriff/paraphrase nie. Fremdnorm muss parsebar + kein Selbstbezug sein.
+        bezug, bezug_id, relation = "", "", "keine"
+        if typ in ("cross_ref", "normrelation"):
+            bezug = str(k.get("bezugsnorm", "")).strip()
+            bezug_id = _erste_id(bezug)
+            if not bezug_id or para_level(bezug_id) == para_level(ziel_id or quell_norm):
+                continue                        # Fremdnorm fehlt / Selbstbezug -> raus
+            if typ == "cross_ref":
+                relation = "verweist_auf"
+                gestuetzt = ist_im_graph(bezug_id)            # parsebar + im Graph
+            else:                               # normrelation: eng + graph-/wortlaut-/titel-gestützt
+                relation = str(k.get("relation", "")).strip()
+                if relation not in ("konkretisiert", "ermaechtigungsbezug"):
+                    continue
+                gestuetzt = (para_level(bezug_id) in verweist_para
+                             or _norm(bezug) in text_low or _norm(bezug) in titel_low)
+            if not gestuetzt:
+                continue
 
-        schluessel = (typ, funktion, _norm(inhalt), ziel_id or quell_norm)
+        schluessel = (typ, funktion, _norm(inhalt), ziel_id or quell_norm, bezug_id)
         if schluessel in gesehen:
             continue
         gesehen.add(schluessel)
@@ -230,13 +250,14 @@ def besteht_review_gate(k: Kandidat) -> bool:
 
 
 def besteht_training_gate(k: Kandidat) -> bool:
-    """Trainingspaar (Fine-Tune): hoch, nicht generisch, Zielnorm parst UND im
-    Graph, Textgrundlage verifiziert, typ paraphrase|begriff (begriff nur mit
-    fachlicher funktion)."""
+    """Trainingspaar (Fine-Tune): hoch, nicht generisch, Zielnorm parst UND im Graph,
+    Textgrundlage verifiziert. Paraphrasen sind NICHT an funktion gekoppelt (gute
+    Paraphrasen nicht wegen Klassifikationsschwäche verlieren); Begriffe nur, wenn
+    funktion != 'unklar'."""
     return (k.konfidenz == "hoch" and not k.generisch
             and bool(k.ziel_norm_id) and k.ziel_im_graph and bool(k.textgrundlage)
             and k.typ in TRAINING_TYPEN
-            and (k.typ != "begriff" or k.funktion in TRAINING_FUNKTIONEN))
+            and (k.typ != "begriff" or k.funktion != "unklar"))
 
 
 # --- Knoten-Stream (dieselben Live-§ wie der Embedding-Index) -----------------
@@ -290,10 +311,12 @@ def _chat(base_url: str, system: str, user: str, *,
 def discovery_paragraph(base_url: str, node: dict[str, Any], *,
                         ist_im_graph: Callable[[str], bool],
                         verweist_ids: Iterable[str],
-                        timeout: float = 300.0, no_think: bool = False) -> list[Kandidat]:
+                        timeout: float = 300.0, no_think: bool = False,
+                        enable_normrelation: bool = False) -> list[Kandidat]:
     """Ein § → verifizierte Kandidaten. Leerer Lauf bei Server-/Format-Problemen
     (nie crashen — Discovery ist ein Batch über tausende §)."""
-    user = baue_user_prompt(node["zitat"], node["titel"], node["text"])
+    user = baue_user_prompt(node["zitat"], node["titel"], node["text"],
+                            enable_normrelation=enable_normrelation)
     try:
         content = _chat(base_url, DISCOVERY_SYSTEM, user, timeout=timeout, no_think=no_think)
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
@@ -302,7 +325,8 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
     return verarbeite_kandidaten(
         _kandidaten_aus_text(content), quell_norm=node["id"], quell_law=node["law"],
         node_text=node["text"], node_titel=node["titel"],
-        verweist_ids=verweist_ids, ist_im_graph=ist_im_graph)
+        verweist_ids=verweist_ids, ist_im_graph=ist_im_graph,
+        enable_normrelation=enable_normrelation)
 
 
 __all__ = [
