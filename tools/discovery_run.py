@@ -83,6 +83,9 @@ def main() -> int:
                     help="begriff-Kandidaten zulassen (Default aus: Substantiv-Rauschen)")
     ap.add_argument("--enable-normrelation", action="store_true",
                     help="normrelation-Kandidaten zulassen (Default aus: Pass-1-Rauschen)")
+    ap.add_argument("--split-ab", type=int, default=0,
+                    help="§ länger als N Zeichen in Absatz-Knoten zerlegen (0 = aus; "
+                         "gegen stille Format-/Timeout-Ausfälle bei dichten Normen)")
     args = ap.parse_args()
 
     graph = graph_oeffnen()
@@ -99,7 +102,7 @@ def main() -> int:
     def ist_im_graph(nid: str) -> bool:
         return bool(graph.aufloesen(nid).get("gefunden"))
 
-    nodes = list(iter_paragraphen(graph))
+    nodes = list(iter_paragraphen(graph, split_ab=args.split_ab or None))
     if args.limit:
         nodes = nodes[:args.limit]
     out = Path(args.out)
@@ -110,10 +113,13 @@ def main() -> int:
     print(f"{len(nodes)} § in {len(shards)} Shards à {shard_size}, concurrency {args.concurrency}",
           file=sys.stderr)
 
+    fehler: list[dict] = []                         # Failure-Ledger statt stillem return []
+
     def _roh(node):
         return roh_kandidaten(args.llm_url, node, model=modell, timeout=args.timeout,
                               no_think=args.no_think, enable_begriff=args.enable_begriff,
-                              enable_normrelation=args.enable_normrelation)
+                              enable_normrelation=args.enable_normrelation,
+                              fehler_protokoll=fehler)
 
     kum = 0
     for si, shard in enumerate(shards):
@@ -152,10 +158,14 @@ def main() -> int:
     _schreibe_yaml(out / "review_queue.yaml", kopf, [k.as_dict() for k in review])
     _schreibe_yaml(out / "training_pairs.yaml", kopf, [k.as_dict() for k in training])
     _schreibe_yaml(out / "alle_kandidaten.yaml", kopf, alle_dicts)
+    if fehler:
+        _atomar(out / "failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
 
     vo = sum(1 for k in alle if k.quelle_typ == "verordnung")
     print(f"\n{len(nodes)} § → {len(alle)} Kandidaten ({vo} aus Verordnungen) · "
           f"Review {len(review)} · Training {len(training)}")
+    if fehler:
+        print(f"AUSFÄLLE: {len(fehler)} § ohne Antwort (Server/Format) → {out}/failures.json")
     print(f"geschrieben: {out}/review_queue.yaml, training_pairs.yaml, alle_kandidaten.yaml")
     print(f"(Shards in {partials}/ — Neustart mit gleichem --out überspringt fertige)")
     return 0

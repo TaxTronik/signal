@@ -1,0 +1,43 @@
+# Card-Discovery Seed — gepflegte Prioritätsliste (deterministisch, NICHT Modellurteil).
+# Geht dem Korpus-Signal voran: tools/card_subset.py --seed tools/cards_seed.txt
+# Editierbar. Quelle: Berater-Prioritäten (AO-Kernnormen) + Organschaft-Arbeitsstand.
+
+# --- AO: Haftung / Mitwirkung / Schätzung / Änderung / Außenprüfung / strafnah ---
+norm:AO:34
+norm:AO:35
+norm:AO:42
+norm:AO:69
+norm:AO:71
+norm:AO:73
+norm:AO:75
+norm:AO:90
+norm:AO:93
+norm:AO:145
+norm:AO:146
+norm:AO:147
+norm:AO:153
+norm:AO:158
+norm:AO:162
+norm:AO:164
+norm:AO:165
+norm:AO:173
+norm:AO:191
+norm:AO:193
+norm:AO:200
+norm:AO:370
+norm:AO:378
+
+# --- Organschaft (ertrag-/umsatzsteuerlich + flankierend) ---
+norm:KStG:14
+norm:KStG:15
+norm:KStG:16
+norm:KStG:17
+norm:KStG:19
+norm:KStG:8b
+norm:KStG:8c
+norm:GewStG:2
+norm:GewStG:7a
+norm:GewStG:9
+norm:UStG:2
+norm:AktG:291
+norm:AktG:302

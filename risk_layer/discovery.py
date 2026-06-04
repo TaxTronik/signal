@@ -17,9 +17,10 @@ Kandidaten; der Runner schreibt nur die Review-Queue nach ``discovery/``
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Iterable, Iterator
 
 from .corpus import art_fuer, source_rank
@@ -37,6 +38,13 @@ TRAINING_TYPEN = ("paraphrase", "begriff")
 
 MAX_PRO_PARAGRAPH = 6
 MAX_PARAPHRASEN = 3
+# Paraphrase, deren Token-Jaccard zur Textgrundlage >= dieser Schwelle ist, gilt als
+# Wortlaut-Umstellung (embedded ~identisch zum Normtext -> kein Register-Bridge ->
+# wertloser Anker) und fliegt raus. Der Bench zeigt: der Lift sitzt EINZIG im Register-Gap.
+UMSTELLUNG_JACCARD = 0.6
+# Befund-Codes, die Review-/Training-Gate hart blocken (Faithfulness-Halluzination:
+# der inhalt behauptet eine Norm, die die Textgrundlage nicht belegt).
+KRITISCHE_BEFUNDE = frozenset({"norm_unbelegt"})
 
 # quelle_typ wird ABGELEITET (nicht vom Modell), darum nicht im Schema.
 DISCOVERY_JSON_SCHEMA: dict[str, Any] = {
@@ -58,7 +66,7 @@ DISCOVERY_JSON_SCHEMA: dict[str, Any] = {
                     "generisch": {"type": "boolean"},
                     "konfidenz": {"type": "string", "enum": list(KONFIDENZ)},
                 },
-                "required": ["typ", "inhalt", "textgrundlage", "konfidenz"],
+                "required": ["typ", "funktion", "inhalt", "textgrundlage", "konfidenz"],
             },
         }
     },
@@ -99,6 +107,10 @@ def baue_user_prompt(zitat: str, titel: str, wortlaut: str, *,
         "Gib für DIESEN § 1–3 prägnante paraphrase-Kandidaten (Pflicht); weitere Typen nur, "
         "wenn sie klar zutreffen.\ntyp: " + " · ".join(typen) + "\n"
         "Bei cross_ref gehört die referenzierte Norm als Zitat in 'bezugsnorm', NICHT in 'inhalt'.\n"
+        "funktion (PFLICHT, Rolle im §): tatbestandsmerkmal (Voraussetzung) · rechtsfolge "
+        "(Anordnung/Wirkung) · definition (Begriffsbestimmung) · pruefhinweis (Verfahren/Frist/"
+        "Nachweis) · relation (nur cross_ref/normrelation) · begriff (nur begriff) · unklar "
+        "(nur wenn nichts davon trägt).\n"
         "Gib NUR das JSON nach Schema zurück."
     )
 
@@ -123,6 +135,7 @@ class Kandidat:
     nachbarnormen: list[str]
     generisch: bool
     konfidenz: str
+    befunde: list[str] = field(default_factory=list)   # mechanische Faithfulness-Flags
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -139,6 +152,54 @@ def _erste_id(zitat: str) -> str:
     return ""
 
 
+_ZAHLWORT = {"null": "0", "ein": "1", "eins": "1", "eine": "1", "einem": "1", "einer": "1",
+             "zwei": "2", "drei": "3", "vier": "4", "fünf": "5", "sechs": "6", "sieben": "7",
+             "acht": "8", "neun": "9", "zehn": "10", "elf": "11", "zwölf": "12",
+             "zwanzig": "20", "dreißig": "30", "vierzig": "40", "fünfzig": "50", "hundert": "100"}
+
+
+def _zahlen(s: str) -> set[str]:
+    """Sachzahlen eines Texts: Zifferngruppen + grob normalisierte Zahlwörter. §/Abs./
+    Satz/Nr.-Ziffern werden vorher entfernt (Strukturverweise, keine Sachzahlen)."""
+    low = re.sub(r"§+\s*\d+\w*|absatz\s*\d+|abs\.?\s*\d+|satz\s*\d+|nummer\s*\d+|nr\.?\s*\d+",
+                 " ", s.lower())
+    nums = set(re.findall(r"\d+", low))
+    for w, d in _ZAHLWORT.items():
+        if re.search(rf"\b{w}\b", low):
+            nums.add(d)
+    return nums
+
+
+def _token_jaccard(a: str, b: str) -> float:
+    ta = set(re.findall(r"\w+", a.lower()))
+    tb = set(re.findall(r"\w+", b.lower()))
+    return len(ta & tb) / len(ta | tb) if ta and tb else 0.0
+
+
+def _befunde(inhalt: str, textgrundlage: str, quell_para: str = "") -> list[str]:
+    """Faithfulness inhalt -> Textgrundlage (das sichert sonst NIEMAND: _finde_span
+    sichert nur Grundlage -> §). Geprüft wird über die ZIFFER, nicht die aufgelöste
+    Norm: jede im inhalt zitierte §-Nummer (außer der eigenen) und jede Sachzahl muss
+    als Ziffer in der Grundlage vorkommen. Der Ziffern-Vergleich ist robust gegen
+    Abkürzung vs. ausgeschriebenen Gesetzesnamen ('§ 291 AktG' vs. '§ 291 des
+    Aktiengesetzes'), die parse_normzitat unterschiedlich auflöst — sonst würden gute
+    Anker (Abkürzung im inhalt, Langname in der Grundlage) fälschlich geblockt.
+    'norm_unbelegt' = kritisch (Halluzinationspfad, blockt die Gates); 'zahl_unbelegt'
+    = beratender Hinweis."""
+    bef: list[str] = []
+    tg_ziffern = set(re.findall(r"\d+", textgrundlage))
+    zit = set(re.findall(r"§+\s*(\d+)", inhalt)) - ({quell_para} if quell_para else set())
+    if zit - tg_ziffern:
+        bef.append("norm_unbelegt:" + ",".join("§" + n for n in sorted(zit - tg_ziffern)))
+    if _zahlen(inhalt) - _zahlen(textgrundlage):
+        bef.append("zahl_unbelegt:" + ",".join(sorted(_zahlen(inhalt) - _zahlen(textgrundlage))))
+    return bef
+
+
+def _hat_krit_befund(k: "Kandidat") -> bool:
+    return any(b.split(":", 1)[0] in KRITISCHE_BEFUNDE for b in k.befunde)
+
+
 def verarbeite_kandidaten(
     roh: Iterable[dict[str, Any]],
     *,
@@ -150,6 +211,8 @@ def verarbeite_kandidaten(
     ist_im_graph: Callable[[str], bool],
     enable_begriff: bool = False,
     enable_normrelation: bool = False,
+    max_kandidaten: int = MAX_PRO_PARAGRAPH,
+    max_paraphrasen: int = MAX_PARAPHRASEN,
 ) -> list[Kandidat]:
     """Verifiziert + verortet jeden Roh-Kandidaten (Anti-Halluzination), leitet
     Authority ab, erdet Relationen, dedupliziert und deckelt (≤6/§, ≤3 Paraphrasen).
@@ -168,7 +231,7 @@ def verarbeite_kandidaten(
     gesehen: set[tuple] = set()
     n_para = 0
     for k in sorted(roh, key=lambda x: rang.get(str(x.get("konfidenz", "niedrig")), 3)):
-        if len(out) >= MAX_PRO_PARAGRAPH:
+        if len(out) >= max_kandidaten:
             break
         typ = str(k.get("typ", "")).strip()
         if typ not in TYP:
@@ -190,7 +253,9 @@ def verarbeite_kandidaten(
         if typ == "paraphrase":
             if _norm(inhalt) == _norm(tg) or _norm(inhalt) in text_low:
                 continue
-            if n_para >= MAX_PARAPHRASEN:
+            if _token_jaccard(inhalt, tg) >= UMSTELLUNG_JACCARD:
+                continue                            # Wortlaut-Umstellung -> kein Register-Bridge
+            if n_para >= max_paraphrasen:
                 continue
         # begriff-Gate: bloßes Wort ohne Kontext-Beleg (textgrundlage == inhalt) ist kein
         # erkennbar UNBESTIMMTER Rechtsbegriff -> raus (killt die Substantiv-Flut).
@@ -244,6 +309,7 @@ def verarbeite_kandidaten(
             bezugsnorm=bezug, bezugsnorm_id=bezug_id, relation=relation,
             nachbarnormen=[str(n) for n in (k.get("nachbarnormen") or [])],
             generisch=bool(k.get("generisch", False)), konfidenz=konf,
+            befunde=_befunde(inhalt, tg, para_level(ziel_id or quell_norm).split(":")[-1]),
         ))
         if typ == "paraphrase":
             n_para += 1
@@ -254,27 +320,56 @@ def verarbeite_kandidaten(
 
 def besteht_review_gate(k: Kandidat) -> bool:
     """Review-Queue (Berater): mittel/hoch, nicht generisch, Textgrundlage da,
-    Zielnorm parsebar."""
+    Zielnorm parsebar, KEIN kritischer Faithfulness-Befund (Evidenz statt
+    Selbstauskunft)."""
     return (k.konfidenz in ("mittel", "hoch") and not k.generisch
-            and bool(k.textgrundlage) and bool(k.ziel_norm_id))
+            and bool(k.textgrundlage) and bool(k.ziel_norm_id)
+            and not _hat_krit_befund(k))
 
 
 def besteht_training_gate(k: Kandidat) -> bool:
     """Trainingspaar (Fine-Tune): hoch, nicht generisch, Zielnorm parst UND im Graph,
-    Textgrundlage verifiziert. Paraphrasen sind NICHT an funktion gekoppelt (gute
-    Paraphrasen nicht wegen Klassifikationsschwäche verlieren); Begriffe nur, wenn
-    funktion != 'unklar'."""
+    Textgrundlage verifiziert, kein kritischer Befund. Paraphrasen sind NICHT an
+    funktion gekoppelt (gute Paraphrasen nicht wegen Klassifikationsschwäche verlieren);
+    Begriffe nur, wenn funktion != 'unklar'."""
     return (k.konfidenz == "hoch" and not k.generisch
             and bool(k.ziel_norm_id) and k.ziel_im_graph and bool(k.textgrundlage)
             and k.typ in TRAINING_TYPEN
-            and (k.typ != "begriff" or k.funktion != "unklar"))
+            and (k.typ != "begriff" or k.funktion != "unklar")
+            and not _hat_krit_befund(k))
 
 
 # --- Knoten-Stream (dieselben Live-§ wie der Embedding-Index) -----------------
 
-def iter_paragraphen(graph, *, max_zeichen: int | None = None) -> Iterator[dict[str, Any]]:
+def _absatz_knoten(graph, pid: str, law: str, para: str, titel: str,
+                   max_zeichen: int | None) -> list[dict[str, Any]]:
+    """Direkte Absatz-Kinder eines § (norm:…:absN), ohne tiefere nr/lit/s-Ebene."""
+    rows = graph.con.execute(
+        "SELECT id, absatz, text FROM knoten "
+        "WHERE id LIKE ? AND id NOT LIKE ? AND nummer IS NULL ORDER BY absatz",
+        (f"{pid}:abs%", f"{pid}:abs%:%")).fetchall()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        text = (r["text"] or "").strip()
+        if len(text) < 15:
+            continue
+        out.append({
+            "id": r["id"], "law": law,
+            "zitat": f"§ {para} Abs. {r['absatz']} {law}", "titel": titel,
+            "text": text[:max_zeichen] if max_zeichen else text,
+        })
+    return out
+
+
+def iter_paragraphen(graph, *, max_zeichen: int | None = None,
+                     split_ab: int | None = None) -> Iterator[dict[str, Any]]:
     """§-Knoten des Normgraphen (Paragraph-Ebene), tote/titellose ausgefiltert —
-    spiegelt den Live-Knoten-Begriff von EmbeddingIndex.build (Konsistenz)."""
+    spiegelt den Live-Knoten-Begriff von EmbeddingIndex.build (Konsistenz).
+
+    ``split_ab``: ist der §-Wortlaut länger als diese Zeichenschwelle, werden statt
+    des ganzen § seine Absatz-Knoten gestreamt (kleinere Prompts → weniger stille
+    Format-/Timeout-Ausfälle bei den dichten Normen, §§ 14 ff. KStG, §§ 4/6/15 EStG).
+    Default aus (der A/B-Export läuft bewusst auf ganzen §, eingefroren)."""
     rows = graph.con.execute(
         "SELECT id, titel, law, para, text FROM knoten "
         "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
@@ -288,6 +383,12 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None) -> Iterator[dict[
         echter_titel = "" if (not titel or titel.lstrip("§ ").strip() == str(r["para"])) else titel
         if not echter_titel:
             continue
+        if split_ab and len(text) > split_ab:
+            kinder = _absatz_knoten(graph, r["id"], r["law"], str(r["para"]),
+                                    echter_titel, max_zeichen)
+            if kinder:                              # nur splitten, wenn Absatz-Knoten existieren
+                yield from kinder
+                continue
         yield {
             "id": r["id"], "law": r["law"], "zitat": f"§ {r['para']} {r['law']}",
             "titel": echter_titel,
@@ -309,45 +410,63 @@ def erkenne_modell(base_url: str, *, timeout: float = 10.0) -> str:
 
 
 def _chat(base_url: str, system: str, user: str, *, model: str = "",
-          timeout: float = 300.0, n_predict: int = 1024, no_think: bool = False) -> str:
-    # OpenAI-kompatibler Body (vLLM + llama-server): 'model' ist bei vLLM PFLICHT;
-    # KEIN 'cache_prompt' (llama.cpp-spezifisch -> vLLM lehnt unbekannte Felder ggf. ab).
-    body = {
+          timeout: float = 300.0, n_predict: int = 1024, no_think: bool = False,
+          api_key: str | None = None, provider: str = "local",
+          response_schema: dict[str, Any] | None = None) -> str:
+    # OpenAI-kompatibler Body (vLLM/llama-server UND OpenAI-API): 'model' ist Pflicht.
+    # provider='openai' -> Auth-Header + max_completion_tokens (neuere Modelle), kein
+    # seed (von der API teils abgelehnt). Lokal: max_tokens + seed (Determinismus).
+    body: dict[str, Any] = {
         "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user + (" /no_think" if no_think else "")},
         ],
-        "temperature": 0.0, "seed": 0, "max_tokens": n_predict,
+        "temperature": 0.0,
         "response_format": {
             "type": "json_schema",
-            "json_schema": {"name": "discovery", "schema": DISCOVERY_JSON_SCHEMA, "strict": True},
+            "json_schema": {"name": "discovery", "strict": True,
+                            "schema": response_schema or DISCOVERY_JSON_SCHEMA},
         },
     }
+    if provider == "openai":
+        body["max_completion_tokens"] = n_predict
+    else:
+        body["max_tokens"] = n_predict
+        body["seed"] = 0
+    headers = {"Content-Type": "application/json"}
+    if api_key:                                     # Key NUR im Header, nie geloggt
+        headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(
         f"{base_url.rstrip('/')}/v1/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (lokal)
+        data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.load(resp)["choices"][0]["message"]["content"]
 
 
 def roh_kandidaten(base_url: str, node: dict[str, Any], *, model: str = "",
                    timeout: float = 300.0, no_think: bool = False,
-                   enable_begriff: bool = False,
-                   enable_normrelation: bool = False) -> list[dict[str, Any]]:
+                   enable_begriff: bool = False, enable_normrelation: bool = False,
+                   api_key: str | None = None, provider: str = "local",
+                   fehler_protokoll: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Nur der LLM-Teil: roh-Kandidaten eines §. THREAD-SAFE (reines HTTP +
     Parsing, KEIN Graph-Zugriff) → so lassen sich die LLM-Calls parallelisieren,
     während die graph-gebundene verarbeite_kandidaten im Hauptthread bleibt. Leer
-    bei Server-/Format-Problemen (nie crashen — Batch über tausende §)."""
+    bei Server-/Format-Problemen (nie crashen — Batch über tausende §); der Ausfall
+    wird, wenn ``fehler_protokoll`` gegeben, protokolliert STATT still zu verschwinden
+    (sonst sehen die langen/dichten Normen wie Modell-Ausweichen aus)."""
     user = baue_user_prompt(node["zitat"], node["titel"], node["text"],
                             enable_begriff=enable_begriff,
                             enable_normrelation=enable_normrelation)
     try:
-        content = _chat(base_url, DISCOVERY_SYSTEM, user, model=model,
-                        timeout=timeout, no_think=no_think)
+        content = _chat(base_url, DISCOVERY_SYSTEM, user, model=model, timeout=timeout,
+                        no_think=no_think, api_key=api_key, provider=provider)
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
-            KeyError, IndexError, json.JSONDecodeError):
+            KeyError, IndexError, json.JSONDecodeError) as e:
+        if fehler_protokoll is not None:           # list.append ist GIL-atomar -> thread-safe
+            fehler_protokoll.append({"id": node.get("id"), "zitat": node.get("zitat"),
+                                     "n_chars": len(node.get("text") or ""),
+                                     "fehler": type(e).__name__})
         return []
     return _kandidaten_aus_text(content)
 
@@ -371,8 +490,214 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
         enable_begriff=enable_begriff, enable_normrelation=enable_normrelation)
 
 
+# --- Pass 2: Card-Discovery (kuratierte Anker auf deterministisch gewähltem Subset) -
+# Das MODELL entscheidet NICHT über Relevanz (die Norm ist vorselektiert) — es bildet
+# nur wenige, kanzleitaugliche Anker, WENN der Wortlaut sie trägt. Output wird über
+# DIESELBEN Evidenz-Gates wie Pass 1 zerlegt (verarbeite_kandidaten): Faithfulness,
+# Jaccard-Register, Graph-Existenz, Dedup, Deckel. relevanz/spezifitaet/register sind
+# bewusst NICHT im Kontrakt (kein Modell-Selbstgate, kein Geld für Deko-Metadaten).
+
+CARD_SYSTEM = (
+    "Du bist Steuerrecht-Analyst. Du erhältst EINE bereits vorselektierte Norm "
+    "(Titel + Wortlaut) und füllst eine Norm-Karte mit ZWEI Zonen.\n"
+    "ENGINE-Teile (müssen im Wortlaut belegt sein): anchors, nachbarnormen, "
+    "matcher_terms. KEINE Wortlautkopie/-umstellung, KEINE dogmatische Verdichtung — "
+    "ein Anker ist eine Beraterfrage/ein Mandantensatz, kein Kommentar. Jeder Anker "
+    "MUSS eine wörtliche Textgrundlage aus dem § nennen. Erfinde keine Normen/Zahlen, "
+    "die nicht im Wortlaut stehen. Lieber leer als schwach.\n"
+    "ADVISORY-Teile (Entwurf für den Berater, dürfen leer bleiben): risikotyp, "
+    "pruefpunkte, hinweis, governance_typ, risikophase, fehlerquelle. Nur ausfüllen, "
+    "wenn klar zutreffend.\n"
+    "Du entscheidest NICHT über die Relevanz der Norm — die ist vorgegeben."
+)
+
+_ADVISORY_SCHEMA = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "risikotyp": {"type": "string"},
+        "pruefpunkte": {"type": "array", "items": {"type": "string"}},
+        "hinweis": {"type": "string"},
+        "governance_typ": {"type": "string"},
+        "risikophase": {"type": "string"},
+        "fehlerquelle": {"type": "string"},
+    },
+    "required": ["risikotyp", "pruefpunkte", "hinweis", "governance_typ",
+                 "risikophase", "fehlerquelle"],
+}
+
+CARD_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object", "additionalProperties": False,
+    "properties": {
+        "anchors": {
+            "type": "array",
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "properties": {"text": {"type": "string"},
+                               "textgrundlage": {"type": "string"}},
+                "required": ["text", "textgrundlage"],
+            },
+        },
+        "nachbarnormen": {"type": "array", "items": {"type": "string"}},
+        "matcher_terms": {"type": "array", "items": {"type": "string"}},
+        "advisory": _ADVISORY_SCHEMA,
+    },
+    "required": ["anchors", "nachbarnormen", "matcher_terms", "advisory"],  # strict (OpenAI)
+}
+
+
+def baue_card_prompt(zitat: str, titel: str, wortlaut: str) -> str:
+    return (
+        f"Vorselektierte Norm: {zitat}\nTitel: {titel}\n--- WORTLAUT ---\n{wortlaut}\n"
+        "--- ENDE ---\n\nENGINE (im Wortlaut belegt):\n"
+        "- anchors: 0–3 Anker in Laien-/Kanzleisprache (KEINE Wortlautkopie/-umstellung), "
+        "je mit 'textgrundlage' = wörtliche Stelle. Lieber 0 als schwach.\n"
+        "- nachbarnormen: bis 5 §§, die der Wortlaut zitiert, als '§ N Gesetz'.\n"
+        "- matcher_terms: bis 6 charakteristische Begriffe/Phrasen, die WÖRTLICH im § "
+        "stehen (für spätere deterministische Matcher).\n"
+        "ADVISORY (Entwurf, darf leer sein): risikotyp · pruefpunkte · hinweis · "
+        "governance_typ · risikophase · fehlerquelle — nur wenn klar zutreffend.\n"
+        "Gib NUR das JSON nach Schema zurück."
+    )
+
+
+_ADVISORY_KEYS = ("risikotyp", "pruefpunkte", "hinweis", "governance_typ",
+                  "risikophase", "fehlerquelle")
+
+
+@dataclass
+class Karte:
+    """Norm-Karte: PRIMÄR ein Kurations-/TCMS-Objekt; die Engine konsumiert nur die
+    evidenzgeprüften Teile. ``kandidaten`` (Anker paraphrase + Kanten cross_ref) und
+    ``matcher_terms`` sind engine-gebunden + gegated; ``advisory`` ist Berater-Entwurf
+    und wird NIE als Gate verwendet, NIE automatisch produktiv."""
+    norm_id: str
+    norm: str
+    titel: str
+    kandidaten: list[Kandidat]            # engine: gegatete Anker + Kanten
+    matcher_terms: list[str]              # engine: im Wortlaut belegte 1b-Kandidaten
+    advisory: dict[str, Any]              # berater-/TCMS-Entwurf (NIE gegated)
+    anker_vorgeschlagen: int
+    anker_akzeptiert: int
+    review_status: str = "neu"
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _json_objekt(content: str) -> dict[str, Any]:
+    try:
+        d = json.loads(content)
+    except (json.JSONDecodeError, TypeError):
+        m = re.search(r"\{.*\}", content or "", re.S)
+        if not m:
+            return {}
+        try:
+            d = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _finde_zitat_span(node_text: str, para_num: str) -> str:
+    """Fenster um die erste '§ <para_num>'-Stelle im Wortlaut (Evidenz, dass die
+    Nachbarnorm hier wirklich zitiert wird). Leer, wenn nicht vorkommend."""
+    m = re.search(rf"§+\s*{re.escape(para_num)}\b", node_text or "")
+    if not m:
+        return ""
+    return node_text[max(0, m.start() - 12):min(len(node_text), m.end() + 30)]
+
+
+def _card_zu_roh(card: dict[str, Any], node_text: str) -> list[dict[str, Any]]:
+    """Karte -> Roh-Kandidaten im Pass-1-Format, damit verarbeite_kandidaten dieselben
+    Gates anwendet. Nachbarnormen werden nur zu Kanten, wenn ihre §-Nummer im Wortlaut
+    belegt ist (synthetisierte Textgrundlage)."""
+    roh: list[dict[str, Any]] = []
+    for a in card.get("anchors") or []:
+        text, tg = str(a.get("text", "")).strip(), str(a.get("textgrundlage", "")).strip()
+        if text and tg:
+            roh.append({"typ": "paraphrase", "funktion": "unklar", "inhalt": text,
+                        "textgrundlage": tg, "konfidenz": "hoch", "generisch": False})
+    for nb in (card.get("nachbarnormen") or [])[:5]:
+        nb = str(nb).strip()
+        nid = _erste_id(nb)
+        if not nid:
+            continue
+        span = _finde_zitat_span(node_text, para_level(nid).split(":")[-1])
+        if not span:
+            continue
+        roh.append({"typ": "cross_ref", "funktion": "relation", "inhalt": f"Verweis auf {nb}",
+                    "textgrundlage": span, "bezugsnorm": nb, "relation": "verweist_auf",
+                    "konfidenz": "hoch"})
+    return roh
+
+
+def _matcher_terms(card: dict[str, Any], node_text: str) -> list[str]:
+    """matcher_terms (1b-Kandidaten): nur Begriffe, die WÖRTLICH im § stehen (Evidenz),
+    dedupliziert, gedeckelt. Anders als Anker hier KEIN Register-Bridge — der Matcher
+    soll exakt greifen."""
+    low = node_text.lower()
+    out: list[str] = []
+    seen: set[str] = set()
+    for t in (card.get("matcher_terms") or [])[:8]:
+        ts, key = str(t).strip(), _norm(str(t))
+        if ts and key and key in low and key not in seen:
+            seen.add(key)
+            out.append(ts)
+    return out
+
+
+def _advisory(card: dict[str, Any]) -> dict[str, Any]:
+    """Advisory-Zone bereinigt durchreichen — NIE gegated, NIE auto-produktiv."""
+    a = card.get("advisory") or {}
+    out: dict[str, Any] = {}
+    for k in _ADVISORY_KEYS:
+        v = a.get(k)
+        out[k] = ([str(x).strip() for x in (v or []) if str(x).strip()]
+                  if k == "pruefpunkte" else str(v or "").strip())
+    return out
+
+
+def verarbeite_karte(card: dict[str, Any], *, node: dict[str, Any],
+                     verweist_ids: Iterable[str],
+                     ist_im_graph: Callable[[str], bool]) -> Karte:
+    """Karte zerlegen: Engine-Teile über die Pass-1-Gates (Anker/Kanten) + Matcher-Term-
+    Evidenzgate; Advisory unverändert durchgereicht (nie gegated, nie auto-produktiv)."""
+    roh = _card_zu_roh(card, node["text"])
+    kand = verarbeite_kandidaten(
+        roh, quell_norm=node["id"], quell_law=node["law"], node_text=node["text"],
+        node_titel=node["titel"], verweist_ids=verweist_ids, ist_im_graph=ist_im_graph,
+        max_kandidaten=8, max_paraphrasen=MAX_PARAPHRASEN)
+    vorgeschlagen = len(card.get("anchors") or [])
+    akzeptiert = sum(1 for k in kand if k.typ == "paraphrase")
+    return Karte(norm_id=node["id"], norm=node["zitat"], titel=node["titel"],
+                 kandidaten=kand, matcher_terms=_matcher_terms(card, node["text"]),
+                 advisory=_advisory(card), anker_vorgeschlagen=vorgeschlagen,
+                 anker_akzeptiert=akzeptiert)
+
+
+def roh_karte(base_url: str, node: dict[str, Any], *, model: str = "", timeout: float = 300.0,
+              api_key: str | None = None, provider: str = "local",
+              fehler_protokoll: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Nur der LLM-Teil (THREAD-SAFE): roh-Karte eines vorselektierten §. {} bei
+    Server-/Format-Problemen, protokolliert statt still zu verschwinden."""
+    user = baue_card_prompt(node["zitat"], node["titel"], node["text"])
+    try:
+        content = _chat(base_url, CARD_SYSTEM, user, model=model, timeout=timeout,
+                        api_key=api_key, provider=provider, response_schema=CARD_JSON_SCHEMA)
+    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
+            KeyError, IndexError, json.JSONDecodeError) as e:
+        if fehler_protokoll is not None:
+            fehler_protokoll.append({"id": node.get("id"), "zitat": node.get("zitat"),
+                                     "n_chars": len(node.get("text") or ""),
+                                     "fehler": type(e).__name__})
+        return {}
+    return _json_objekt(content)
+
+
 __all__ = [
     "Kandidat", "verarbeite_kandidaten", "besteht_review_gate", "besteht_training_gate",
     "iter_paragraphen", "discovery_paragraph", "roh_kandidaten", "DISCOVERY_SYSTEM",
     "baue_user_prompt", "DISCOVERY_JSON_SCHEMA", "server_verfuegbar", "erkenne_modell",
+    "Karte", "verarbeite_karte", "roh_karte", "baue_card_prompt", "CARD_SYSTEM",
+    "CARD_JSON_SCHEMA",
 ]
