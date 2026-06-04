@@ -18,11 +18,19 @@ LAW = "EStDV"
 IM_GRAPH = {"norm:EStDV:8", "norm:EStG:51", "norm:HGB:22"}
 
 
-def _verarbeite(roh, verweist=(), enable_normrelation=False):
+def _verarbeite(roh, verweist=(), enable_normrelation=False, enable_begriff=True):
     return verarbeite_kandidaten(
         roh, quell_norm=QUELL, quell_law=LAW, node_text=TEXT, node_titel=TITEL,
         verweist_ids=verweist, ist_im_graph=lambda nid: nid in IM_GRAPH,
-        enable_normrelation=enable_normrelation)
+        enable_begriff=enable_begriff, enable_normrelation=enable_normrelation)
+
+
+def test_begriff_default_aus():
+    # Pass-1-Default: begriff aus (Substantiv-Rauschen); per Flag wieder an.
+    roh = [{"typ": "begriff", "inhalt": "schädlich",
+            "textgrundlage": "gelten als schädlich", "konfidenz": "hoch"}]
+    assert _verarbeite(roh, enable_begriff=False) == []
+    assert len(_verarbeite(roh, enable_begriff=True)) == 1
 
 
 def test_textgrundlage_muss_im_paragraph_stehen():

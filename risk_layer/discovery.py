@@ -77,27 +77,27 @@ DISCOVERY_SYSTEM = (
 
 
 def baue_user_prompt(zitat: str, titel: str, wortlaut: str, *,
+                     enable_begriff: bool = False,
                      enable_normrelation: bool = False) -> str:
+    # Pass 1 fokussiert auf die bewiesenen Hebel: Paraphrasen (Embedding-Anker) +
+    # Cross-Refs (Graph-Kanten). begriff/normrelation sind opt-in (Rauschquellen).
     typen = [
-        "begriff (NUR auslegungs-/wertungsbedürftiger unbestimmter Rechtsbegriff — z. B. "
-        "'angemessen', 'unverzüglich', 'wichtiger Grund', 'Zumutbarkeit', 'Treu und Glauben'. "
-        "NICHT: Legaldefinitionen, Behörden-/Eigennamen, bloße Aufzählungsglieder, schlichte "
-        "Sachbegriffe. textgrundlage = der GANZE (Teil-)Satz, in dem er steht, nicht nur das Wort)",
-        "paraphrase (Laien-/Kanzleisprache für GENAU diesen §, KEINE Wortlautkopie)",
-        "cross_ref (eine ANDERE, im Wortlaut genannte Norm; die Fremdnorm MUSS als Zitat "
-        "in 'bezugsnorm' stehen, 'ziel_norm' = dieser §, 'relation' = verweist_auf)",
+        "paraphrase (Laien-/Kanzleisprache für GENAU diesen §, die einen umschriebenen "
+        "Sachverhalt auf diese Norm führt — KEINE Wortlautkopie/-umstellung)",
+        "cross_ref (NUR wenn der Wortlaut eine ANDERE Norm zitiert: die Fremdnorm als Zitat "
+        "in 'bezugsnorm', 'ziel_norm' = dieser §, 'relation' = verweist_auf)",
     ]
+    if enable_begriff:
+        typen.append("begriff (NUR auslegungs-/wertungsbedürftiger unbestimmter Rechtsbegriff "
+                     "wie 'angemessen','unverzüglich','wichtiger Grund' — NICHT Legaldefinitionen/"
+                     "Eigennamen/Aufzählungen/Sachbegriffe/Zitate)")
     if enable_normrelation:
-        typen.append("normrelation (konkretisiert|ermaechtigungsbezug zu einer Fremdnorm in "
+        typen.append("normrelation (konkretisiert|ermaechtigungsbezug zu Fremdnorm in "
                      "'bezugsnorm'; KEIN Selbstbezug)")
     return (
         f"Paragraph: {zitat}\nTitel: {titel}\n--- WORTLAUT ---\n{wortlaut}\n--- ENDE ---\n\n"
-        "Schlage Kandidaten vor.\ntyp: " + " · ".join(typen) + "\n"
-        "funktion (mit Beispielen): begriff ('Aktiengesellschaft') · tatbestandsmerkmal "
-        "('ohne Rücksicht auf den Gegenstand des Unternehmens') · rechtsfolge ('gilt als "
-        "Handelsgesellschaft') · definition ('als kleine Aktiengesellschaften gelten …') · "
-        "pruefhinweis ('prüfe, ob die Voraussetzungen erfüllt sind') · relation (Verweis "
-        "auf andere Norm) · unklar (nur wenn nichts passt). Wähle funktion möglichst NICHT 'unklar'.\n"
+        "Gib für DIESEN § 1–3 prägnante paraphrase-Kandidaten (Pflicht); weitere Typen nur, "
+        "wenn sie klar zutreffen.\ntyp: " + " · ".join(typen) + "\n"
         "Bei cross_ref gehört die referenzierte Norm als Zitat in 'bezugsnorm', NICHT in 'inhalt'.\n"
         "Gib NUR das JSON nach Schema zurück."
     )
@@ -148,6 +148,7 @@ def verarbeite_kandidaten(
     node_titel: str,
     verweist_ids: Iterable[str],
     ist_im_graph: Callable[[str], bool],
+    enable_begriff: bool = False,
     enable_normrelation: bool = False,
 ) -> list[Kandidat]:
     """Verifiziert + verortet jeden Roh-Kandidaten (Anti-Halluzination), leitet
@@ -172,6 +173,8 @@ def verarbeite_kandidaten(
         typ = str(k.get("typ", "")).strip()
         if typ not in TYP:
             continue
+        if typ == "begriff" and not enable_begriff:
+            continue                            # Pass-1-Default: begriff aus (Substantiv-Rauschen)
         if typ == "normrelation" and not enable_normrelation:
             continue                            # Pass-1-Default: normrelation aus (Rauschen)
         inhalt = str(k.get("inhalt", "")).strip()
@@ -334,10 +337,12 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
                         verweist_ids: Iterable[str],
                         model: str = "",
                         timeout: float = 300.0, no_think: bool = False,
+                        enable_begriff: bool = False,
                         enable_normrelation: bool = False) -> list[Kandidat]:
     """Ein § → verifizierte Kandidaten. Leerer Lauf bei Server-/Format-Problemen
     (nie crashen — Discovery ist ein Batch über tausende §)."""
     user = baue_user_prompt(node["zitat"], node["titel"], node["text"],
+                            enable_begriff=enable_begriff,
                             enable_normrelation=enable_normrelation)
     try:
         content = _chat(base_url, DISCOVERY_SYSTEM, user, model=model,
@@ -349,7 +354,7 @@ def discovery_paragraph(base_url: str, node: dict[str, Any], *,
         _kandidaten_aus_text(content), quell_norm=node["id"], quell_law=node["law"],
         node_text=node["text"], node_titel=node["titel"],
         verweist_ids=verweist_ids, ist_im_graph=ist_im_graph,
-        enable_normrelation=enable_normrelation)
+        enable_begriff=enable_begriff, enable_normrelation=enable_normrelation)
 
 
 __all__ = [

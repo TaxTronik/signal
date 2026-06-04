@@ -55,6 +55,8 @@ def main() -> int:
     ap.add_argument("--no-think", action="store_true", help="/no_think anhängen (Qwen)")
     ap.add_argument("--model", default="",
                     help="Modellname für den Chat-Request (vLLM PFLICHT). Leer = Auto via /v1/models")
+    ap.add_argument("--enable-begriff", action="store_true",
+                    help="begriff-Kandidaten zulassen (Default aus: Substantiv-Rauschen)")
     ap.add_argument("--enable-normrelation", action="store_true",
                     help="normrelation-Kandidaten zulassen (Default aus: Pass-1-Rauschen)")
     args = ap.parse_args()
@@ -88,7 +90,7 @@ def main() -> int:
             args.llm_url, node, ist_im_graph=ist_im_graph,
             verweist_ids=_verweist_ids(graph, node["id"]),
             model=modell, timeout=args.timeout, no_think=args.no_think,
-            enable_normrelation=args.enable_normrelation)
+            enable_begriff=args.enable_begriff, enable_normrelation=args.enable_normrelation)
         alle.extend(kandidaten)
         if n % 50 == 0:
             print(f"  … {n} §  /  {len(alle)} Kandidaten", file=sys.stderr)
