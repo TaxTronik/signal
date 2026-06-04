@@ -103,6 +103,18 @@ def _katalog_norm_kuratieren(app, payload: dict[str, Any]) -> tuple[int, dict[st
     return (200 if res.get("ok") else 400), res
 
 
+def _katalog_kuratierung(app, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
+    """GET /v1/katalog/kuratierung?katalog_id=&nutzer= – geltende Norm-Kuratierung
+    zum Überlagern im Host. Ohne ``katalog_id`` alle Roh-Records (geteilt + die
+    persönlichen des Nutzers), mit ``katalog_id`` die aufbereitete Sicht eines Begriffs
+    ({verworfen, ergaenzt}). Reiner Katalog-State, kein Fallbezug; /v1/analyse bleibt
+    davon unberührt (katalog-rein) – die Anwendung der Kuratierung macht der Host."""
+    katalog_id = (query.get("katalog_id") or [None])[0]
+    nutzer = (query.get("nutzer") or [None])[0]
+    return 200, {**app.kuratierung_lesen(katalog_id=katalog_id, nutzer=nutzer),
+                 "engineVersion": V1_VERSION}
+
+
 def _normgraph_aufloesen(app, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """GET /v1/normgraph/aufloesen?id=norm:AO:162 – einen Knoten auflösen."""
     nid = (query.get("id") or [""])[0]
@@ -174,6 +186,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _normgraph_aufloesen(app, query)
         if pfad == "/v1/normgraph/suche":
             return _normgraph_suche(app, query)
+        if pfad == "/v1/katalog/kuratierung":
+            return _katalog_kuratierung(app, query)
         if pfad == "/v1/llm/status":
             return _llm_status(app)
     elif method == "POST":

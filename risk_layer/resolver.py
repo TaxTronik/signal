@@ -56,9 +56,6 @@ def anreichern_mit_berater(karten: list[Begriffskarte], store, *, nutzer: str | 
     if store is None:
         return karten
     for k in karten:
-        # Katalog-weite Norm-Kuratierung (verworfene/ergänzte Normen) dieses Begriffs.
-        if hasattr(store, "kuratierung_fuer"):
-            k.norm_kuratierung = store.kuratierung_fuer(k.eintrag.id, nutzer=nutzer)
         for d in store.annotationen(k.eintrag.id, nutzer=nutzer):
             k.berater_notizen.append({
                 "autor": d.autor, "scope": d.scope, "review_status": d.review_status,

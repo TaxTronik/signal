@@ -176,6 +176,22 @@ class Anwendung:
         return {"ok": True, "katalog_id": katalog_id, "norm": payload.get("norm", ""),
                 "aktion": payload.get("aktion", ""), "scope": payload.get("scope", "personal")}
 
+    def kuratierung_lesen(self, *, katalog_id: str | None = None,
+                          nutzer: str | None = None) -> dict[str, Any]:
+        """Geltende Norm-Kuratierung (geteilt + persönliche des Nutzers) zum Überlagern
+        im Host. Mit ``katalog_id`` die aufbereitete Sicht eines Begriffs
+        (``verworfen``/``ergaenzt``), sonst alle Roh-Records. /v1/analyse bleibt
+        davon unberührt (katalog-rein); der Host wendet die Kuratierung beim Rendern an."""
+        store = self._berater()
+        if store is None:
+            return {"kuratierungen": []}
+        if katalog_id:
+            kur = store.kuratierung_fuer(katalog_id, nutzer=nutzer)
+            return {"katalog_id": katalog_id, "verworfen": sorted(kur["verworfen"]),
+                    "ergaenzt": kur["ergaenzt"]}
+        return {"kuratierungen": [k.as_dict()
+                                  for k in store.kuratierungen(nutzer=nutzer)]}
+
     # -- Schicht-2-LLM-Steuerung (über /v1/llm/*) ---------------------------
     def _modell_pfad(self) -> str | None:
         from . import modell as M
@@ -235,21 +251,14 @@ class Anwendung:
 # JSON-Aufbereitung (der /v1-Antwort-Vertrag)
 # ---------------------------------------------------------------------------
 
-def _norm_anker_json(norm_anker: tuple[str, ...] | list[str],
-                     kuratierung: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-    """Norm-Vorschläge einer Karte mit Provenienz: jede trägt ``quelle`` (katalog|
-    berater) + ``verworfen`` (aus der katalog-weiten Berater-Kuratierung). Die Norm
-    bleibt VORSCHLAG — der Berater verwirft/ergänzt, nichts ist verbindlich."""
-    kur = kuratierung or {}
-    verworfen_ids = kur.get("verworfen") or set()
+def _norm_anker_json(norm_anker: tuple[str, ...] | list[str]) -> list[dict[str, Any]]:
+    """Katalog-Norm-Vorschläge einer Karte (pur). Die Berater-Kuratierung
+    (verworfen/ergänzt) liefert separat GET /v1/katalog/kuratierung; der Host
+    überlagert sie beim Rendern — /v1/analyse bleibt katalog-rein/reproduzierbar."""
     out: list[dict[str, Any]] = []
     for zitat in norm_anker:
         ids = [a.norm_id.to_id() for a in parse_normzitat(zitat) if a.norm_id]
-        out.append({"zitat": zitat, "ids": ids, "quelle": "katalog",
-                    "verworfen": any(i in verworfen_ids for i in ids)})
-    for erg in (kur.get("ergaenzt") or []):
-        out.append({"zitat": erg["zitat"], "ids": [erg["id"]],
-                    "quelle": "berater", "verworfen": False})
+        out.append({"zitat": zitat, "ids": ids})
     return out
 
 
@@ -270,7 +279,7 @@ def _karte_json(k: Begriffskarte) -> dict[str, Any]:
         "matched_text": k.treffer.matched_text,
         "start": k.treffer.start,
         "end": k.treffer.end,
-        "norm_anker": _norm_anker_json(e.norm_anker, k.norm_kuratierung),
+        "norm_anker": _norm_anker_json(e.norm_anker),
         "normketten": [kette.as_dict() for kette in e.normketten],
         "quellen": _quellen_json(k.quellen),
         "governance_typ": e.governance_typ.value,

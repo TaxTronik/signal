@@ -1,8 +1,9 @@
 """Katalog-weite Norm-Kuratierung (Berater-Aufsatz): verwerfen/ergaenzen/zuruecksetzen,
-Scope-Filter, Idempotenz, Persistenz + die quelle/verworfen-Provenienz im Karte-JSON.
+Scope-Filter, Idempotenz, Persistenz + die Bulk-Lesesicht fürs Host-Overlay.
 
 Fallzustandslos + ohne Engine-Audit (die Handlung auditiert der Host) — hier nur der
-Katalog-State und seine Auswirkung auf die Norm-Vorschläge.
+Katalog-State. /v1/analyse bleibt katalog-rein; der Host überlagert die Kuratierung
+selbst (GET /v1/katalog/kuratierung), darum trägt das Analyse-JSON KEINE quelle/verworfen.
 """
 
 import pytest
@@ -56,12 +57,22 @@ def test_idempotent_und_validierung(tmp_path):
         s.kuratiere_norm("x", "§ 162 AO", "verwerfen", scope="kanzlei", autor="a", datum="d")
 
 
-def test_norm_anker_json_traegt_quelle_und_verworfen():
-    kur = {"verworfen": {"norm:AO:162"}, "ergaenzt": [{"zitat": "§ 90 AO", "id": "norm:AO:90"}]}
-    out = {o["zitat"]: o for o in _norm_anker_json(["§ 162 AO", "§ 158 AO"], kur)}
-    assert out["§ 162 AO"]["quelle"] == "katalog" and out["§ 162 AO"]["verworfen"] is True
-    assert out["§ 158 AO"]["verworfen"] is False
-    assert out["§ 90 AO"]["quelle"] == "berater" and out["§ 90 AO"]["verworfen"] is False
-    # ohne Kuratierung rückwärtskompatibel: quelle katalog, verworfen False
-    plain = _norm_anker_json(["§ 162 AO"])
-    assert plain[0]["quelle"] == "katalog" and plain[0]["verworfen"] is False
+def test_norm_anker_json_bleibt_pur():
+    # /v1/analyse ist katalog-rein: nur {zitat, ids}, KEINE Kuratierungs-Felder
+    # (verworfen/quelle). Sonst wäre die Analyse abhängig vom Berater-State.
+    out = _norm_anker_json(["§ 162 AO"])
+    assert out == [{"zitat": "§ 162 AO", "ids": ["norm:AO:162"]}]
+    assert "verworfen" not in out[0] and "quelle" not in out[0]
+
+
+def test_kuratierungen_bulk_scope_filter(tmp_path):
+    s = BeraterStore(tmp_path)
+    s.kuratiere_norm("x", "§ 162 AO", "verwerfen", scope="geteilt", autor="alice", datum="d")
+    s.kuratiere_norm("x", "§ 90 AO", "ergaenzen", scope="personal", autor="alice", datum="d")
+    s.kuratiere_norm("y", "§ 158 AO", "verwerfen", scope="personal", autor="bob", datum="d")
+    # bob sieht das geteilte (x/162) + sein eigenes (y/158), NICHT alices personal (x/90)
+    bob = {(k.katalog_id, k.norm_id) for k in s.kuratierungen(nutzer="bob")}
+    assert bob == {("x", "norm:AO:162"), ("y", "norm:AO:158")}
+    # auf einen Begriff gefiltert
+    nur_x = {k.norm_id for k in s.kuratierungen(katalog_id="x", nutzer="alice")}
+    assert nur_x == {"norm:AO:162", "norm:AO:90"}

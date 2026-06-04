@@ -28,6 +28,9 @@ runs/
 
 # Persönliche Berater-Definitionen (können mandantenbezogene Notizen enthalten)
 **/personal.yaml
+# Norm-Kuratierung: lokaler Berater-Laufzeit-State (gemischte Scopes, pro Deployment);
+# die produktive Kuratierung lebt auf der deployten Engine, auditiert im Host.
+**/norm_kuratierung.yaml
 
 # Abgleich-Zustand (gesehene RSS-Einträge)
 abgleich/

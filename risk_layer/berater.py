@@ -233,6 +233,15 @@ class BeraterStore:
                 ergaenzt.append({"zitat": k.norm_zitat, "id": k.norm_id})
         return {"verworfen": verworfen, "ergaenzt": ergaenzt}
 
+    def kuratierungen(self, *, katalog_id: str | None = None,
+                      nutzer: str | None = None) -> list[NormKuratierung]:
+        """Alle geltenden Kuratierungs-Records (geteilt + persönliche des Nutzers),
+        optional auf einen Begriff gefiltert. Roh-Records, damit der Host sie
+        gruppieren/überlagern kann — die Engine wendet sie NICHT in /v1/analyse an."""
+        return [k for k in self._kuratierungen
+                if (katalog_id is None or k.katalog_id == katalog_id)
+                and (k.scope == "geteilt" or k.autor == nutzer)]
+
     @staticmethod
     def _aus_dict(raw: dict[str, Any], scope: str) -> BeraterDefinition:
         quellen = tuple(
