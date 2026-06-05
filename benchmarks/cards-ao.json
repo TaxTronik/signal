@@ -1,0 +1,81 @@
+{
+  "stand": "2026-06-05T00:50:04+00:00",
+  "encoder": "bge-m3",
+  "n": 6,
+  "k": 10,
+  "opus_anker": 85,
+  "leckage_verworfen": 0,
+  "graph_only": {
+    "n": 6,
+    "recall@5": 0.0,
+    "recall@10": 0.167,
+    "mrr": 0.019
+  },
+  "graph_plus_opus": {
+    "n": 6,
+    "recall@5": 0.5,
+    "recall@10": 0.5,
+    "mrr": 0.283
+  },
+  "pro_gebiet": {
+    "AO": {
+      "n": 6,
+      "graph": {
+        "n": 6,
+        "recall@5": 0.0,
+        "recall@10": 0.167,
+        "mrr": 0.019
+      },
+      "opus": {
+        "n": 6,
+        "recall@5": 0.5,
+        "recall@10": 0.5,
+        "mrr": 0.283
+      }
+    }
+  },
+  "raenge": [
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:42",
+      "graph": null,
+      "opus": null,
+      "quelle": "Prod-Katalog ao_gestaltungsmissbrauch"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:42",
+      "graph": 9,
+      "opus": 1,
+      "quelle": "Prod-Katalog ao_gestaltungsmissbrauch"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:42",
+      "graph": null,
+      "opus": null,
+      "quelle": "Prod-Katalog ao_gestaltungsmissbrauch"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:34|norm:AO:69",
+      "graph": null,
+      "opus": 2,
+      "quelle": "Prod-Katalog ao_vertreterhaftung"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:34|norm:AO:69",
+      "graph": null,
+      "opus": 5,
+      "quelle": "Prod-Katalog ao_vertreterhaftung"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:34|norm:AO:69",
+      "graph": null,
+      "opus": null,
+      "quelle": "Prod-Katalog ao_vertreterhaftung"
+    }
+  ]
+}

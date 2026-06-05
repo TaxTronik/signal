@@ -1,0 +1,17 @@
+{
+  "top1": {
+    "voll_recall": 0.442,
+    "teil_recall": 0.481,
+    "praezision": 0.481
+  },
+  "top2": {
+    "voll_recall": 0.494,
+    "teil_recall": 0.532,
+    "praezision": 0.273
+  },
+  "top3": {
+    "voll_recall": 0.532,
+    "teil_recall": 0.584,
+    "praezision": 0.199
+  }
+}

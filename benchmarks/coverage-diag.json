@@ -1,0 +1,133 @@
+{
+  "n": 77,
+  "k": 300,
+  "r50": {
+    "alt": 0.7012987012987013,
+    "neu": 0.6623376623376623,
+    "neu_kfull": 0.6623376623376623
+  },
+  "recall_miss": {
+    "alt": 23,
+    "neu": 26
+  },
+  "neu_miss": [
+    18,
+    27,
+    51,
+    52,
+    53,
+    54,
+    57,
+    68
+  ],
+  "top_verdraenger": [
+    {
+      "norm": "norm:KStG:37",
+      "ereignisse": 13,
+      "faelle": 13,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:AO:149",
+      "ereignisse": 13,
+      "faelle": 13,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:UStG:25a",
+      "ereignisse": 12,
+      "faelle": 12,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:AO:157",
+      "ereignisse": 11,
+      "faelle": 11,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:7i",
+      "ereignisse": 11,
+      "faelle": 11,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:KStG:9",
+      "ereignisse": 10,
+      "faelle": 10,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:AO:234",
+      "ereignisse": 10,
+      "faelle": 10,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:70",
+      "ereignisse": 10,
+      "faelle": 10,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:6b",
+      "ereignisse": 9,
+      "faelle": 9,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:33",
+      "ereignisse": 9,
+      "faelle": 9,
+      "neu": false,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:6",
+      "ereignisse": 9,
+      "faelle": 9,
+      "neu": false,
+      "hub": false
+    },
+    {
+      "norm": "norm:UStG:6b",
+      "ereignisse": 9,
+      "faelle": 9,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:51",
+      "ereignisse": 9,
+      "faelle": 9,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:KStG:10",
+      "ereignisse": 8,
+      "faelle": 8,
+      "neu": true,
+      "hub": false
+    },
+    {
+      "norm": "norm:EStG:10b",
+      "ereignisse": 8,
+      "faelle": 8,
+      "neu": false,
+      "hub": false
+    }
+  ],
+  "top5_share": 0.046948356807511735,
+  "hub_share": 0.019561815336463225,
+  "neu_share": 0.6220657276995305
+}

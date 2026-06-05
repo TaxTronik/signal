@@ -118,6 +118,31 @@ def _request_body(node: dict, model: str, max_tokens: int) -> dict:
     }
 
 
+def _node_from_graph(graph, nid: str):
+    """Beliebigen Knoten (auch Absatz-/Nummer-Ebene) -> Node-Dict im iter_paragraphen-
+    Shape. Für die Absatz-granulare Discovery der breiten Schema-§§ (Tatbestand-Anker).
+    quell_norm bleibt die volle ID; para_level rollt sie auf die §-Zielnorm hoch."""
+    r = graph.con.execute(
+        "SELECT id,titel,law,para,absatz,nummer,text,gueltig_ab FROM knoten WHERE id=?",
+        (nid,)).fetchone()
+    if not r:
+        return None
+    text = (r["text"] or "").strip()
+    if len(text) < 15:
+        return None
+    zitat = f"§ {r['para']} {r['law']}"
+    if r["absatz"]:
+        zitat = (f"§ {r['para']} Abs. {r['absatz']}"
+                 + (f" Nr. {r['nummer']}" if r["nummer"] else "") + f" {r['law']}")
+    titel = (r["titel"] or "").strip()
+    if not titel:                                   # Absatz-Knoten erben den §-Titel
+        p = graph.con.execute("SELECT titel FROM knoten WHERE id=?",
+                              (f"norm:{r['law']}:{r['para']}",)).fetchone()
+        titel = ((p["titel"] if p else "") or "").strip() or zitat
+    return {"id": r["id"], "law": r["law"], "zitat": zitat, "titel": titel,
+            "stand": r["gueltig_ab"], "text": text}
+
+
 def submit(args, base: str, api_key: str) -> int:
     graph = graph_oeffnen()
     if graph is None:
@@ -129,6 +154,11 @@ def submit(args, base: str, api_key: str) -> int:
     if not wunsch:
         print("Bitte --subset <datei> oder --law <LAW> angeben.", file=sys.stderr)
         return 2
+    for w in wunsch:                                # Absatz-/Nummer-IDs aus dem Graph nachziehen
+        if w not in nodes:
+            ng = _node_from_graph(graph, w)
+            if ng:
+                nodes[w] = ng
     subset = [w for w in wunsch if w in nodes]
     if args.limit:
         subset = subset[:args.limit]
@@ -210,7 +240,7 @@ def fetch(args, base: str, api_key: str) -> int:
             continue
         r = json.loads(line)
         nid = r.get("custom_id")
-        node = nodes.get(nid)
+        node = nodes.get(nid) or _node_from_graph(graph, nid)   # auch Absatz-/Nummer-IDs
         if node is None:
             continue
         resp, err = r.get("response") or {}, r.get("error")

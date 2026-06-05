@@ -81,6 +81,10 @@ def main() -> int:
                     help="zusätzlich Normen mit Cross-Ref-In-Degree >= N aufnehmen (0 = aus)")
     ap.add_argument("--kernrecht", action="store_true",
                     help="Zentralitäts-Stufe auf Steuer-Kernrecht beschränken")
+    ap.add_argument("--gesetze", default="", help="Endliste auf diese Gesetze filtern "
+                    "(Komma, z.B. 'UStG,EStG,KStG') — fokussiertes Coverage-Subset")
+    ap.add_argument("--ausser", default="", help="cards_training_pairs.yaml: dort schon "
+                    "abgedeckte Normen ausschließen (= nur das NEUE Delta entdecken)")
     ap.add_argument("--limit", type=int, default=0, help="auf N Normen kürzen (0 = alle)")
     ap.add_argument("--out", default="discovery/cards_subset.txt")
     args = ap.parse_args()
@@ -141,6 +145,16 @@ def main() -> int:
             seen.add(nid)
             zentral.append(nid)
         gewaehlt += zentral
+
+    # Fokus-Filter (Coverage): nur benannte Gesetze; nur NEUE (nicht schon im Bestand).
+    if args.gesetze:
+        erlaubt = {g.strip() for g in args.gesetze.split(",") if g.strip()}
+        gewaehlt = [n for n in gewaehlt if (n.split(":")[1] if ":" in n else "") in erlaubt]
+    if args.ausser:
+        import yaml  # lokal: nur für diesen optionalen Pfad
+        b = yaml.safe_load(Path(args.ausser).read_text(encoding="utf-8")) or {}
+        schon = {para_level(k["quell_norm"]) for k in b.get("kandidaten", []) if k.get("quell_norm")}
+        gewaehlt = [n for n in gewaehlt if n not in schon]
 
     if args.limit:
         gewaehlt = gewaehlt[:args.limit]

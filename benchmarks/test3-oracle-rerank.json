@@ -1,0 +1,567 @@
+{
+  "786": {
+    "n": 77,
+    "n_anker": 786,
+    "rerank50": {
+      "mrr": 0.321,
+      "r5": 0.506,
+      "r20": 0.623,
+      "r50": 0.688,
+      "cc5": 0.519,
+      "cc20": 0.607,
+      "cross_mrr": 0.246,
+      "intra_mrr": 0.326,
+      "pro_law": {
+        "AO": 0.584,
+        "EStG": 0.263,
+        "GewStG": 0.45,
+        "KStG": 0.2,
+        "UStG": 0.228
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.444,
+      "r5": 0.623,
+      "r20": 0.857,
+      "r50": 0.909,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 0.298,
+      "intra_mrr": 0.454,
+      "pro_law": {
+        "AO": 0.619,
+        "EStG": 0.327,
+        "GewStG": 0.567,
+        "KStG": 0.537,
+        "UStG": 0.411
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "AO:220",
+          "AO:240",
+          "EStG:36"
+        ],
+        15,
+        "cross"
+      ],
+      [
+        [
+          "AO:240"
+        ],
+        20,
+        "intra"
+      ],
+      [
+        [
+          "AO:172",
+          "AO:347"
+        ],
+        37,
+        "intra"
+      ],
+      [
+        [
+          "AO:108",
+          "AO:149"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "AO:157",
+          "AO:182",
+          "AO:351"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15"
+        ],
+        12,
+        "intra"
+      ],
+      [
+        [
+          "EStG:18"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:22"
+        ],
+        12,
+        "intra"
+      ],
+      [
+        [
+          "EStG:20",
+          "EStG:32d"
+        ],
+        33,
+        "intra"
+      ],
+      [
+        [
+          "EStG:3"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:19",
+          "EStG:9"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "EStG:22"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:33a"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "KStG:10"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "KStG:10"
+        ],
+        12,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        11,
+        "cross"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17",
+          "UStG:3"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        23,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        17,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        18,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        23,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:15"
+        ],
+        6,
+        "intra"
+      ]
+    ]
+  },
+  "1015": {
+    "n": 77,
+    "n_anker": 1015,
+    "rerank50": {
+      "mrr": 0.314,
+      "r5": 0.468,
+      "r20": 0.623,
+      "r50": 0.662,
+      "cc5": 0.491,
+      "cc20": 0.587,
+      "cross_mrr": 0.172,
+      "intra_mrr": 0.324,
+      "pro_law": {
+        "AO": 0.586,
+        "EStG": 0.321,
+        "GewStG": 0.583,
+        "KStG": 0.217,
+        "UStG": 0.132
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.381,
+      "r5": 0.597,
+      "r20": 0.857,
+      "r50": 0.922,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 0.18,
+      "intra_mrr": 0.395,
+      "pro_law": {
+        "AO": 0.604,
+        "EStG": 0.292,
+        "GewStG": 0.633,
+        "KStG": 0.412,
+        "UStG": 0.287
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "AO:220",
+          "AO:240",
+          "EStG:36"
+        ],
+        6,
+        "cross"
+      ],
+      [
+        [
+          "AO:240"
+        ],
+        24,
+        "intra"
+      ],
+      [
+        [
+          "AO:172",
+          "AO:347"
+        ],
+        26,
+        "intra"
+      ],
+      [
+        [
+          "AO:108",
+          "AO:149"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "EStG:6"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15"
+        ],
+        15,
+        "intra"
+      ],
+      [
+        [
+          "EStG:19",
+          "EStG:9a"
+        ],
+        61,
+        "intra"
+      ],
+      [
+        [
+          "EStG:18"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:20",
+          "EStG:32d"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "EStG:3"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:22"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:33a"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15",
+          "GewStG:7"
+        ],
+        8,
+        "cross"
+      ],
+      [
+        [
+          "KStG:10"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        34,
+        "cross"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        13,
+        "cross"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17",
+          "UStG:3"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        26,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        11,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        23,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:15"
+        ],
+        11,
+        "intra"
+      ]
+    ]
+  },
+  "urteil": {
+    "stufe": "STARK",
+    "mrr_1015": 0.381,
+    "cov_delta": -0.063,
+    "ref_rerank50": {
+      "786": 0.321,
+      "1015": 0.314
+    },
+    "kriterien": {
+      "1_mrr>beide_rerank50": true,
+      "2_coverage_haelt(>=-0.01)": false,
+      "3_UStG&EStG_nicht_schlechter": false,
+      "4_crosslaw_nicht_beschaedigt": true,
+      "5_crossclass_top5_sinkt": true
+    },
+    "architektur_beleg": false,
+    "schwellen": {
+      "stark": 0.34,
+      "brauchbar": 0.31
+    }
+  }
+}

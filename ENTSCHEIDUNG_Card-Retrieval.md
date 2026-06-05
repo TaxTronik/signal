@@ -1,7 +1,181 @@
 # Entscheidung: Card-Anker-Retrieval = breit einsammeln → Reranker, kein harter Router
 
-**Status:** gesteuert (nicht verkündet) — Richtung steht, Magnitude wartet auf Gold v2.
+**Status:** Zielarchitektur **eval-belegt (STARK)**: **Scope/Region → Kandidaten im Scope → Reranker
+→ Norm-Aggregation** (rerank-on-oracle MRR 0,381 ≥ 0,34; cross-class Top-5 0,49→0,00; R@20 0,62→0,86).
+Engpass: **Scope-Genauigkeit.** Graph-§-Text-Schätzer VERWORFEN (Top-2-Recall 66 %/Präzision 0,36 →
+soft_scope 0,276 < flat 0,314). Offen: Scope aus Workflow-Kontext (oft bekannt → oracle ~0,38 direkt)
+ODER LLM-/lexik. Gesetz-Klassifikator. Plus Intra-Law-Dilution EStG (Absatz). Coverage-Flat = schädlich.
 **Stand:** 2026-06-06 · **Harness:** `tools/scoped_eval.py` · **Gold v1:** `fixtures/gold/`
+
+## Gold v2 — gemessen (n=77, StBK-Nds-Klausuren, eingefroren, blind)
+Reihung MRR: **rerank50 0,310 > oracle 0,289 > none 0,264 > routed 0,238 > graph 0,200**.
+Die Richtung trägt jetzt breit (nicht nur n=19 Organschaft): der Reranker **übertrifft sogar
+oracle** (perfektes Law-Scoping), weil Law-Scope intra-law nicht trennen kann und 47/77 Fälle
+intra-law sind. `routed` bleibt netto-negativ (0,238 < none 0,264; KStG routed 0,07 vs none 0,25).
+**ABER der limitierende Faktor ist die Decke, nicht das Ranking:** `none R@50 = 0,70`,
+recall_miss **23/77** (≈30 % nicht im Pool) → Coverage-Problem. Per Gesetz (none R@50):
+UStG 0,68 · EStG 0,67 · AO 0,80 · GewSt 1,00 · KStG 0,40; rerank50 R@5 aber nur UStG 0,32 /
+EStG 0,38 → in-Pool-Ranking für UStG/EStG noch schwach. Reranker hebt UStG (MRR 0,12→0,22),
+KStG (0,25→0,40), AO (0,38→0,48); **schadet EStG** (none 0,28 → rerank50 0,23; rerank20 noch
+0,28) → größerer Pool schwemmt EStG-Distraktoren ein, die max-Aggregation überrankt sie (Known
+Limitation #2 empirisch ausgelöst). Konsequenz: rerank-vs-oracle-Lücke ist faktisch zu (rerank
+≥ oracle); der Soft-Law-Prior hat damit **wenig Aggregat-Spielraum** — der Hebel liegt jetzt bei
+Coverage (UStG/EStG/KStG-Cards) + einem EStG-Reranker-Guard, nicht beim Prior.
+Quelle: `benchmarks/rerank-klausuren-v2.json` (Gold gitignored, Copyright StBK).
+
+## Coverage-Gegenprobe (n=77, 786→1015 Anker, +88 neue Normen) — BACKFIRE
+Coverage-Discovery (gold-ABGELEITET: gaps/primary/secondary aus gold_v2 ∪ central; gpt-5.5,
+qualitativ gleichwertig: 0 % generisch, Ø-Länge 102, keine Hubs) in DENSELBEN globalen Flat-Index
+gemergt → **schlechter, nicht besser:** none R@50 **0,70→0,66**, recall_miss **23→26**, rerank50
+MRR 0,310→0,293 (CIs überlappen → kein sig. Effekt, aber die Decke FÄLLT). Pro Gesetz gespalten:
+AO besser (none 0,38→0,49), **UStG schlechter** (rerank 0,224→0,14), EStG-Decke 0,28→0,20.
+**Diagnose (tools/coverage_diag.py, vorsichtig — frühere Aussage „rein architektonisch" war
+überzogen, weil der QC nur die als untauglich verworfenen Felder maß):**
+- **H1 Cutoff-vor-Aggregation: WIDERLEGT.** none R@50 neu = 0,662 bei graph-k=300 UND k=voll
+  (identisch); der Code aggregiert über ALLE Anker vor jedem Schnitt. Kein Messartefakt.
+- **Ziele haben Anker (8/8 neu-herausgefallene).** Keine Coverage-Lücke → Verdrängung (Stürze
+  Rang 5→62, 23→106, 50→191; fast alles UStG/EStG).
+- **H2 Hub-Verdrängung: VERWORFEN.** Breite Schema-Normen (UStG:1/3/10/15, EStG:10/20/32) = nur
+  **2 %** der 1278 Verdrängungs-Ereignisse. Verdränger = **624 distinkte Normen, Top-5 = 5 %**,
+  62 % neu hinzugekommen → maximal diffus.
+- **Belegt:** diffuse, neu-anker-getriebene Verdrängung (konsistent mit Volumen-Verdünnung H3).
+  **Nicht ausgeschlossen:** zu breite/grobe Neu-Anker (H4) — ~57 Fremd-Neu-Anker überholen den
+  eigenen Anker des Ziels. „Flat-Index fundamental falsch" bleibt UNBEWIESEN.
+**Belastbare Konsequenz:** naives Hinzufügen weiterer Anker in DIESE Pipeline skaliert nicht
+stabil (3. Beobachtung: 35→786→1015 monoton). Hub-Abwertung greift NICHT (2 %), Cutoff-Fix gibt
+es nicht. Kandidat-Fix = **per-Query-SCOPING** (Kandidatenraum vor dem Anker-Ranking eingrenzen,
+damit das Ziel nicht gegen 624 diffuse Distraktoren antritt) — als nächstes als `scoped`-Modus
+testen (zugleich Test, ob Volumen H3 oder Diskriminanz H4 dominiert). Der Reranker reranked nur
+die none-Top-50; was rausfällt (recall_miss), kann er nicht retten. Die 1015 Cards bleiben
+Deployment-Asset. Quellen: `benchmarks/rerank-klausuren-v2-covered.json`, `benchmarks/coverage-diag.json`.
+
+## Test 1 (Rerank-Fenster) + Test 2 (anker-freies First-Stage) — n=77, Diff-in-Diff
+Vier Zellen 786/1015 × Fenster 50/200 + `scoped200` (graph-§-Text-First-Stage, Anker nur im Rerank):
+
+| Modus | 786 MRR | 786 R@50 | 1015 MRR | 1015 R@50 |
+|---|---|---|---|---|
+| rerank50 | **0,310** | 0,70 | 0,293 | 0,66 |
+| rerank200 | 0,293 | 0,77 | 0,273 | **0,78** |
+| scoped200 | 0,286 | 0,74 | 0,272 | 0,71 |
+| oracle | 0,289 | 0,75 | **0,290** | 0,73 |
+
+- **Test 1 (Fenster), Diff-in-Diff R@50 = +0,05:** `rerank200` repariert spezifisch den Batch-Recall
+  (Schaden @50 −0,04 → @200 +0,01); MRR-Diff-in-Diff ≈ 0 → **Recall-Brücke, keine Präzisions-Reparatur**.
+- **Test 2 (anker-frei) NEGATIV:** `scoped200` schlägt rerank nirgends (786 0,286<0,310; 1015 0,272≈0,273),
+  verliert Recall, ist nicht coverage-immun (−0,014).
+- **Mechanismus-Beleg:** Promiskuität 64–66 % cross-class (beide Bestände); **`oracle` als Einziges
+  coverage-immun (0,289→0,290)**. Die Verdünnung ist diffus UND cross-law → Law/Region-Scope schneidet
+  sie, Anker-frei-First-Stage nicht. Daher Test 3 = rerank-on-Scope.
+
+## Hypothesen-Protokoll (systematisches Verwerfen — kein Schönreden)
+> **Die Architektur wurde nicht durch eine Einzelhypothese gefunden, sondern durch das
+> systematische Verwerfen falscher Integrationsannahmen.**
+
+| Hypothese | Status | Beleg |
+|---|---|---|
+| H1 Cutoff vor Aggregation | **verworfen** | none R@50 invariant graph-k 300=voll (0,662); Code aggregiert vor Schnitt |
+| H2 Hub-Anker verdrängen | **verworfen** | Hubs = 2 % der Verdrängungen; 624 diffuse Verdränger |
+| H4 Neu-Anker breiter | **verworfen** | Promiskuitätsrate 45 %→44 %, Top-20 = 20 %, Ø 2,8 ev/Anker |
+| `scoped` anker-freies First-Stage | **negativ** | gewinnt nirgends, verliert Recall, nicht coverage-immun |
+| `rerank200` | **Recall-Brücke, keine Präzision** | DiD R@50 +0,05, DiD MRR ≈0 |
+| `oracle` (Law-Scope) | **coverage-immun** | 0,289→0,290, während alle Flat-Modi fallen |
+
+Frühkorrektur dokumentiert: die erste Aussage „rein Flat-Index-Verdünnung, Qualität ausgeschlossen"
+war ÜBERZOGEN (QC maß untaugliche Felder) — zurückgenommen, durch Verdrängungs-/Promiskuitäts-Analyse ersetzt.
+
+**Protokoll-Pin:** K=200 ist ein **Diagnose-Fenster** (aus beobachteter Verdrängung bis Rang ~191),
+**KEIN Produktiv-Default** — der Produktiv-K wird aus Dev/Latenz gewählt, nie aus n=77.
+
+## Test 3 — rerank-on-oracle: Architektur belegt (STARK), zwei Resthebel
+Vorab fixierte Schwellen (nicht nachträglich justiert): stark ≥0,34 · brauchbar 0,31–0,34 · schwach <0,31.
+Oracle-Scope = `laws(alle Gold-Ziele)` je Fall. `tools/test3_oracle_rerank.py`, eine Messung.
+
+| @1015 | rerank50 (flach) | **oracle_rr (Scope+Rerank)** |
+|---|---|---|
+| MRR | 0,314 | **0,381** |
+| R@5 / R@20 / R@50 | 0,47 / 0,62 / 0,66 | 0,60 / **0,86** / **0,92** |
+| cross-class Top-5 | 0,49 | **0,00** |
+| intra-law MRR | 0,324 | **0,395** |
+| cross-law MRR | 0,172 | 0,180 |
+
+(786: rerank50 0,321 → oracle_rr **0,444**.) **STUFE: STARK** (0,381 ≥ 0,34). **Voll-Beleg (5 Krit.): NEIN
+(3/5).** PASS: MRR > beide rerank50 · cross-law nicht beschädigt · cross-class Top-5 0,49→0,00.
+FAIL: (2) Coverage hält nicht (oracle_rr 786 0,444 → 1015 0,381 = **−0,063**); (3) EStG schlechter
+(0,321→0,292), UStG aber stark besser (0,132→0,287).
+
+**Zielarchitektur steht (eval-belegt):** **Scope/Region → Kandidaten im Scope (+ Cross-law-Scharniernormen)
+→ Reranker → Norm-Aggregation.** Der Lift sitzt im Intra-Law, der Mechanismus ist bewiesen (cross-class
+Top-5 → 0, R@20 0,62→0,86).
+
+**Zwei Resthebel, die Scope NICHT löst (= die 2 FAILs, präzise lokalisiert):**
+1. **Weicher Scope-Schätzer (Deployment-Problem).** oracle nutzt das wahre Gesetz; `routed` (graph-geraten)
+   war zu grob (0,233). Offen: Cross-Law-Anker *abwerten statt droppen*, auf **Dev** kalibriert.
+2. **Intra-Law-Dilution, v.a. EStG.** Coverage kostet auch unter Scope (−0,063), weil sie Intra-Law-
+   Konkurrenten addiert; Residuen oracle_rr@1015 = 31, fast alle **intra**, EStG-dominiert (EStG:10/18/3
+   sogar `None`). EStGs Verdränger sind andere EStG-§§ → Scope trennt sie nicht. Lever: **Absatz-granulare
+   Cards / Intra-Law-Reranking**, nicht Cross-Law. Cross-law-Fälle (0,18) profitieren kaum — Scope lässt
+   beide Gesetze zu, nichts wegzuschneiden; sie brauchen Scharniernormen-Logik + Intra-Law-Schärfe.
+Quelle: `benchmarks/test3-oracle-rerank.json`.
+
+## Disziplin: CI-Etikett, Bilanz, offene technische Punkte
+**CI-Etikett (−0,063):** Unter oracle_rr fällt die MRR-**Punktschätzung** 0,444 → 0,381. Bei n=77 und
+überlappenden Bootstrap-Intervallen ist das ein **richtungsweisender Hinweis auf Intra-Law-Verdünnung,
+keine stabile Effektgröße.** Gilt für alle MRR-Deltas hier (CIs ~[0,20–0,40]); robuster bewegen sich
+R@20/R@50 und der cross-class-Mechanismus (0,49→0,00).
+
+**Bestätigt (positiv belegt):** rerank200 = Recall-Brücke (keine Präzision) · Coverage erzeugt
+**diffuse** Verdrängung (624 Verdränger, Top-5 = 5 %) · Verdrängung stark **cross-class** (64–66 %),
+`oracle` dagegen immun · **rerank-on-oracle (Scope+Rerank) = Zielarchitektur** (STARK) · Restprobleme
+isoliert: Intra-Law-Dilution (EStG), Scope-Schätzung, Scharniernormen.
+
+**Aggregationsbias — VERWORFEN als Hebel (`tools/agg_ablation.py`, benchmarks/agg-ablation.json):**
+`max` vs. `top2_mean`/`normed`/`max−λ·log(1+n)` auf demselben Reranker-Pass. `max` bleibt (nahezu) bester
+Modus; die Alternativen verbessern nichts und holen EStG@1015 (~0,28) nicht zurück; Count-Penalties
+zerstören das Ranking (Skala inkompatibel). **Δcov invariant zur Aggregation (−0,063/−0,062/−0,064)** →
+der Coverage-Verlust + EStG-Knick sind **echte Intra-Law-Dilution, kein `max`-Ordnungsstatistik-Artefakt.**
+Cheap Fix ausgeschlossen → nächster Hebel ist der graph-basierte Soft-Scope, dann ggf. Absatz-Cards.
+
+**Offener technischer Punkt — Tie-Handling.** `scoped_eval` liest rerank50@786 MRR 0,310 / R@5 0,43;
+`test3_oracle_rerank` liest 0,321 / 0,51 bei identischer Konfiguration. Ursache: Reihenfolge gleicher
+Reranker-Scores (Dict-Insertion/Sort-Stabilität) je Harness. **Gültig ist stets das DELTA innerhalb
+eines Laufs** (oracle_rr − rerank50 in test3); der Baseline-Absolutwert schwankt ±0,01 MRR. To-do:
+deterministisches Tie-Break (sekundär nach Norm-ID) vor jeder Produktiv-/Publikationszahl.
+
+## Schritt 2 — Graph-basierter Soft-Scope: VERWORFEN (Scope-Schätzung zu schwach)
+Scope-Schätzer = Gesetze der anker-freien Graph-§-Text-Top-N (weich, β/γ-Gewichtung, 1-Hop typisierte
+Relationen als Scharniere). Dev-kalibriert (Organschaft v1 + AO v1) — aber **Dev-MRR für alle β/γ identisch
+(0,476)** → Organschaft stresst den Scope-Mechanismus nicht, Dev hier uninformativ. **Test (n=77, eine
+Messung, `tools/soft_scope.py`):** soft_scope MRR **0,276 < flat 0,314** (schließt −57 % der Lücke = falsche
+Richtung), cross-class Top-5 **0,49→0,51 (sinkt NICHT)**.
+**Ursache (Scope-Treffsicherheit, graph-only Probe):** Gold-Gesetz in Graph-Top-50 zwar zu 96 % vorhanden,
+aber Gesetzes-Rangfolge verrauscht — top_laws=1 Recall 39 %, top_laws=2 Recall 66 % / Präzision 0,36,
+top_laws=3 Präzision 0,26. **Kein guter Arbeitspunkt.** Der Schätzer bestraft die richtigen Anker (Gold-Gesetz
+in 34 % nicht im Scope) und lässt falsche durch (Präzision 0,36 → cross-class bleibt). **Graph-§-Text-Ähnlichkeit
+kann das regierende Gesetz nicht zuverlässig bestimmen → graph-Soft-Scope ist nicht nachschärfbar.**
+**Konsequenz:** Architektur (Scope+Rerank) steht, aber der deploybare Engpass ist die **Scope-Genauigkeit**.
+Das Gold-Signal ist stark (Sachverhalte verraten die Steuerart lexikalisch) — nur das Graph-Embedding trennt
+es nicht. Offene Pfade: (a) **Scope aus dem Workflow-Kontext** (der Berater arbeitet an einer Steuerart →
+Scope ist in der Produktion oft BEKANNT, nicht zu schätzen → oracle ~0,38 direkt erreichbar); (b) **LLM-/
+lexikalischer Gesetz-Klassifikator** (Signal stark, Graph-Embedding schwach); (c) Bi-Encoder-Zentroide.
+Quelle: `benchmarks/soft-scope.json`.
+
+## Schritt 2b — Lexikalische Scope-Stufe: ebenfalls DURCHGEFALLEN (`tools/lex_scope.py`)
+Staffel statt Sprung: vor dem LLM die billige lexikalische Stufe (Gesetzesname-Regex + matcher_terms-Votum
+mit Inverse-Law-Frequency, passagen-weise). Gegen die Latte (Graph top-2 R 66 %/P 0,36): **lexikalisch
+top-2 Recall 49 %→39 % / Präzision 0,27→0,19 — schlechter als Graph.** Ursache strukturell: faktische
+Examens-Sachverhalte (Person/Daten/Einkünfte in Alltagssprache) tragen **kein Steuer-Vokabular** →
+**34–36/77 Fälle ohne jedes lexikalische Signal**; dazu Verfahrens-AO-Fälle, die das *erwähnte* Gesetz
+(„ESt-Bescheid"→EStG) statt des *anwendbaren* (AO) voten. **Beide billigen Text-Schätzer (Graph-Embedding,
+lexikalisch) reißen die Latte** → Scope-aus-bloßem-Text ist für faktische SV genuin signalarm. Per Staffel
+ist der **LLM-Klassifikator nun gerechtfertigt** (lokal/Granite, mit Begründungs-Output für die Audit-Spur)
+— ABER der Doppel-Fehlschlag stärkt strukturell Option (a) **Scope aus Workflow-Kontext**.
+
+## Intra-Law-Einkaufsliste (aus oracle_rr@1015-Residuen, card-seitig, scope-unabhängig)
+Wo perfekter Scope NICHT reicht (Residuen-Schwere None=3/>20=2/sonst=1) → **Absatz-granulare Card-Kandidaten**:
+**EStG:10 (9) · UStG:15 (7) · UStG:3 (6) · UStG:10 (5) · EStG:4 (4) · EStG:18/EStG:3/KStG:8/UStG:1/AO:240 (3)**
+… = die breiten Schema-§§ (Vorsteuer/Lieferung/Bemessungsgrundlage/Sonderausgaben), deren Konkurrenten
+Geschwister-§§ *desselben* Gesetzes sind. Diese Liste ist Einkauf, keine Bauchentscheidung. Quelle:
+`benchmarks/test3-oracle-rerank.json`.
 
 ## Frage
 Card-Discovery liefert vertrauenswürdige Anker (gpt-5.5: 0 halluzinierte §-Zitate, vgl.

@@ -97,9 +97,13 @@ def main() -> int:
     ap.add_argument("--anker", default="discovery/api/cards_training_pairs.yaml")
     ap.add_argument("--route-top", type=int, default=3)
     ap.add_argument("--reranker", default="bge-reranker-v2-m3")
+    ap.add_argument("--rerank-k", type=int, default=200, dest="rerank_k",
+                    help="großes Rerank-Fenster (Diagnose-Wert aus beobachteter Verdrängung, "
+                         "KEIN Produktiv-Default — der wird auf Dev/Latenz gewählt)")
     ap.add_argument("--boot", type=int, default=2000, help="Bootstrap-Resamples für die CIs")
     ap.add_argument("--save", default="benchmarks/rerank-ablation.json")
     args = ap.parse_args()
+    rk = args.rerank_k
 
     gold = _lade_gold(Path(args.gold))
     anker = _lade_anker(Path(args.anker), {q for q, _ in gold})
@@ -149,6 +153,9 @@ def main() -> int:
         return sorted(best, key=best.get, reverse=True)
 
     modi = ["graph", "none", "routed", "oracle", "rerank20", "rerank50"]
+    if rk not in (20, 50):
+        modi.append(f"rerank{rk}")
+    modi.append(f"scoped{rk}")          # Test 2: anker-freies First-Stage, Anker nur im Rerank
     raenge = {m: [] for m in modi}
     pro_gebiet: dict[str, dict[str, list]] = {}
     resid = {"hit": 0, "recall_miss": 0, "rerank_miss_cross": 0, "rerank_miss_intra": 0}
@@ -178,6 +185,10 @@ def main() -> int:
                   "none": scored(None), "routed": scored(routed), "oracle": scored(oracle)}
         ranked["rerank20"] = rerank(satz, ranked["none"][:20])
         ranked["rerank50"] = rerank(satz, ranked["none"][:50])
+        if rk not in (20, 50):
+            ranked[f"rerank{rk}"] = rerank(satz, ranked["none"][:rk])   # Test 1: großes Fenster
+        # Test 2: First-Stage anker-frei (graph-§-Text mischt Gesetze kaum) -> Anker NUR im Rerank
+        ranked[f"scoped{rk}"] = rerank(satz, ranked["graph"][:rk])
 
         geb = _gebiet(sorted(ziele)[0])
         pg = pro_gebiet.setdefault(geb, {m: [] for m in modi})

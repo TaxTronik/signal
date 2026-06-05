@@ -38,6 +38,12 @@ abgleich/
 # Discovery-Output (LLM-Kandidaten, Review-Queue) – Vorschläge, kein Festwissen
 discovery/
 
+# StB-Examens-Musterklausuren: urheberrechtlich geschützt ("Nur für den
+# persönlichen Gebrauch"), Quelle für Gold v2 – NIE einchecken. Die abgeleiteten
+# txt liegen unter discovery/ (ebenfalls ignoriert); das kuratierte Gold ist
+# trainingsdaten-unabhängig (nur Query-Sätze + §-IDs) und kommt nach fixtures/gold/.
+examples/klausuren/
+
 # Mandantendaten (§ 203 StGB): die /v1-Engine ist zustandslos und schreibt diese
 # Stores NICHT mehr – aber lokal vorhandene Alt-Daten dürfen NIE eingecheckt werden
 # (die Daten überleben den entfernten Store-Code).

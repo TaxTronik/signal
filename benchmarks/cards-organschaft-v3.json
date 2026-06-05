@@ -1,0 +1,247 @@
+{
+  "stand": "2026-06-05T11:59:58+00:00",
+  "encoder": "bge-m3",
+  "n": 19,
+  "k": 10,
+  "opus_anker": 786,
+  "leckage_verworfen": 0,
+  "graph_only": {
+    "n": 19,
+    "recall@5": 0.474,
+    "recall@10": 0.526,
+    "mrr": 0.309
+  },
+  "graph_plus_opus": {
+    "n": 19,
+    "recall@5": 0.737,
+    "recall@10": 0.842,
+    "mrr": 0.552
+  },
+  "pro_gebiet": {
+    "AO": {
+      "n": 2,
+      "graph": {
+        "n": 2,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0
+      },
+      "opus": {
+        "n": 2,
+        "recall@5": 0.5,
+        "recall@10": 0.5,
+        "mrr": 0.5
+      }
+    },
+    "AktG": {
+      "n": 2,
+      "graph": {
+        "n": 2,
+        "recall@5": 0.5,
+        "recall@10": 0.5,
+        "mrr": 0.125
+      },
+      "opus": {
+        "n": 2,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr": 0.75
+      }
+    },
+    "EStG": {
+      "n": 1,
+      "graph": {
+        "n": 1,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr": 0.333
+      },
+      "opus": {
+        "n": 1,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr": 1.0
+      }
+    },
+    "GewStG": {
+      "n": 3,
+      "graph": {
+        "n": 3,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr": 0.778
+      },
+      "opus": {
+        "n": 3,
+        "recall@5": 0.667,
+        "recall@10": 1.0,
+        "mrr": 0.289
+      }
+    },
+    "KStG": {
+      "n": 8,
+      "graph": {
+        "n": 8,
+        "recall@5": 0.375,
+        "recall@10": 0.5,
+        "mrr": 0.307
+      },
+      "opus": {
+        "n": 8,
+        "recall@5": 0.625,
+        "recall@10": 0.75,
+        "mrr": 0.39
+      }
+    },
+    "UStG": {
+      "n": 3,
+      "graph": {
+        "n": 3,
+        "recall@5": 0.333,
+        "recall@10": 0.333,
+        "mrr": 0.167
+      },
+      "opus": {
+        "n": 3,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr": 1.0
+      }
+    }
+  },
+  "raenge": [
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:14",
+      "graph": null,
+      "opus": null,
+      "quelle": "Kap 5.1 Konstellation 1 (Holding/Verlustnutzung)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:14",
+      "graph": null,
+      "opus": 2,
+      "quelle": "Kap 4.1.4 Fehlerquelle 2 (GAV/tatsächliche Durchführung)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:14",
+      "graph": 3,
+      "opus": null,
+      "quelle": "Kap 5.1.3 Konstellation 4 (Post-Merger-Integration)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:15",
+      "graph": 1,
+      "opus": 1,
+      "quelle": "Kap 4.1.2 (Suspendierung vororganschaftlicher Verluste)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:16",
+      "graph": 1,
+      "opus": 1,
+      "quelle": "Kap 4.1.2 (Ausgleichszahlungen an Außenstehende)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:17",
+      "graph": 8,
+      "opus": 4,
+      "quelle": "Kap 4.1.1.1 / §17 (andere Kapitalgesellschaften)"
+    },
+    {
+      "gebiet": "EStG",
+      "ziel": "norm:EStG:4h|norm:KStG:15",
+      "graph": 3,
+      "opus": 1,
+      "quelle": "Kap 4.1.3 (EBITDA-Pooling / Konzern-Escape)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:8c",
+      "graph": null,
+      "opus": 5,
+      "quelle": "Kap 4.1.4 Fehlerquelle 4 (schädlicher Beteiligungserwerb)"
+    },
+    {
+      "gebiet": "KStG",
+      "ziel": "norm:KStG:8b",
+      "graph": null,
+      "opus": 6,
+      "quelle": "Kap 4.1.3 (Vermeidung § 8b Abs. 5)"
+    },
+    {
+      "gebiet": "GewStG",
+      "ziel": "norm:GewStG:2",
+      "graph": 1,
+      "opus": 2,
+      "quelle": "Kap 4.2.1 (Betriebsstättenfiktion / Akzessorietät)"
+    },
+    {
+      "gebiet": "GewStG",
+      "ziel": "norm:GewStG:7a",
+      "graph": 3,
+      "opus": 6,
+      "quelle": "Kap 4.2.2 (Sonderermittlung § 7a)"
+    },
+    {
+      "gebiet": "GewStG",
+      "ziel": "norm:GewStG:9",
+      "graph": 1,
+      "opus": 5,
+      "quelle": "Kap 5.1.2 Konstellation 3 (Immobilien-GmbH im Organkreis)"
+    },
+    {
+      "gebiet": "UStG",
+      "ziel": "norm:UStG:2",
+      "graph": null,
+      "opus": 1,
+      "quelle": "Kap 4.3.1 (finanz./wirtsch./organ. Eingliederung)"
+    },
+    {
+      "gebiet": "UStG",
+      "ziel": "norm:UStG:2",
+      "graph": 2,
+      "opus": 1,
+      "quelle": "Kap 5.2.3 Fehlschlagkonstellation (organisat. Eingliederung)"
+    },
+    {
+      "gebiet": "UStG",
+      "ziel": "norm:UStG:2",
+      "graph": null,
+      "opus": 1,
+      "quelle": "Kap 4.3.2 (Nichtsteuerbarkeit der Innenumsätze)"
+    },
+    {
+      "gebiet": "AktG",
+      "ziel": "norm:AktG:291",
+      "graph": null,
+      "opus": 2,
+      "quelle": "Kap 3.1 / 4.1.1.3 (Gewinnabführungsvertrag)"
+    },
+    {
+      "gebiet": "AktG",
+      "ziel": "norm:AktG:302",
+      "graph": 4,
+      "opus": 1,
+      "quelle": "Kap 4.1.1.3 / §17 (Verlustübernahme)"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:166",
+      "graph": null,
+      "opus": null,
+      "quelle": "Kap 4.3.5 Fehlerquelle 7 (verkannte Organschaft / Drittwirkung)"
+    },
+    {
+      "gebiet": "AO",
+      "ziel": "norm:AO:233a",
+      "graph": null,
+      "opus": 1,
+      "quelle": "Kap 5.2.3 (Nachzahlungszinsen)"
+    }
+  ]
+}

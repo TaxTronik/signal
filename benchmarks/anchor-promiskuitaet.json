@@ -1,0 +1,140 @@
+{
+  "topn": 50,
+  "n_queries": 77,
+  "alt": {
+    "n_anker": 786,
+    "n_promisk": 356,
+    "events": 1057,
+    "cross": 701
+  },
+  "neu": {
+    "n_anker": 1015,
+    "n_promisk": 449,
+    "events": 1248,
+    "cross": 798,
+    "neu_events": 534,
+    "top20_share": 0.19951923076923078
+  },
+  "top_neu_promisk": [
+    {
+      "norm": "norm:AO:234",
+      "events": 13,
+      "cross": 13,
+      "text": "Der Mandant hat eine Stundung bekommen und fragt, ob dafür zusätzlich Zinsen anfallen."
+    },
+    {
+      "norm": "norm:KStG:37",
+      "events": 12,
+      "cross": 12,
+      "text": "Wurde der Auszahlungsbescheid später geändert und muss deshalb etwas nachgezahlt oder zurückgezahlt werden?"
+    },
+    {
+      "norm": "norm:GewStG:9",
+      "events": 12,
+      "cross": 10,
+      "text": "Der Mandant hat Grundsteuer als Aufwand gebucht und fragt, ob sie den Gewerbeertrag mindert."
+    },
+    {
+      "norm": "norm:UStG:13",
+      "events": 12,
+      "cross": 1,
+      "text": "Mandant erhält Ware aus einem anderen EU-Staat und fragt nach dem Entstehungszeitpunkt der Erwerbsteuer."
+    },
+    {
+      "norm": "norm:EStG:33",
+      "events": 12,
+      "cross": 8,
+      "text": "Ich hatte außergewöhnlich hohe private Kosten und möchte wissen, ob sie meine Einkommensteuer mindern können."
+    },
+    {
+      "norm": "norm:AO:157",
+      "events": 11,
+      "cross": 10,
+      "text": "Im Bescheid steht nicht klar, welche Steuer in welcher Höhe festgesetzt wurde."
+    },
+    {
+      "norm": "norm:EStG:6",
+      "events": 10,
+      "cross": 8,
+      "text": "Der Mandant hat kurz nach dem Kauf eines Gebäudes umfangreich renoviert; zu klären ist, ob das noch laufender Aufwand is"
+    },
+    {
+      "norm": "norm:AO:228",
+      "events": 9,
+      "cross": 5,
+      "text": "Welche Frist muss ich für die Zahlungsverjährung einplanen?"
+    },
+    {
+      "norm": "norm:UStG:13",
+      "events": 9,
+      "cross": 3,
+      "text": "Mandant hat vor Leistungserbringung eine Anzahlung erhalten und fragt, in welcher USt-Voranmeldung das zu erfassen ist."
+    },
+    {
+      "norm": "norm:EStG:4",
+      "events": 9,
+      "cross": 7,
+      "text": "Welche Betriebsausgaben muss ich besonders dokumentieren, damit sie berücksichtigt werden können?"
+    },
+    {
+      "norm": "norm:UStG:3d",
+      "events": 9,
+      "cross": 0,
+      "text": "Wir haben dem Lieferanten eine USt-IdNr. aus einem anderen EU-Staat genannt – löst das dort einen Erwerbsort aus?"
+    },
+    {
+      "norm": "norm:KStG:10",
+      "events": 8,
+      "cross": 6,
+      "text": "Die GmbH hat Körperschaftsteuer oder andere Einkommensteuern als Betriebsausgabe gebucht — darf das steuerlich abgezogen"
+    },
+    {
+      "norm": "norm:AO:149",
+      "events": 8,
+      "cross": 8,
+      "text": "Mandant hat eine Schätzung bekommen und fragt, ob die Erklärung trotzdem noch abgegeben werden muss."
+    },
+    {
+      "norm": "norm:UStG:6b",
+      "events": 8,
+      "cross": 0,
+      "text": "Hat der Kunde seine USt-IdNr. aus dem Bestimmungsland schon vor Transportbeginn verwendet?"
+    },
+    {
+      "norm": "norm:EStG:36",
+      "events": 7,
+      "cross": 7,
+      "text": "Muss ich nach dem Steuerbescheid noch etwas nachzahlen, und bis wann?"
+    },
+    {
+      "norm": "norm:UStG:14b",
+      "events": 7,
+      "cross": 4,
+      "text": "Ab wann läuft die Aufbewahrungsfrist für eine Rechnung?"
+    },
+    {
+      "norm": "norm:EStG:51",
+      "events": 7,
+      "cross": 6,
+      "text": "Ich mache eine Einnahmen-Überschussrechnung und frage mich, ob ich statt einzelner Betriebsausgaben einen Pauschbetrag n"
+    },
+    {
+      "norm": "norm:EStG:6b",
+      "events": 7,
+      "cross": 6,
+      "text": "Wir haben ein betriebliches Grundstück oder Gebäude verkauft und möchten den Veräußerungsgewinn auf eine neue Investitio"
+    },
+    {
+      "norm": "norm:GewStG:9",
+      "events": 7,
+      "cross": 7,
+      "text": "Der Mandant hat Spenden aus dem Gewerbebetrieb geleistet und benötigt die gewerbesteuerliche Kürzung samt Grenzen."
+    },
+    {
+      "norm": "norm:EStG:22",
+      "events": 6,
+      "cross": 3,
+      "text": "Ich hatte Einnahmen aus einer gelegentlichen Vermittlung oder aus der Vermietung beweglicher Sachen – ist das bei den so"
+    }
+  ]
+}

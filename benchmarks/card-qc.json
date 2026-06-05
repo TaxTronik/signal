@@ -1,0 +1,1158 @@
+{
+  "stand": "2026-06-05T11:53:56+00:00",
+  "n": 787,
+  "encoder": "bge-m3",
+  "faithfulness": {
+    "norm_unbelegt": 1,
+    "zahl_unbelegt": 5
+  },
+  "diskriminierung": {
+    "rank1": 331,
+    "top5": 179,
+    "top20": 114,
+    "tiefer": 163
+  },
+  "drift_verdacht": [
+    {
+      "anker": "Der Bescheid ging an den Steuerberater: Soll das gegenüber dem Mandanten reichen?",
+      "eigene_norm": "norm:AO:122",
+      "stattdessen": "norm:EStDV:73g",
+      "sim": 0.626,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Eheleute haben nur ein gemeinsames Schreiben bekommen: Kann das für beide gelten?",
+      "eigene_norm": "norm:AO:122",
+      "stattdessen": "norm:EStDV:61",
+      "sim": 0.512,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Berater ist zur Verschwiegenheit verpflichtet und der Mandant entbindet ihn nicht; geh",
+      "eigene_norm": "norm:AO:138f",
+      "stattdessen": "norm:StBerG:83",
+      "sim": 0.657,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wie muss eine IBAN-Mitteilung an das Bundeszentralamt für Steuern technisch übermittelt we",
+      "eigene_norm": "norm:AO:139b",
+      "stattdessen": "norm:EStG:45d",
+      "sim": 0.605,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir wollen damit keinen Gewinn machen; ist die Einordnung deshalb ausgeschlossen?",
+      "eigene_norm": "norm:AO:14",
+      "stattdessen": "norm:HGB:296",
+      "sim": 0.514,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir führen schon nach Handels- oder anderen Vorschriften Unterlagen — müssen wir diese auc",
+      "eigene_norm": "norm:AO:140",
+      "stattdessen": "norm:HGB:257",
+      "sim": 0.614,
+      "eigen_rang": 21
+    },
+    {
+      "anker": "Wir werden zusammen veranlagt; zählt die 500.000-Euro-Grenze für uns gemeinsam oder getren",
+      "eigene_norm": "norm:AO:147a",
+      "stattdessen": "norm:EStG:10d",
+      "sim": 0.531,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich kann eine ausländische Drittstaat-Gesellschaft beherrschen; welche Unterlagen zu diese",
+      "eigene_norm": "norm:AO:147a",
+      "stattdessen": "norm:AO:138b",
+      "sim": 0.597,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Die Außenprüfung hat einen Punkt unanfechtbar im Bescheid umgesetzt; derselbe Sachverhalt ",
+      "eigene_norm": "norm:AO:153",
+      "stattdessen": "norm:BewG:156",
+      "sim": 0.623,
+      "eigen_rang": 21
+    },
+    {
+      "anker": "Können wir davon ausgehen, dass das Finanzamt unsere Bücher als Grundlage der Steuerfestse",
+      "eigene_norm": "norm:AO:158",
+      "stattdessen": "norm:AO:155",
+      "sim": 0.581,
+      "eigen_rang": 25
+    },
+    {
+      "anker": "Droht Ärger, wenn die Zahlen zwar ordentlich aussehen, aber inhaltlich Zweifel aufwerfen?",
+      "eigene_norm": "norm:AO:158",
+      "stattdessen": "norm:AO:379",
+      "sim": 0.564,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Müssen wir die Daten in einem bestimmten digitalen Format bereitstellen?",
+      "eigene_norm": "norm:AO:158",
+      "stattdessen": "norm:AO:147b",
+      "sim": 0.566,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Unsere Verrechnungspreis-Unterlagen zu einem Geschäftsvorfall fehlen oder sind kaum nutzba",
+      "eigene_norm": "norm:AO:162",
+      "stattdessen": "norm:BewG:238",
+      "sim": 0.603,
+      "eigen_rang": 27
+    },
+    {
+      "anker": "Wir haben verwertbare Aufzeichnungen erst nach Fristablauf eingereicht; kann das täglich t",
+      "eigene_norm": "norm:AO:162",
+      "stattdessen": "norm:UStG:22",
+      "sim": 0.529,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Bescheid bleibt offen, weil ein Verfahren bei EuGH, Bundesverfassungsgericht, oberstem",
+      "eigene_norm": "norm:AO:165",
+      "stattdessen": "norm:AO:363",
+      "sim": 0.606,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Reicht es, dass das Finanzamt den Bescheid noch vor Fristablauf herausgegeben oder elektro",
+      "eigene_norm": "norm:AO:169",
+      "stattdessen": "norm:BewG:153",
+      "sim": 0.622,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Kann bei Erbschaft oder Schenkung der Fristbeginn erst an Kenntnis oder Tod anknüpfen?",
+      "eigene_norm": "norm:AO:170",
+      "stattdessen": "norm:ErbStG:1",
+      "sim": 0.605,
+      "eigen_rang": 37
+    },
+    {
+      "anker": "Gibt es für bestimmte ausländische Kapitalerträge einen späteren Fristbeginn bis zur Kennt",
+      "eigene_norm": "norm:AO:170",
+      "stattdessen": "norm:HGB:341w",
+      "sim": 0.623,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Für einen Gewerbebetrieb ist zu klären, ob die Zuständigkeit an die Geschäftsleitung oder ",
+      "eigene_norm": "norm:AO:18",
+      "stattdessen": "norm:AO:12",
+      "sim": 0.643,
+      "eigen_rang": null
+    },
+    {
+      "anker": "In einer laufenden Außenprüfung soll ein abgrenzbarer Punkt schon vor dem Prüfungsbericht ",
+      "eigene_norm": "norm:AO:180",
+      "stattdessen": "norm:AO:197",
+      "sim": 0.682,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Deutschland rechnet ausländische Steuer nur für bestimmte Einkünfte oder Vermögen an: Gibt",
+      "eigene_norm": "norm:AO:2",
+      "stattdessen": "norm:KStG:26",
+      "sim": 0.626,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Unsere Geschäftsleitung ist nicht im Inland oder nicht sicher feststellbar; kommt es dann ",
+      "eigene_norm": "norm:AO:20",
+      "stattdessen": "norm:AktG:5",
+      "sim": 0.63,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir haben weder Leitung noch Sitz im Inland; kann deutsches Vermögen oder eine Tätigkeit d",
+      "eigene_norm": "norm:AO:20",
+      "stattdessen": "norm:AO:22a",
+      "sim": 0.549,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Prüfer möchte unsere Buchhaltung und Belege sehen.",
+      "eigene_norm": "norm:AO:200",
+      "stattdessen": "norm:HGB:321",
+      "sim": 0.612,
+      "eigen_rang": 35
+    },
+    {
+      "anker": "Kann das Finanzamt eine alte Steuerschuld noch zur Zahlung verlangen?",
+      "eigene_norm": "norm:AO:228",
+      "stattdessen": "norm:AO:227",
+      "sim": 0.615,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ist ein Abruf von Steuerdaten aus dem IT-System der Finanzverwaltung erlaubt?",
+      "eigene_norm": "norm:AO:30",
+      "stattdessen": "norm:AO:88b",
+      "sim": 0.663,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich soll aufgrund eines Bescheids etwas tun, dulden oder unterlassen.",
+      "eigene_norm": "norm:AO:328",
+      "stattdessen": "norm:AO:83",
+      "sim": 0.611,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Die Finanzbehörde schreibt mehrere Beteiligte an – darf sie sich einen von uns aussuchen?",
+      "eigene_norm": "norm:AO:34",
+      "stattdessen": "norm:AO:82",
+      "sim": 0.635,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ein Mitarbeiter oder Bevollmächtigter handelt faktisch für jemanden und fragt, ob ihn steu",
+      "eigene_norm": "norm:AO:35",
+      "stattdessen": "norm:AO:214",
+      "sim": 0.711,
+      "eigen_rang": 30
+    },
+    {
+      "anker": "Die Kanzlei soll klären, ob die Pflichten nur so weit gehen, wie die Person sie wirklich e",
+      "eigene_norm": "norm:AO:35",
+      "stattdessen": "norm:KStG:33",
+      "sim": 0.581,
+      "eigen_rang": 38
+    },
+    {
+      "anker": "Kann ein Mitglied beim Austritt oder bei Auflösung mehr als seine Einlage zurückbekommen?",
+      "eigene_norm": "norm:AO:55",
+      "stattdessen": "norm:HGB:337",
+      "sim": 0.565,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bis wann müssen zugeflossene Mittel für den steuerbegünstigten Satzungszweck eingesetzt we",
+      "eigene_norm": "norm:AO:55",
+      "stattdessen": "norm:AO:61",
+      "sim": 0.637,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Es geht um Haftung, obwohl der Mandant nur beteiligt gewesen sein soll.",
+      "eigene_norm": "norm:AO:71",
+      "stattdessen": "norm:AO:219",
+      "sim": 0.587,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Das Finanzamt verlangt Verrechnungspreisunterlagen; was muss dafür dokumentiert sein?",
+      "eigene_norm": "norm:AO:90",
+      "stattdessen": "norm:UStDV:31",
+      "sim": 0.611,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach der Prüfungsanordnung läuft eine 30-Tage-Frist für bestimmte Unterlagen; was muss ohn",
+      "eigene_norm": "norm:AO:90",
+      "stattdessen": "norm:AO:197",
+      "sim": 0.631,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Im Schreiben steht nicht klar, ob es um unsere Steuern oder um jemand anderen geht – muss ",
+      "eigene_norm": "norm:AO:97",
+      "stattdessen": "norm:ErbStG:32",
+      "sim": 0.589,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Soll bei einer EU- oder EWR-Stiftung die Zurechnung vermieden werden, weil das Vermögen de",
+      "eigene_norm": "norm:AStG:15",
+      "stattdessen": "norm:EStG:50d",
+      "sim": 0.577,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Zählen andere Gesellschafter wegen abgestimmten Vorgehens mit unserem Mandanten zusammen?",
+      "eigene_norm": "norm:AStG:7",
+      "stattdessen": "norm:UmwG:51",
+      "sim": 0.578,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Liegt die ausländische Steuerlast unter 15 Prozent oder wird eine geschuldete Steuer fakti",
+      "eigene_norm": "norm:AStG:8",
+      "stattdessen": "norm:AStG:4",
+      "sim": 0.591,
+      "eigen_rang": 39
+    },
+    {
+      "anker": "Dürfen wir Aktien schon ausgeben, obwohl der Ausgabebetrag noch nicht vollständig eingezah",
+      "eigene_norm": "norm:AktG:10",
+      "stattdessen": "norm:AktG:199",
+      "sim": 0.645,
+      "eigen_rang": 25
+    },
+    {
+      "anker": "Geht es um eine Zahlung an Aktionäre im Rahmen eines Beherrschungs- oder Gewinnabführungsv",
+      "eigene_norm": "norm:AktG:57",
+      "stattdessen": "norm:AktG:291",
+      "sim": 0.697,
+      "eigen_rang": 47
+    },
+    {
+      "anker": "Soll vor der Auflösung der Gesellschaft mehr als der Bilanzgewinn ausgeschüttet werden?",
+      "eigene_norm": "norm:AktG:57",
+      "stattdessen": "norm:AktG:59",
+      "sim": 0.614,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei Fondsanteilen ist zu prüfen, ob der Rücknahmepreis der richtige Ansatz ist.",
+      "eigene_norm": "norm:BewG:11",
+      "stattdessen": "norm:InvStG:22",
+      "sim": 0.613,
+      "eigen_rang": null
+    },
+    {
+      "anker": "In der GbR/Gemeinschaft gehören Maschinen oder Gebäude einzelnen Beteiligten: Müssen sie i",
+      "eigene_norm": "norm:BewG:158",
+      "stattdessen": "norm:BewG:2",
+      "sim": 0.591,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Dürfen wertmindernde Belastungen bei der Bewertung berücksichtigt werden?",
+      "eigene_norm": "norm:BewG:177",
+      "stattdessen": "norm:EStG:6",
+      "sim": 0.596,
+      "eigen_rang": 22
+    },
+    {
+      "anker": "Ist der richtige Stichtagswert des Gutachterausschusses verwendet worden?",
+      "eigene_norm": "norm:BewG:179",
+      "stattdessen": "norm:BewG:177",
+      "sim": 0.609,
+      "eigen_rang": 22
+    },
+    {
+      "anker": "Spielt es beim Vertragsende eine Rolle, dass Gebäudewerte nicht entschädigt werden?",
+      "eigene_norm": "norm:BewG:193",
+      "stattdessen": "norm:BewG:197",
+      "sim": 0.546,
+      "eigen_rang": 24
+    },
+    {
+      "anker": "Muss ich für die Förderung bis Jahresende einer Datenübermittlung zustimmen?",
+      "eigene_norm": "norm:EStG:10a",
+      "stattdessen": "norm:AO:87d",
+      "sim": 0.656,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Was passiert, wenn eine Spendenbescheinigung falsch ist oder die Mittel anders verwendet w",
+      "eigene_norm": "norm:EStG:10b",
+      "stattdessen": "norm:AktG:402",
+      "sim": 0.587,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Welche automatische Entlastung gibt es für bestimmte Sonderausgaben ohne Einzelnachweis?",
+      "eigene_norm": "norm:EStG:10c",
+      "stattdessen": "norm:EStG:10a",
+      "sim": 0.569,
+      "eigen_rang": 40
+    },
+    {
+      "anker": "Kann ein alter, schon bestandskräftiger Bescheid wegen eines späteren Verlustrücktrags noc",
+      "eigene_norm": "norm:EStG:10d",
+      "stattdessen": "norm:BewG:225",
+      "sim": 0.659,
+      "eigen_rang": 39
+    },
+    {
+      "anker": "Wir entnehmen Grund und Boden für eine eigene Wohnung oder eine Altenteilerwohnung: Fällt ",
+      "eigene_norm": "norm:EStG:13",
+      "stattdessen": "norm:GrEStG:7",
+      "sim": 0.572,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Können Verluste aus Termingeschäften mit anderen Einkünften verrechnet werden?",
+      "eigene_norm": "norm:EStG:15",
+      "stattdessen": "norm:EStG:15b",
+      "sim": 0.617,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei Betriebsunterbrechung oder Verpachtung soll geklärt werden, ob und wann steuerlich ein",
+      "eigene_norm": "norm:EStG:16",
+      "stattdessen": "norm:GewStDV:4",
+      "sim": 0.668,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich war im selben Jahr teils unbeschränkt und teils beschränkt steuerpflichtig – muss das ",
+      "eigene_norm": "norm:EStG:2",
+      "stattdessen": "norm:EStDV:56",
+      "sim": 0.642,
+      "eigen_rang": 34
+    },
+    {
+      "anker": "Meine Rente läuft an: Welcher Anteil gehört in die Steuererklärung?",
+      "eigene_norm": "norm:EStG:22",
+      "stattdessen": "norm:ErbStG:23",
+      "sim": 0.609,
+      "eigen_rang": 37
+    },
+    {
+      "anker": "Ich bekomme Leistungen aus Altersvorsorge oder betrieblicher Versorgung: Gibt es eine Mitt",
+      "eigene_norm": "norm:EStG:22",
+      "stattdessen": "norm:LStDV:5",
+      "sim": 0.701,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Kunde nennt seine Steuer-ID nicht: Darf die Stelle die Identifikationsnummer beim Bund",
+      "eigene_norm": "norm:EStG:22a",
+      "stattdessen": "norm:UStG:27a",
+      "sim": 0.68,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach dem Tod des Ehegatten soll geprüft werden, ob das Splitting im Folgejahr noch angewen",
+      "eigene_norm": "norm:EStG:32a",
+      "stattdessen": "norm:ErbStG:4",
+      "sim": 0.585,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Mandant hat Zinsen aus einem Darlehen an eine nahestehende Person erhalten; gilt dafür",
+      "eigene_norm": "norm:EStG:32d",
+      "stattdessen": "norm:ErbStG:24",
+      "sim": 0.551,
+      "eigen_rang": 21
+    },
+    {
+      "anker": "Soll für das Jahr die Günstigerprüfung beantragt werden, weil der persönliche Tarif günsti",
+      "eigene_norm": "norm:EStG:32d",
+      "stattdessen": "norm:AktG:258",
+      "sim": 0.519,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Kann ich Kosten für einen Rechtsstreit steuerlich geltend machen?",
+      "eigene_norm": "norm:EStG:33",
+      "stattdessen": "norm:AktG:247",
+      "sim": 0.639,
+      "eigen_rang": 35
+    },
+    {
+      "anker": "Ich habe einen Betrieb oder Anteil verkauft und möchte wissen, ob der Gewinn steuerlich be",
+      "eigene_norm": "norm:EStG:34",
+      "stattdessen": "norm:EStG:16",
+      "sim": 0.652,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich erhalte eine Entschädigung oder Abfindung und frage, ob dafür die Fünftelregelung in B",
+      "eigene_norm": "norm:EStG:34",
+      "stattdessen": "norm:HGB:451h",
+      "sim": 0.57,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Die Kanzlei soll prüfen, ob einbehaltene Steuer angerechnet werden kann, obwohl Unterlagen",
+      "eigene_norm": "norm:EStG:36",
+      "stattdessen": "norm:EStDV:60",
+      "sim": 0.605,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Mandant möchte die Steuer auf einen Aufgabegewinn in Raten zahlen, weil Betriebsvermög",
+      "eigene_norm": "norm:EStG:36",
+      "stattdessen": "norm:KStG:14",
+      "sim": 0.617,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Meine Steuerklasse oder Kinderfreibeträge sollen geändert werden – welches Finanzamt ist z",
+      "eigene_norm": "norm:EStG:39",
+      "stattdessen": "norm:BewG:263",
+      "sim": 0.627,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich bekomme eine ungünstigere Steuerklasse oder weniger Kinderfreibeträge – muss ich das m",
+      "eigene_norm": "norm:EStG:39",
+      "stattdessen": "norm:GrStG:19",
+      "sim": 0.628,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bis wann muss ich eine Änderung beantragen, damit sie noch im laufenden Jahr berücksichtig",
+      "eigene_norm": "norm:EStG:39",
+      "stattdessen": "norm:KStG:34",
+      "sim": 0.637,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Gibt es eine laufende monatliche Pflicht, neue ELStAM-Mitteilungen abzuholen?",
+      "eigene_norm": "norm:EStG:39e",
+      "stattdessen": "norm:ErbStDV:4",
+      "sim": 0.504,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei einem Geschäftsessen fehlen Angaben auf dem Beleg – reicht das für den Betriebsausgabe",
+      "eigene_norm": "norm:EStG:4",
+      "stattdessen": "norm:UStDV:31",
+      "sim": 0.594,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Es gab hohe Privatentnahmen und Kreditzinsen – muss ein Teil der Zinsen dem Gewinn wieder ",
+      "eigene_norm": "norm:EStG:4",
+      "stattdessen": "norm:AktG:288",
+      "sim": 0.632,
+      "eigen_rang": 25
+    },
+    {
+      "anker": "Gilt das auch für Arbeitslohn, den wir pauschal versteuert haben?",
+      "eigene_norm": "norm:EStG:41b",
+      "stattdessen": "norm:EStG:40",
+      "sim": 0.633,
+      "eigen_rang": 22
+    },
+    {
+      "anker": "Depotübertrag an eine andere Person: Soll das steuerlich wie ein Verkauf behandelt werden?",
+      "eigene_norm": "norm:EStG:43",
+      "stattdessen": "norm:HGB:340b",
+      "sim": 0.556,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bank oder Depotstelle fragt nach der Meldefrist bei einer unentgeltlichen Übertragung.",
+      "eigene_norm": "norm:EStG:43",
+      "stattdessen": "norm:UStG:18c",
+      "sim": 0.577,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Beim Depotwechsel soll geklärt werden, ob die alte Stelle die Anschaffungsdaten an die neu",
+      "eigene_norm": "norm:EStG:43a",
+      "stattdessen": "norm:AO:26",
+      "sim": 0.567,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Mandant will noch eine Verlustbescheinigung für das laufende Jahr beantragen.",
+      "eigene_norm": "norm:EStG:43a",
+      "stattdessen": "norm:HGB:166",
+      "sim": 0.57,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ist ein Freistellungsauftrag ohne Steuer-ID des Gläubigers beziehungsweise des Ehegatten w",
+      "eigene_norm": "norm:EStG:44a",
+      "stattdessen": "norm:EStG:50g",
+      "sim": 0.546,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Was muss der Steuerabzugsverpflichtete zu NV-Bescheinigung und Freistellungsauftrag in den",
+      "eigene_norm": "norm:EStG:44a",
+      "stattdessen": "norm:EStG:48b",
+      "sim": 0.594,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bis wann muss die Jahresmeldung nach dem Zufluss der Kapitalerträge beim BZSt sein?",
+      "eigene_norm": "norm:EStG:45b",
+      "stattdessen": "norm:EStG:45c",
+      "sim": 0.637,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Es geht um Zahlungen aus Deutschland für Geschäftsführer, Prokuristen oder Vorstände einer",
+      "eigene_norm": "norm:EStG:49",
+      "stattdessen": "norm:HGB:116",
+      "sim": 0.613,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bis wann müssen wir die einbehaltene Abzugsteuer beim BZSt anmelden und zahlen?",
+      "eigene_norm": "norm:EStG:50a",
+      "stattdessen": "norm:EStDV:73e",
+      "sim": 0.638,
+      "eigen_rang": 37
+    },
+    {
+      "anker": "Wir wollen bei Auslandszahlungen keinen Steuerabzug vornehmen; welche Bescheinigung brauch",
+      "eigene_norm": "norm:EStG:50c",
+      "stattdessen": "norm:InvStG:9",
+      "sim": 0.649,
+      "eigen_rang": 33
+    },
+    {
+      "anker": "Müssen wir den Antrag elektronisch stellen oder geht Papier?",
+      "eigene_norm": "norm:EStG:50c",
+      "stattdessen": "norm:HGB:12",
+      "sim": 0.598,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Mandant will statt des Pauschalwerts einen höheren Wert für den alten Grund und Boden ",
+      "eigene_norm": "norm:EStG:55",
+      "stattdessen": "norm:BewG:182",
+      "sim": 0.537,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Beim Verkauf oder bei der Entnahme des alten Grund und Bodens entsteht ein Verlust: Ist de",
+      "eigene_norm": "norm:EStG:55",
+      "stattdessen": "norm:EStG:6b",
+      "sim": 0.63,
+      "eigen_rang": 27
+    },
+    {
+      "anker": "Ein betrieblicher Pkw wird auch privat gefahren; der Mandant fragt nach 1-Prozent-Regelung",
+      "eigene_norm": "norm:EStG:6",
+      "stattdessen": "norm:EStG:8",
+      "sim": 0.56,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wird die Wohnung wirklich langfristig vermietet und nicht nur kurzfristig beherbergt?",
+      "eigene_norm": "norm:EStG:7b",
+      "stattdessen": "norm:AO:9",
+      "sim": 0.502,
+      "eigen_rang": 27
+    },
+    {
+      "anker": "Der Mandant hat Fördermittel bekommen; wir müssen klären, ob diese die begünstigten Kosten",
+      "eigene_norm": "norm:EStG:7h",
+      "stattdessen": "norm:StBerG:164b",
+      "sim": 0.595,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Für die Steuererklärung fehlt noch der Nachweis der Gemeinde über die Maßnahme und die Kos",
+      "eigene_norm": "norm:EStG:7h",
+      "stattdessen": "norm:GewStG:34",
+      "sim": 0.56,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Arbeitgeber stellt Mitarbeitern eigene Waren oder Dienstleistungen vergünstigt zur Ver",
+      "eigene_norm": "norm:EStG:8",
+      "stattdessen": "norm:LStDV:1",
+      "sim": 0.614,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Meine eigenen Einzahlungen in Pensionsfonds, Pensionskasse oder Direktversicherung stammen",
+      "eigene_norm": "norm:EStG:82",
+      "stattdessen": "norm:EStG:40b",
+      "sim": 0.62,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Kann ich wegen einer Zweitwohnung am Arbeitsort doppelte Haushaltsführung geltend machen?",
+      "eigene_norm": "norm:EStG:9",
+      "stattdessen": "norm:GewStDV:22",
+      "sim": 0.522,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Mandant hat das Familienheim geerbt und fragt, ob ein späterer Auszug die Befreiung ge",
+      "eigene_norm": "norm:ErbStG:13",
+      "stattdessen": "norm:AO:394",
+      "sim": 0.512,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Es geht um Hausrat und persönliche Gegenstände im Nachlass; die Kanzlei prüft, ob Wertgren",
+      "eigene_norm": "norm:ErbStG:13",
+      "stattdessen": "norm:HGB:340e",
+      "sim": 0.57,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Eine Pflegeperson erhält eine Zuwendung und möchte wissen, ob dafür eine Befreiung in Betr",
+      "eigene_norm": "norm:ErbStG:13",
+      "stattdessen": "norm:HGB:311",
+      "sim": 0.577,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach der Übertragung müssen wir wissen, ob die Löhne im Betrieb über mehrere Jahre ausreic",
+      "eigene_norm": "norm:ErbStG:13a",
+      "stattdessen": "norm:GewStDV:30",
+      "sim": 0.539,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Erwerber will Betrieb, Gesellschaftsanteile oder wesentliche Betriebsgrundlagen innerh",
+      "eigene_norm": "norm:ErbStG:13a",
+      "stattdessen": "norm:EStDV:6",
+      "sim": 0.625,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach einem Erbfall soll Verwaltungsvermögen innerhalb von zwei Jahren in betrieblich genut",
+      "eigene_norm": "norm:ErbStG:13b",
+      "stattdessen": "norm:HGB:240",
+      "sim": 0.621,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wird ein ausscheidender Gesellschafter unter dem Wert seines Anteils abgefunden?",
+      "eigene_norm": "norm:ErbStG:7",
+      "stattdessen": "norm:HGB:135",
+      "sim": 0.618,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Hat eine Leistung an eine Gesellschaft den Wert der Anteile anderer Beteiligter erhöht?",
+      "eigene_norm": "norm:ErbStG:7",
+      "stattdessen": "norm:GmbHG:57m",
+      "sim": 0.599,
+      "eigen_rang": null
+    },
+    {
+      "anker": "In der Akte geht es um einen Pflichtteil, der erst aktiv verlangt wurde.",
+      "eigene_norm": "norm:ErbStG:9",
+      "stattdessen": "norm:AO:204",
+      "sim": 0.562,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Was passiert, wenn der Betrieb nicht das ganze Jahr gewerbesteuerpflichtig war?",
+      "eigene_norm": "norm:GewStG:14",
+      "stattdessen": "norm:GewStDV:2",
+      "sim": 0.566,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir betreiben eine Gebäude-Solaranlage und verkaufen nur den Strom – fällt dafür Gewerbest",
+      "eigene_norm": "norm:GewStG:3",
+      "stattdessen": "norm:InvStG:15",
+      "sim": 0.614,
+      "eigen_rang": 21
+    },
+    {
+      "anker": "Verluste aus einer Sparte dürfen nicht ohne Weiteres mit Gewinnen aus einer anderen Sparte",
+      "eigene_norm": "norm:GewStG:7",
+      "stattdessen": "norm:InvStG:41",
+      "sim": 0.598,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Gibt es Aufwand, der direkt zu diesen Beteiligungsgewinnen gehört?",
+      "eigene_norm": "norm:GewStG:7a",
+      "stattdessen": "norm:HGB:271",
+      "sim": 0.575,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Das Unternehmen hat Spenden oder Mitgliedsbeiträge gezahlt und will diese gewerbesteuerlic",
+      "eigene_norm": "norm:GewStG:9",
+      "stattdessen": "norm:AO:139",
+      "sim": 0.606,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei unserer grundbesitzenden Gesellschaft sollen innerhalb von zehn Jahren fast alle Antei",
+      "eigene_norm": "norm:GrEStG:1",
+      "stattdessen": "norm:UmwG:87",
+      "sim": 0.533,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Können wir mit der Meldung warten, bis die Genehmigung vorliegt?",
+      "eigene_norm": "norm:GrEStG:18",
+      "stattdessen": "norm:ErbStDV:10",
+      "sim": 0.597,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Eine Kommune überlässt ein Grundstück in einem PPP-Modell; kann die Befreiung trotz privat",
+      "eigene_norm": "norm:GrStG:3",
+      "stattdessen": "norm:ErbStG:13d",
+      "sim": 0.517,
+      "eigen_rang": 40
+    },
+    {
+      "anker": "Eine KAGB-Entscheidung der Aufsicht entscheidet die steuerliche Einordnung nicht automatis",
+      "eigene_norm": "norm:InvStG:1",
+      "stattdessen": "norm:KStG:27",
+      "sim": 0.554,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei getrennten Teilvermögen kann steuerlich jedes Teilvermögen wie ein eigener Fonds behan",
+      "eigene_norm": "norm:InvStG:1",
+      "stattdessen": "norm:InvStG:41",
+      "sim": 0.619,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei der Jahresauswertung soll geprüft werden, ob die operativen Einnahmen unter der gesetz",
+      "eigene_norm": "norm:InvStG:15",
+      "stattdessen": "norm:BewG:201",
+      "sim": 0.606,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Für Ausschüttungen eines ausländischen Fonds wird eine DBA-Freistellung beansprucht; es mu",
+      "eigene_norm": "norm:InvStG:16",
+      "stattdessen": "norm:InvStG:47",
+      "sim": 0.67,
+      "eigen_rang": 21
+    },
+    {
+      "anker": "Ich ziehe ins Ausland oder übertrage Fondsanteile unentgeltlich an jemanden im Ausland; ka",
+      "eigene_norm": "norm:InvStG:19",
+      "stattdessen": "norm:InvStG:17",
+      "sim": 0.554,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach einem späteren Verlust aus Fondsanteilen muss geklärt werden, welche Unterlagen der A",
+      "eigene_norm": "norm:InvStG:20",
+      "stattdessen": "norm:InvStG:13",
+      "sim": 0.654,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Fonds hat möglicherweise eine Beteiligungsgrenze überschritten und fragt, ob trotzdem ",
+      "eigene_norm": "norm:InvStG:29",
+      "stattdessen": "norm:UmwG:306",
+      "sim": 0.556,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ein Dach-Spezial-Investmentfonds ist Anleger und die Regeln sollen auf dessen Anleger weit",
+      "eigene_norm": "norm:InvStG:30",
+      "stattdessen": "norm:InvStG:2",
+      "sim": 0.658,
+      "eigen_rang": 26
+    },
+    {
+      "anker": "Können AfA-bezogene Vermietungsanteile noch nach Ende des Geschäftsjahres ausgeschüttet we",
+      "eigene_norm": "norm:InvStG:35",
+      "stattdessen": "norm:GmbHG:58d",
+      "sim": 0.54,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Es wurde erst nach Geschäftsjahresende ausgeschüttet; ist die Viermonatsgrenze eingehalten",
+      "eigene_norm": "norm:InvStG:36",
+      "stattdessen": "norm:GmbHG:58d",
+      "sim": 0.605,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ein Anleger verkauft Spezial-Investmentanteile vor Geschäftsjahresende; fällt der fiktive ",
+      "eigene_norm": "norm:InvStG:36",
+      "stattdessen": "norm:InvStG:52",
+      "sim": 0.599,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Sind AStG-Hinzurechnungsbeträge bei dieser Einkünfteermittlung außen vor zu lassen?",
+      "eigene_norm": "norm:InvStG:37",
+      "stattdessen": "norm:AStG:10",
+      "sim": 0.618,
+      "eigen_rang": 22
+    },
+    {
+      "anker": "In der Bilanz geht es um eine Abschreibung auf den niedrigeren Teilwert oder um eine späte",
+      "eigene_norm": "norm:InvStG:49",
+      "stattdessen": "norm:HGB:247",
+      "sim": 0.671,
+      "eigen_rang": 28
+    },
+    {
+      "anker": "Muss die Befreiungsquote nach Zuflusszeitpunkt oder nach Jahresdurchschnitt berechnet werd",
+      "eigene_norm": "norm:InvStG:8",
+      "stattdessen": "norm:HGB:293",
+      "sim": 0.52,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Beim Altersvorsorge- oder Basisrentenvertrag muss der Anbieter dem Fonds die Anteilsbewegu",
+      "eigene_norm": "norm:InvStG:9",
+      "stattdessen": "norm:LStDV:5",
+      "sim": 0.627,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ist der Gewinnabführungsvertrag mindestens fünf Jahre vereinbart und wird er tatsächlich v",
+      "eigene_norm": "norm:KStG:14",
+      "stattdessen": "norm:AktG:291",
+      "sim": 0.583,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir erhalten Vergütungen dafür, dass wir Anteile an einer deutschen Kapitalgesellschaft zu",
+      "eigene_norm": "norm:KStG:2",
+      "stattdessen": "norm:EStG:17",
+      "sim": 0.564,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Unsere ausländische Körperschaft will eine Einlagenrückgewähr feststellen lassen – gibt es",
+      "eigene_norm": "norm:KStG:27",
+      "stattdessen": "norm:KStG:34",
+      "sim": 0.582,
+      "eigen_rang": 25
+    },
+    {
+      "anker": "Wir müssen prüfen, ob nach Bestandskraft des Körperschaftsteuerbescheids noch ein Jahr Zei",
+      "eigene_norm": "norm:KStG:32a",
+      "stattdessen": "norm:KStG:38",
+      "sim": 0.64,
+      "eigen_rang": 25
+    },
+    {
+      "anker": "Unsere Kommune betreibt eine Einnahmen bringende Einrichtung; ist das ein steuerlich relev",
+      "eigene_norm": "norm:KStG:4",
+      "stattdessen": "norm:KStG:2",
+      "sim": 0.565,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir wollen klären, ob fehlende Gewinnerzielungsabsicht den BgA ausschließt.",
+      "eigene_norm": "norm:KStG:4",
+      "stattdessen": "norm:HGB:122",
+      "sim": 0.54,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Dürfen mehrere kommunale Betriebe steuerlich zu einem BgA-Paket zusammengefasst werden?",
+      "eigene_norm": "norm:KStG:4",
+      "stattdessen": "norm:GewStDV:8",
+      "sim": 0.518,
+      "eigen_rang": 49
+    },
+    {
+      "anker": "Unsere Wohnungsgenossenschaft erzielt zusätzliche Umsätze – ist die 10-Prozent-Grenze für ",
+      "eigene_norm": "norm:KStG:5",
+      "stattdessen": "norm:AktG:111b",
+      "sim": 0.525,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Hat die Körperschaft einem Gesellschafter Vorteile gewährt, die bei der steuerlichen Einko",
+      "eigene_norm": "norm:KStG:8",
+      "stattdessen": "norm:EStG:19a",
+      "sim": 0.618,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Gibt es eine verdeckte Einlage, die beim Gesellschafter bereits steuermindernd berücksicht",
+      "eigene_norm": "norm:KStG:8",
+      "stattdessen": "norm:KStG:32a",
+      "sim": 0.608,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wurden Betriebe gewerblicher Art zusammengefasst und sollen alte Verluste im neuen Gesamtb",
+      "eigene_norm": "norm:KStG:8",
+      "stattdessen": "norm:GewStDV:8",
+      "sim": 0.525,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Die Beteiligung lag zum Jahresanfang unter 10 Prozent – müssen die Ausschüttungen dann doc",
+      "eigene_norm": "norm:KStG:8b",
+      "stattdessen": "norm:GmbHG:58d",
+      "sim": 0.593,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ist in den Unterlagen festgehalten, wofür die Lieferung oder Leistung bestimmt ist?",
+      "eigene_norm": "norm:UStDV:18",
+      "stattdessen": "norm:AO:147",
+      "sim": 0.617,
+      "eigen_rang": 30
+    },
+    {
+      "anker": "Sind Beträge nur im fremden Namen vereinnahmt und weitergeleitet worden?",
+      "eigene_norm": "norm:UStG:10",
+      "stattdessen": "norm:UmwG:18",
+      "sim": 0.567,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wann müssen wir den betroffenen Umsatz zeitlich in der Voranmeldung erfassen?",
+      "eigene_norm": "norm:UStG:13b",
+      "stattdessen": "norm:UStG:18",
+      "sim": 0.69,
+      "eigen_rang": 23
+    },
+    {
+      "anker": "Kann der Leistungsempfänger per Gutschrift abrechnen, und was passiert bei Widerspruch?",
+      "eigene_norm": "norm:UStG:14",
+      "stattdessen": "norm:EStG:48a",
+      "sim": 0.637,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wie rechnen wir Fremdwährungsbeträge für Umsatzsteuer und Vorsteuer in Euro um?",
+      "eigene_norm": "norm:UStG:16",
+      "stattdessen": "norm:HGB:544",
+      "sim": 0.639,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Eine Forderung ist nicht mehr einbringlich: Löst das eine Umsatzsteuerkorrektur aus?",
+      "eigene_norm": "norm:UStG:17",
+      "stattdessen": "norm:UStG:13c",
+      "sim": 0.578,
+      "eigen_rang": 50
+    },
+    {
+      "anker": "Wir gewähren Jahresboni oder Jahresrückvergütungen für verschieden besteuerte Umsätze: Bra",
+      "eigene_norm": "norm:UStG:17",
+      "stattdessen": "norm:AO:144",
+      "sim": 0.6,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Die Teilnahme oder der Widerruf soll rechtzeitig elektronisch gemeldet werden.",
+      "eigene_norm": "norm:UStG:18i",
+      "stattdessen": "norm:EStG:48a",
+      "sim": 0.601,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Nach jedem Besteuerungszeitraum muss die Erklärung samt Selbstberechnung und Zahlung frist",
+      "eigene_norm": "norm:UStG:18i",
+      "stattdessen": "norm:AO:153",
+      "sim": 0.677,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bis wann müssen wir die Erklärung abgeben und die angemeldete Umsatzsteuer bezahlen?",
+      "eigene_norm": "norm:UStG:18j",
+      "stattdessen": "norm:BewG:228",
+      "sim": 0.693,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Droht uns der Ausschluss aus dem Verfahren, wenn Meldungen oder Aufzeichnungen wiederholt ",
+      "eigene_norm": "norm:UStG:18j",
+      "stattdessen": "norm:AktG:64",
+      "sim": 0.574,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir müssen klären, wann und wie die Teilnahme elektronisch anzumelden ist.",
+      "eigene_norm": "norm:UStG:18k",
+      "stattdessen": "norm:HGB:12",
+      "sim": 0.606,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Uns droht Ärger, weil Erklärungen oder Aufzeichnungen wiederholt zu spät erledigt wurden.",
+      "eigene_norm": "norm:UStG:18k",
+      "stattdessen": "norm:AO:379",
+      "sim": 0.526,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich bin in einem anderen EU-Mitgliedstaat ansässig und möchte die deutsche Kleinunternehme",
+      "eigene_norm": "norm:UStG:19",
+      "stattdessen": "norm:UStG:19a",
+      "sim": 0.733,
+      "eigen_rang": 35
+    },
+    {
+      "anker": "Liegt zwischen Mutter- und Tochtergesellschaft eine umsatzsteuerliche Organschaft vor?",
+      "eigene_norm": "norm:UStG:2",
+      "stattdessen": "norm:HGB:342d",
+      "sim": 0.611,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Bei Ausgangsumsätzen sollten wir prüfen, ob steuerpflichtige Umsätze nach Steuersätzen und",
+      "eigene_norm": "norm:UStG:22",
+      "stattdessen": "norm:UStDV:32",
+      "sim": 0.695,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wenn nur ein Teil der Eingangsleistungen zum Vorsteuerabzug berechtigt, müssen die Vorsteu",
+      "eigene_norm": "norm:UStG:22",
+      "stattdessen": "norm:UStG:15",
+      "sim": 0.676,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Wir möchten aus der Pauschalierung raus und nach den allgemeinen Umsatzsteuerregeln besteu",
+      "eigene_norm": "norm:UStG:24",
+      "stattdessen": "norm:EStG:37a",
+      "sim": 0.631,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Ich habe neben dem landwirtschaftlichen Betrieb noch andere Umsätze – muss der Betrieb ges",
+      "eigene_norm": "norm:UStG:24",
+      "stattdessen": "norm:BewG:234",
+      "sim": 0.63,
+      "eigen_rang": 27
+    },
+    {
+      "anker": "Werden Gutscheine ausgegeben, bei denen schon bei Ausgabe Ort und Steuer der späteren Leis",
+      "eigene_norm": "norm:UStG:3",
+      "stattdessen": "norm:UStDV:59",
+      "sim": 0.554,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Können wir bei kleinen grenzüberschreitenden Umsätzen unter 10.000 Euro die Ziellandregel ",
+      "eigene_norm": "norm:UStG:3c",
+      "stattdessen": "norm:UStG:21a",
+      "sim": 0.554,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Unser Mandant hat eine innergemeinschaftliche Lieferung ausgeführt; ist die Befreiung gefä",
+      "eigene_norm": "norm:UStG:4",
+      "stattdessen": "norm:UStG:6a",
+      "sim": 0.627,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Hat der Kunde eine gültige ausländische USt-ID für den Vorgang genutzt?",
+      "eigene_norm": "norm:UStG:6a",
+      "stattdessen": "norm:UStG:18e",
+      "sim": 0.632,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Beim Grundstücksgeschäft muss geklärt werden, ob die Option rechtzeitig beziehungsweise im",
+      "eigene_norm": "norm:UStG:9",
+      "stattdessen": "norm:GrEStG:18",
+      "sim": 0.563,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der Einbringungsvorgang soll steuerlich auf einen früheren Stichtag zurückbezogen werden.",
+      "eigene_norm": "norm:UmwStG:20",
+      "stattdessen": "norm:UStG:18",
+      "sim": 0.597,
+      "eigen_rang": null
+    },
+    {
+      "anker": "Der übergegangene Betrieb soll innerhalb von fünf Jahren weiter in eine Kapitalgesellschaf",
+      "eigene_norm": "norm:UmwStG:6",
+      "stattdessen": "norm:AktG:234",
+      "sim": 0.627,
+      "eigen_rang": 34
+    }
+  ]
+}
