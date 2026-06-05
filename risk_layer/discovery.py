@@ -422,7 +422,6 @@ def _chat(base_url: str, system: str, user: str, *, model: str = "",
             {"role": "system", "content": system},
             {"role": "user", "content": user + (" /no_think" if no_think else "")},
         ],
-        "temperature": 0.0,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": "discovery", "strict": True,
@@ -430,9 +429,10 @@ def _chat(base_url: str, system: str, user: str, *, model: str = "",
         },
     }
     if provider == "openai":
-        body["max_completion_tokens"] = n_predict
+        body["max_completion_tokens"] = n_predict     # gpt-5-Klasse: KEIN temperature/seed senden
     else:
         body["max_tokens"] = n_predict
+        body["temperature"] = 0.0
         body["seed"] = 0
     headers = {"Content-Type": "application/json"}
     if api_key:                                     # Key NUR im Header, nie geloggt
@@ -442,6 +442,21 @@ def _chat(base_url: str, system: str, user: str, *, model: str = "",
         data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.load(resp)["choices"][0]["message"]["content"]
+
+
+def _fehler_eintrag(node: dict[str, Any], e: Exception) -> dict[str, Any]:
+    """Ledger-Eintrag mit HTTP-Status + Body-Auszug (statt nur Exception-Typ) — sonst
+    fliegt man bei API-Fehlern blind (alle Calls 'HTTPError', aber warum?)."""
+    eintrag: dict[str, Any] = {"id": node.get("id"), "zitat": node.get("zitat"),
+                               "n_chars": len(node.get("text") or ""),
+                               "fehler": type(e).__name__}
+    if isinstance(e, urllib.error.HTTPError):
+        eintrag["http_code"] = e.code
+        try:
+            eintrag["body"] = e.read().decode("utf-8", "replace")[:500]
+        except Exception:                            # noqa: BLE001 (Body best-effort)
+            pass
+    return eintrag
 
 
 def roh_kandidaten(base_url: str, node: dict[str, Any], *, model: str = "",
@@ -464,9 +479,7 @@ def roh_kandidaten(base_url: str, node: dict[str, Any], *, model: str = "",
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
             KeyError, IndexError, json.JSONDecodeError) as e:
         if fehler_protokoll is not None:           # list.append ist GIL-atomar -> thread-safe
-            fehler_protokoll.append({"id": node.get("id"), "zitat": node.get("zitat"),
-                                     "n_chars": len(node.get("text") or ""),
-                                     "fehler": type(e).__name__})
+            fehler_protokoll.append(_fehler_eintrag(node, e))
         return []
     return _kandidaten_aus_text(content)
 
@@ -687,9 +700,7 @@ def roh_karte(base_url: str, node: dict[str, Any], *, model: str = "", timeout: 
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
             KeyError, IndexError, json.JSONDecodeError) as e:
         if fehler_protokoll is not None:
-            fehler_protokoll.append({"id": node.get("id"), "zitat": node.get("zitat"),
-                                     "n_chars": len(node.get("text") or ""),
-                                     "fehler": type(e).__name__})
+            fehler_protokoll.append(_fehler_eintrag(node, e))
         return {}
     return _json_objekt(content)
 
