@@ -1,0 +1,505 @@
+{
+  "786": {
+    "n": 77,
+    "n_anker": 1015,
+    "rerank50": {
+      "mrr": 0.314,
+      "r5": 0.468,
+      "r20": 0.623,
+      "r50": 0.662,
+      "cc5": 0.491,
+      "cc20": 0.587,
+      "cross_mrr": 0.172,
+      "intra_mrr": 0.324,
+      "pro_law": {
+        "AO": 0.586,
+        "EStG": 0.321,
+        "GewStG": 0.583,
+        "KStG": 0.217,
+        "UStG": 0.132
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.381,
+      "r5": 0.597,
+      "r20": 0.857,
+      "r50": 0.922,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 0.18,
+      "intra_mrr": 0.395,
+      "pro_law": {
+        "AO": 0.604,
+        "EStG": 0.292,
+        "GewStG": 0.633,
+        "KStG": 0.412,
+        "UStG": 0.287
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "AO:220",
+          "AO:240",
+          "EStG:36"
+        ],
+        6,
+        "cross"
+      ],
+      [
+        [
+          "AO:240"
+        ],
+        24,
+        "intra"
+      ],
+      [
+        [
+          "AO:172",
+          "AO:347"
+        ],
+        26,
+        "intra"
+      ],
+      [
+        [
+          "AO:108",
+          "AO:149"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "EStG:6"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15"
+        ],
+        15,
+        "intra"
+      ],
+      [
+        [
+          "EStG:19",
+          "EStG:9a"
+        ],
+        61,
+        "intra"
+      ],
+      [
+        [
+          "EStG:18"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:20",
+          "EStG:32d"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "EStG:3"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:22"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:33a"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:10"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15",
+          "GewStG:7"
+        ],
+        8,
+        "cross"
+      ],
+      [
+        [
+          "KStG:10"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        34,
+        "cross"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        13,
+        "cross"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17",
+          "UStG:3"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        14,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        26,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        11,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        23,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "UStG:10",
+          "UStG:3"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:15"
+        ],
+        11,
+        "intra"
+      ]
+    ]
+  },
+  "1015": {
+    "n": 77,
+    "n_anker": 1241,
+    "rerank50": {
+      "mrr": 0.447,
+      "r5": 0.649,
+      "r20": 0.857,
+      "r50": 0.87,
+      "cc5": 0.397,
+      "cc20": 0.558,
+      "cross_mrr": 0.172,
+      "intra_mrr": 0.466,
+      "pro_law": {
+        "AO": 0.589,
+        "EStG": 0.363,
+        "GewStG": 0.6,
+        "KStG": 0.167,
+        "UStG": 0.466
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.506,
+      "r5": 0.727,
+      "r20": 0.948,
+      "r50": 0.974,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 0.26,
+      "intra_mrr": 0.523,
+      "pro_law": {
+        "AO": 0.609,
+        "EStG": 0.379,
+        "GewStG": 0.633,
+        "KStG": 0.562,
+        "UStG": 0.527
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "AO:220",
+          "AO:240",
+          "EStG:36"
+        ],
+        6,
+        "cross"
+      ],
+      [
+        [
+          "AO:240"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "AO:172",
+          "AO:347"
+        ],
+        26,
+        "intra"
+      ],
+      [
+        [
+          "AO:108",
+          "AO:149"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15"
+        ],
+        17,
+        "intra"
+      ],
+      [
+        [
+          "EStG:19",
+          "EStG:9a"
+        ],
+        63,
+        "intra"
+      ],
+      [
+        [
+          "EStG:21",
+          "EStG:23"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "EStG:18"
+        ],
+        15,
+        "intra"
+      ],
+      [
+        [
+          "EStG:20",
+          "EStG:32d"
+        ],
+        15,
+        "intra"
+      ],
+      [
+        [
+          "EStG:33",
+          "EStG:33a"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "EStG:3"
+        ],
+        null,
+        "intra"
+      ],
+      [
+        [
+          "EStG:22"
+        ],
+        11,
+        "intra"
+      ],
+      [
+        [
+          "EStG:33a"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "EStG:15",
+          "GewStG:7"
+        ],
+        9,
+        "cross"
+      ],
+      [
+        [
+          "KStG:10"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "EStG:4",
+          "KStG:8"
+        ],
+        46,
+        "cross"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15"
+        ],
+        7,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:17"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "UStG:15",
+          "UStG:1a",
+          "UStG:3d"
+        ],
+        6,
+        "intra"
+      ],
+      [
+        [
+          "UStG:1",
+          "UStG:3a"
+        ],
+        12,
+        "intra"
+      ]
+    ]
+  },
+  "urteil": {
+    "stufe": "STARK",
+    "mrr_1015": 0.506,
+    "cov_delta": 0.125,
+    "ref_rerank50": {
+      "786": 0.314,
+      "1015": 0.447
+    },
+    "kriterien": {
+      "1_mrr>beide_rerank50": true,
+      "2_coverage_haelt(>=-0.01)": true,
+      "3_UStG&EStG_nicht_schlechter": true,
+      "4_crosslaw_nicht_beschaedigt": true,
+      "5_crossclass_top5_sinkt": true
+    },
+    "architektur_beleg": true,
+    "schwellen": {
+      "stark": 0.34,
+      "brauchbar": 0.31
+    }
+  }
+}

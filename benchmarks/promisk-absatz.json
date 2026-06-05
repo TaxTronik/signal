@@ -1,0 +1,140 @@
+{
+  "topn": 50,
+  "n_queries": 77,
+  "alt": {
+    "n_anker": 1015,
+    "n_promisk": 449,
+    "events": 1248,
+    "cross": 798
+  },
+  "neu": {
+    "n_anker": 1261,
+    "n_promisk": 514,
+    "events": 1370,
+    "cross": 855,
+    "neu_events": 216,
+    "top20_share": 0.17372262773722627
+  },
+  "top_neu_promisk": [
+    {
+      "norm": "norm:UStG:10",
+      "events": 11,
+      "cross": 0,
+      "text": "Welche Kosten sind bei der Durchführung dieses Umsatzes tatsächlich angefallen?"
+    },
+    {
+      "norm": "norm:EStG:10",
+      "events": 10,
+      "cross": 9,
+      "text": "Mandant hat eine Erstattung oder einen Zuschuss zu früher gezahlten Vorsorge- oder Sonderausgaben bekommen."
+    },
+    {
+      "norm": "norm:UStG:10",
+      "events": 8,
+      "cross": 5,
+      "text": "Welcher Betrag ist bei meiner Lieferung oder Dienstleistung als Bemessungsgrundlage anzusetzen?"
+    },
+    {
+      "norm": "norm:EStG:10",
+      "events": 8,
+      "cross": 6,
+      "text": "Die Zahlungen hängen mit der Übernahme eines Mitunternehmeranteils oder Betriebs zusammen."
+    },
+    {
+      "norm": "norm:AO:240",
+      "events": 8,
+      "cross": 7,
+      "text": "Die Zahlung ist erst nach dem Fälligkeitstag rausgegangen; muss der Mandant jetzt mit monatlichen Zuschlägen rechnen?"
+    },
+    {
+      "norm": "norm:EStG:18",
+      "events": 8,
+      "cross": 4,
+      "text": "Ich erhalte eine Vergütung für mein Aufsichtsratsmandat."
+    },
+    {
+      "norm": "norm:EStG:18",
+      "events": 7,
+      "cross": 6,
+      "text": "Ich bekomme Geld dafür, einen Nachlass nach einem Testament abzuwickeln."
+    },
+    {
+      "norm": "norm:AO:240",
+      "events": 6,
+      "cross": 6,
+      "text": "Der Mandant fragt, ob auf bereits angefallene Nebenleistungen nochmals Säumniszuschläge kommen können."
+    },
+    {
+      "norm": "norm:EStG:10",
+      "events": 6,
+      "cross": 2,
+      "text": "Ich zahle Unterhalt an meinen geschiedenen oder getrennt lebenden Ehegatten und möchte den Betrag steuerlich abziehen."
+    },
+    {
+      "norm": "norm:UStG:10",
+      "events": 5,
+      "cross": 4,
+      "text": "Es geht um Kosten, bei denen Vorsteuer ganz oder teilweise gezogen werden konnte."
+    },
+    {
+      "norm": "norm:EStG:18",
+      "events": 5,
+      "cross": 4,
+      "text": "Ich verwalte Vermögen gegen Honorar."
+    },
+    {
+      "norm": "norm:UStG:1",
+      "events": 5,
+      "cross": 1,
+      "text": "Ein Mandant kauft ein neues Fahrzeug aus einem anderen EU-Staat und fragt, ob der Vorgang umsatzsteuerlich erfasst ist."
+    },
+    {
+      "norm": "norm:EStG:18",
+      "events": 5,
+      "cross": 5,
+      "text": "Der Mandant verkauft seine freiberufliche Praxis oder einen abgrenzbaren Teil davon und fragt, wie der Verkaufserlös ste"
+    },
+    {
+      "norm": "norm:EStG:4",
+      "events": 4,
+      "cross": 4,
+      "text": "Sollen statt der einzelnen Raum- und Ausstattungskosten 1 260 Euro pauschal geltend gemacht werden?"
+    },
+    {
+      "norm": "norm:EStG:4",
+      "events": 4,
+      "cross": 4,
+      "text": "Kann der Mandant seinen Gewinn per Einnahmen-Überschuss-Rechnung statt über Bilanz ermitteln?"
+    },
+    {
+      "norm": "norm:UStG:3",
+      "events": 4,
+      "cross": 2,
+      "text": "Der Gegenstand hatte beim Erwerb ganz oder teilweise Vorsteuerwirkung."
+    },
+    {
+      "norm": "norm:UStG:1",
+      "events": 4,
+      "cross": 0,
+      "text": "Wir entnehmen oder verwenden Gegenstände aus dem Unternehmen und müssen klären, ob das als umsatzsteuerlicher Umsatz zäh"
+    },
+    {
+      "norm": "norm:UStG:3",
+      "events": 4,
+      "cross": 0,
+      "text": "Über die Plattform laufen Import-Kleinsendungen bis 150 Euro an Kunden in der EU."
+    },
+    {
+      "norm": "norm:EStG:10",
+      "events": 3,
+      "cross": 1,
+      "text": "Der Mandant hat Beiträge für spätere Beitragsjahre vorausgezahlt und fragt nach dem richtigen Veranlagungszeitraum."
+    },
+    {
+      "norm": "norm:UStG:10",
+      "events": 3,
+      "cross": 3,
+      "text": "Gibt es Sachzuwendungen oder Services des Unternehmens an Mitarbeitende?"
+    }
+  ]
+}

@@ -2,9 +2,10 @@
 
 **Status:** Zielarchitektur **eval-belegt (STARK)**: **Scope/Region → Kandidaten im Scope → Reranker
 → Norm-Aggregation** (rerank-on-oracle MRR 0,381 ≥ 0,34; cross-class Top-5 0,49→0,00; R@20 0,62→0,86).
-Engpass: **Scope-Genauigkeit.** Graph-§-Text-Schätzer VERWORFEN (Top-2-Recall 66 %/Präzision 0,36 →
-soft_scope 0,276 < flat 0,314). Offen: Scope aus Workflow-Kontext (oft bekannt → oracle ~0,38 direkt)
-ODER LLM-/lexik. Gesetz-Klassifikator. Plus Intra-Law-Dilution EStG (Absatz). Coverage-Flat = schädlich.
+**Absatz-Tatbestand-Cards: Lift auf Bedarfs-Set (oracle 0,38→0,51, flat 0,31→0,45), hub-bias-frei
+(Replacement ±0) — ABER leakage-getrieben (Promiskuität 44→41 %, kaum) + intra-law-Kollateral (KStG-Dev
+−0,08). Kein Generalisierungs-Beleg.** Belegt bleibt die ARCHITEKTUR (Scope+Rerank). Offen: v3-Gold
+(Generalisierung), intra-law-Guard, Scope-QUELLE (Workflow vs. LLM; Text-Schätzer verworfen).
 **Stand:** 2026-06-06 · **Harness:** `tools/scoped_eval.py` · **Gold v1:** `fixtures/gold/`
 
 ## Gold v2 — gemessen (n=77, StBK-Nds-Klausuren, eingefroren, blind)
@@ -176,6 +177,44 @@ Wo perfekter Scope NICHT reicht (Residuen-Schwere None=3/>20=2/sonst=1) → **Ab
 … = die breiten Schema-§§ (Vorsteuer/Lieferung/Bemessungsgrundlage/Sonderausgaben), deren Konkurrenten
 Geschwister-§§ *desselben* Gesetzes sind. Diese Liste ist Einkauf, keine Bauchentscheidung. Quelle:
 `benchmarks/test3-oracle-rerank.json`.
+
+## Absatz-Tatbestand-Cards — Lift auf dem Bedarfs-Set (mit Etikett, NICHT Generalisierung)
+(`tools/test3_oracle_rerank.py`, benchmarks/test3-absatz.json — drei Vor-Freeze-Prüfungen unten)
+91 Tatbestand-Knoten der 10 schwersten Residual-§§ (gpt-5.5, `card_batch` Absatz-/Nummer-Auflösung)
+→ +246 Tatbestand-spezifische Anker (z. B. EStG:10 von 0 auf 34: Renten/Kranken/Schulgeld einzeln),
+para_level-Rollup auf die §-Ziele. Bestand 1015 → 1261.
+
+| Modus | 1015 | **1261 (Absatz)** | Δ |
+|---|---|---|---|
+| oracle_rr MRR | 0,381 | **0,506** | **+0,125** |
+| flat rerank50 MRR | 0,314 | **0,441** | **+0,127** |
+| oracle_rr R@20 / R@50 | 0,86 / 0,92 | 0,95 / 0,97 | |
+oracle_rr je Gesetz: **UStG +0,240** (0,29→0,53) · KStG +0,150 · EStG +0,088. Residuen 31→21
+(EStG:10, UStG:3/10 aus den Residuen geklettert). **Alle 5 Architektur-Belege PASS (JA)** — inkl.
+Coverage hält (**+0,125**, nicht mehr −0,063) und EStG nicht schlechter.
+
+**ABER 0,506 trägt die stärkste Leakage-Signatur des Projekts (Knoten-Auswahl aus den Gold-Residuen).
+Drei Vor-Freeze-Prüfungen (Reihenfolge: Ersetzung→v1-Dev→Promiskuität):**
+1. **Hub-Bias: SAUBER (±0,000).** Merge war additiv (§-level + Absatz parallel, z. B. UStG:3 3+34). Replacement
+   (20 generische §-Anker der Runde-1-Normen retiriert → 1241) → oracle_rr **0,506 unverändert**, flat +0,006.
+   Der Lift ist kein max-Aggregations-Artefakt. → **Replacement-Bestand adoptieren** (gratis sauberer).
+   Quelle: `benchmarks/test3-absatz-replace.json`.
+2. **v1-Dev (Organschaft+AO, UNBERÜHRT von der Knoten-Auswahl): NICHT regressionsfrei.** flat unverändert
+   (0,477→0,476), aber oracle_rr **KStG −0,081** (0,587→0,506): dichte `KStG:8`-Tatbestand-Anker (vGA etc.)
+   verdrängen unter KStG-Scope die Organschaft-§§ 14-19. **Granularität schlägt Verdünnung NICHT überall —
+   bei einem breiten § kann dichte Bekartung Geschwister-§§ desselben Gesetzes verdrängen (intra-law-
+   Kollateral).** Quelle: `benchmarks/test3-absatz-devv1.json`.
+3. **Promiskuität der 246: nur 44 %→41 % (kaum).** Die Tatbestand-Anker sind NICHT intrinsisch schmal;
+   Top-promisk sind breite Tatbestände (UStG:10 Bemessungsgrundlage, EStG:18, AO:240). → **Der n=77-Lift ist
+   überwiegend Bedarfs-Coverage (Leakage), nicht eine generalisierende „schmale-Anker"-Eigenschaft.**
+   Quelle: `benchmarks/promisk-absatz.json`.
+
+**Ehrliches Etikett (gutachter-fest, NICHT „beide FAILs geschlossen"):** 0,506 = Bedarfs-Set-Wert (query-
+getriebene Auswahl). Real + hub-bias-frei, aber generalisierung OFFEN (bis v3-Gold) und mit intra-law-
+Kollateral (KStG-Dev −0,08). Belegt bleibt die ARCHITEKTUR (Scope+Rerank); die Tatbestand-Cards sind ein
+**Bedarfs-Coverage-Werkzeug** mit zwei offenen Kanten: (a) v3-Gold für Generalisierung, (b) Guard gegen
+intra-law-Kollateral (dichte Cards eines breiten § dürfen Geschwister-§§ unter Scope nicht verdrängen).
+CI-Etikett: n=77, Punktschätzung, CIs überlappen.
 
 ## Frage
 Card-Discovery liefert vertrauenswürdige Anker (gpt-5.5: 0 halluzinierte §-Zitate, vgl.

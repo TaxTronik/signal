@@ -1,0 +1,181 @@
+{
+  "786": {
+    "n": 25,
+    "n_anker": 1015,
+    "rerank50": {
+      "mrr": 0.477,
+      "r5": 0.64,
+      "r20": 0.8,
+      "r50": 0.8,
+      "cc5": 0.56,
+      "cc20": 0.65,
+      "cross_mrr": 1.0,
+      "intra_mrr": 0.455,
+      "pro_law": {
+        "AO": 0.142,
+        "AktG": 1.0,
+        "EStG": 1.0,
+        "GewStG": 0.511,
+        "KStG": 0.406,
+        "UStG": 1.0
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.62,
+      "r5": 0.8,
+      "r20": 0.92,
+      "r50": 0.96,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 1.0,
+      "intra_mrr": 0.604,
+      "pro_law": {
+        "AO": 0.225,
+        "AktG": 1.0,
+        "EStG": 1.0,
+        "GewStG": 1.0,
+        "KStG": 0.587,
+        "UStG": 1.0
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "KStG:8b"
+        ],
+        9,
+        "intra"
+      ],
+      [
+        [
+          "AO:42"
+        ],
+        44,
+        "intra"
+      ],
+      [
+        [
+          "AO:42"
+        ],
+        90,
+        "intra"
+      ],
+      [
+        [
+          "AO:34",
+          "AO:69"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "AO:34",
+          "AO:69"
+        ],
+        18,
+        "intra"
+      ]
+    ]
+  },
+  "1015": {
+    "n": 25,
+    "n_anker": 1261,
+    "rerank50": {
+      "mrr": 0.476,
+      "r5": 0.64,
+      "r20": 0.8,
+      "r50": 0.8,
+      "cc5": 0.552,
+      "cc20": 0.658,
+      "cross_mrr": 1.0,
+      "intra_mrr": 0.454,
+      "pro_law": {
+        "AO": 0.142,
+        "AktG": 1.0,
+        "EStG": 1.0,
+        "GewStG": 0.511,
+        "KStG": 0.404,
+        "UStG": 1.0
+      }
+    },
+    "oracle_rr": {
+      "mrr": 0.594,
+      "r5": 0.8,
+      "r20": 0.92,
+      "r50": 0.96,
+      "cc5": 0.0,
+      "cc20": 0.0,
+      "cross_mrr": 1.0,
+      "intra_mrr": 0.577,
+      "pro_law": {
+        "AO": 0.225,
+        "AktG": 1.0,
+        "EStG": 1.0,
+        "GewStG": 1.0,
+        "KStG": 0.506,
+        "UStG": 1.0
+      }
+    },
+    "residual_oracle_rr": [
+      [
+        [
+          "KStG:8b"
+        ],
+        10,
+        "intra"
+      ],
+      [
+        [
+          "AO:42"
+        ],
+        44,
+        "intra"
+      ],
+      [
+        [
+          "AO:42"
+        ],
+        90,
+        "intra"
+      ],
+      [
+        [
+          "AO:34",
+          "AO:69"
+        ],
+        8,
+        "intra"
+      ],
+      [
+        [
+          "AO:34",
+          "AO:69"
+        ],
+        18,
+        "intra"
+      ]
+    ]
+  },
+  "urteil": {
+    "stufe": "STARK",
+    "mrr_1015": 0.594,
+    "cov_delta": -0.026,
+    "ref_rerank50": {
+      "786": 0.477,
+      "1015": 0.476
+    },
+    "kriterien": {
+      "1_mrr>beide_rerank50": true,
+      "2_coverage_haelt(>=-0.01)": false,
+      "3_UStG&EStG_nicht_schlechter": true,
+      "4_crosslaw_nicht_beschaedigt": true,
+      "5_crossclass_top5_sinkt": true
+    },
+    "architektur_beleg": false,
+    "schwellen": {
+      "stark": 0.34,
+      "brauchbar": 0.31
+    }
+  }
+}
