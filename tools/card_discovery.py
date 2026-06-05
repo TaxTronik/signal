@@ -93,6 +93,9 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--concurrency", type=int, default=4)
     ap.add_argument("--timeout", type=float, default=300.0)
+    ap.add_argument("--max-tokens", type=int, default=8000,
+                    help="max_completion_tokens — großzügig, da Reasoning-Modelle Budget beim "
+                         "Denken verbrauchen (zu klein → leere Karten bei langen §§)")
     ap.add_argument("--out", default="discovery/cards")
     args = ap.parse_args()
 
@@ -158,7 +161,17 @@ def main() -> int:
     def _datei(nid: str) -> Path:
         return karten_dir / (nid.replace(":", "_") + ".yaml")
 
-    offen = [nid for nid in subset if not _datei(nid).exists()]
+    def _offen(nid: str) -> bool:                   # offen = fehlt ODER leer (leere Karten nachfahren)
+        p = _datei(nid)
+        if not p.exists():
+            return True
+        try:
+            d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError:
+            return True
+        return not (d.get("kandidaten") or d.get("anker_vorgeschlagen"))
+
+    offen = [nid for nid in subset if _offen(nid)]
     print(f"Subset {len(subset)} Normen · offen {len(offen)} · provider={args.provider} "
           f"model={args.model or '(lokal-auto)'} concurrency={args.concurrency}", file=sys.stderr)
 
@@ -166,7 +179,8 @@ def main() -> int:
 
     def _roh(nid: str):
         return nid, roh_karte(base_url, nodes[nid], model=args.model, timeout=args.timeout,
-                              api_key=api_key, provider=args.provider, fehler_protokoll=fehler)
+                              api_key=api_key, provider=args.provider,
+                              n_predict=args.max_tokens, fehler_protokoll=fehler)
 
     # Phase 1: API-Calls PARALLEL (thread-safe). Phase 2: Graph-Zerlegung im Hauptthread.
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:

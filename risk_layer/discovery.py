@@ -152,9 +152,10 @@ def _erste_id(zitat: str) -> str:
     return ""
 
 
-_ZAHLWORT = {"null": "0", "ein": "1", "eins": "1", "eine": "1", "einem": "1", "einer": "1",
-             "zwei": "2", "drei": "3", "vier": "4", "fünf": "5", "sechs": "6", "sieben": "7",
-             "acht": "8", "neun": "9", "zehn": "10", "elf": "11", "zwölf": "12",
+# "ein/eine/einem/einer/eins" bewusst NICHT enthalten: das sind fast immer Artikel,
+# keine Sachzahlen ("eine Gestaltung") -> sonst Dauer-Fehlalarm zahl_unbelegt:1.
+_ZAHLWORT = {"null": "0", "zwei": "2", "drei": "3", "vier": "4", "fünf": "5", "sechs": "6",
+             "sieben": "7", "acht": "8", "neun": "9", "zehn": "10", "elf": "11", "zwölf": "12",
              "zwanzig": "20", "dreißig": "30", "vierzig": "40", "fünfzig": "50", "hundert": "100"}
 
 
@@ -696,14 +697,17 @@ def verarbeite_karte(card: dict[str, Any], *, node: dict[str, Any],
 
 
 def roh_karte(base_url: str, node: dict[str, Any], *, model: str = "", timeout: float = 300.0,
-              api_key: str | None = None, provider: str = "local",
+              api_key: str | None = None, provider: str = "local", n_predict: int = 1024,
               fehler_protokoll: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Nur der LLM-Teil (THREAD-SAFE): roh-Karte eines vorselektierten §. {} bei
-    Server-/Format-Problemen, protokolliert statt still zu verschwinden."""
+    Server-/Format-Problemen, protokolliert statt still zu verschwinden. ``n_predict``
+    großzügig wählen — Reasoning-Modelle verbrauchen das Token-Budget beim Denken, sonst
+    kommt bei langen §§ leerer Content zurück (0 Anker trotz Inhalt)."""
     user = baue_card_prompt(node["zitat"], node["titel"], node["text"])
     try:
         content = _chat(base_url, CARD_SYSTEM, user, model=model, timeout=timeout,
-                        api_key=api_key, provider=provider, response_schema=CARD_JSON_SCHEMA)
+                        n_predict=n_predict, api_key=api_key, provider=provider,
+                        response_schema=CARD_JSON_SCHEMA)
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
             KeyError, IndexError, json.JSONDecodeError) as e:
         if fehler_protokoll is not None:
