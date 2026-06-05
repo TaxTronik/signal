@@ -220,7 +220,7 @@ def test_karte_guter_anker_akzeptiert():
             "nachbarnormen": [], "matcher_terms": [],
             "advisory": {"hinweis": "trägt", "risikotyp": "haftung"}}
     k = _karte(card)
-    assert isinstance(k, Karte) and k.anker_vorgeschlagen == 1 and k.anker_akzeptiert == 1
+    assert isinstance(k, Karte) and k.anker_vorgeschlagen == 1 and k.anker_gegatet == 1
     assert [c.typ for c in k.kandidaten] == ["paraphrase"]
     assert k.kandidaten[0].inhalt == "die Anteile sind fürs Finanzamt futsch"
     assert k.advisory["hinweis"] == "trägt" and k.advisory["risikotyp"] == "haftung"
@@ -232,7 +232,7 @@ def test_karte_umstellung_raus():
                          "textgrundlage": "Die Verluste sind nicht abziehbar"}],
             "nachbarnormen": [], "hinweis": ""}
     k = _karte(card)
-    assert k.anker_vorgeschlagen == 1 and k.anker_akzeptiert == 0 and k.kandidaten == []
+    assert k.anker_vorgeschlagen == 1 and k.anker_gegatet == 0 and k.kandidaten == []
 
 
 def test_karte_unbelegte_norm_wird_geflaggt():
@@ -255,14 +255,42 @@ def test_karte_nachbarnorm_nur_wenn_im_wortlaut_und_graph():
 
 def test_karte_leer_erlaubt():
     k = _karte({"anchors": [], "nachbarnormen": [], "advisory": {"hinweis": "kein Anker trägt"}})
-    assert k.kandidaten == [] and k.anker_akzeptiert == 0 and k.matcher_terms == []
+    assert k.kandidaten == [] and k.anker_gegatet == 0 and k.matcher_terms == []
     assert k.advisory["hinweis"] == "kein Anker trägt"
 
 
 def test_karte_matcher_terms_nur_aus_wortlaut():
     card = {"anchors": [], "nachbarnormen": [],
             "matcher_terms": ["Besteuerungsgrundlagen", "erfundener Begriff"],
-            "advisory": {"risikotyp": "schaetzung", "pruefpunkte": ["x", "  "]}}
+            "advisory": {"risikotyp": "verfahren", "pruefpunkte": ["x", "  "]}}
     k = _karte(card)
     assert k.matcher_terms == ["Besteuerungsgrundlagen"]   # erfundener Begriff nicht im §
-    assert k.advisory["risikotyp"] == "schaetzung" and k.advisory["pruefpunkte"] == ["x"]
+    assert k.advisory["risikotyp"] == "verfahren" and k.advisory["pruefpunkte"] == ["x"]
+
+
+def test_karte_generischer_matcher_raus():
+    node = {"id": QUELL, "law": LAW, "zitat": "§ 8 EStDV", "titel": TITEL,
+            "text": "Das Gesetz und die Besteuerungsgrundlagen gelten."}
+    card = {"anchors": [], "nachbarnormen": [],
+            "matcher_terms": ["Gesetz", "Besteuerungsgrundlagen"], "advisory": {}}
+    assert _karte(card, node=node).matcher_terms == ["Besteuerungsgrundlagen"]
+
+
+def test_karte_relation_ausnahme_aus_wortlaut():
+    node = {"id": QUELL, "law": LAW, "zitat": "§ 8 EStDV", "titel": TITEL,
+            "text": "Mit Ausnahme des § 22 HGB sind die Vorschriften anzuwenden."}
+    card = {"anchors": [], "nachbarnormen": ["§ 22 HGB"], "advisory": {}}
+    refs = [c for c in _karte(card, node=node).kandidaten if c.typ == "cross_ref"]
+    assert len(refs) == 1 and refs[0].relation == "ausgenommen_von"
+
+
+def test_karte_advisory_enum_coercion():
+    k = _karte({"anchors": [], "nachbarnormen": [],
+                "advisory": {"risikotyp": "Quatsch", "governance_typ": "formal-periodisch"}})
+    assert k.advisory["risikotyp"] == ""                       # Fremdwert -> leer
+    assert k.advisory["governance_typ"] == "formal-periodisch"
+
+
+def test_karte_fassung_und_hash():
+    k = _karte({"anchors": [], "nachbarnormen": [], "advisory": {}})
+    assert k.quell_hash and len(k.quell_hash) == 16 and k.fassung == ""

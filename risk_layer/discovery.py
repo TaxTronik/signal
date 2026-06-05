@@ -16,6 +16,7 @@ Kandidaten; der Runner schreibt nur die Review-Queue nach ``discovery/``
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import urllib.error
@@ -32,7 +33,8 @@ from .zitate import parse_normzitat
 TYP = ("begriff", "paraphrase", "cross_ref", "normrelation")
 FUNKTION = ("begriff", "tatbestandsmerkmal", "rechtsfolge", "definition",
             "pruefhinweis", "relation", "unklar")
-RELATION = ("verweist_auf", "konkretisiert", "ermaechtigungsbezug", "keine")
+RELATION = ("verweist_auf", "ausgenommen_von", "anwendbar_auf",
+            "konkretisiert", "ermaechtigungsbezug", "keine")
 KONFIDENZ = ("hoch", "mittel", "niedrig")
 TRAINING_TYPEN = ("paraphrase", "begriff")
 
@@ -287,7 +289,9 @@ def verarbeite_kandidaten(
             if not bezug_id or para_level(bezug_id) == para_level(ziel_id or quell_norm):
                 continue                        # Fremdnorm fehlt / Selbstbezug -> raus
             if typ == "cross_ref":
-                relation = "verweist_auf"
+                relation = str(k.get("relation", "")).strip()
+                if relation not in ("verweist_auf", "ausgenommen_von", "anwendbar_auf"):
+                    relation = "verweist_auf"                 # aus dem Wortlaut abgeleitet (s. _card_zu_roh)
                 gestuetzt = ist_im_graph(bezug_id)            # parsebar + im Graph
             else:                               # normrelation: eng + graph-/wortlaut-/titel-gestützt
                 relation = str(k.get("relation", "")).strip()
@@ -346,7 +350,7 @@ def _absatz_knoten(graph, pid: str, law: str, para: str, titel: str,
                    max_zeichen: int | None) -> list[dict[str, Any]]:
     """Direkte Absatz-Kinder eines § (norm:…:absN), ohne tiefere nr/lit/s-Ebene."""
     rows = graph.con.execute(
-        "SELECT id, absatz, text FROM knoten "
+        "SELECT id, absatz, text, gueltig_ab FROM knoten "
         "WHERE id LIKE ? AND id NOT LIKE ? AND nummer IS NULL ORDER BY absatz",
         (f"{pid}:abs%", f"{pid}:abs%:%")).fetchall()
     out: list[dict[str, Any]] = []
@@ -357,6 +361,7 @@ def _absatz_knoten(graph, pid: str, law: str, para: str, titel: str,
         out.append({
             "id": r["id"], "law": law,
             "zitat": f"§ {para} Abs. {r['absatz']} {law}", "titel": titel,
+            "stand": r["gueltig_ab"],
             "text": text[:max_zeichen] if max_zeichen else text,
         })
     return out
@@ -372,7 +377,7 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None,
     Format-/Timeout-Ausfälle bei den dichten Normen, §§ 14 ff. KStG, §§ 4/6/15 EStG).
     Default aus (der A/B-Export läuft bewusst auf ganzen §, eingefroren)."""
     rows = graph.con.execute(
-        "SELECT id, titel, law, para, text FROM knoten "
+        "SELECT id, titel, law, para, text, gueltig_ab FROM knoten "
         "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
     for r in rows:
         titel = (r["titel"] or "").strip()
@@ -392,7 +397,7 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None,
                 continue
         yield {
             "id": r["id"], "law": r["law"], "zitat": f"§ {r['para']} {r['law']}",
-            "titel": echter_titel,
+            "titel": echter_titel, "stand": r["gueltig_ab"],
             "text": text[:max_zeichen] if max_zeichen else text,
         }
 
@@ -532,14 +537,20 @@ CARD_SYSTEM = (
     "Du entscheidest NICHT über die Relevanz der Norm — die ist vorgegeben."
 )
 
+# Kontrolliertes Vokabular der Advisory-Zone (TCMS-Aggregation; "" = nicht zutreffend).
+RISIKOTYP_VOK = ("haftung", "mitwirkung", "buchfuehrung", "aenderung", "frist",
+                 "verfahren", "strafnah", "gestaltung", "organschaft", "sonstiges", "")
+GOVERNANCE_VOK = ("formal-periodisch", "fortlaufend-faktisch", "inhaerent", "")
+RISIKOPHASE_VOK = ("latent", "konkret", "immanent", "")
+
 _ADVISORY_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "risikotyp": {"type": "string"},
+        "risikotyp": {"type": "string", "enum": list(RISIKOTYP_VOK)},
         "pruefpunkte": {"type": "array", "items": {"type": "string"}},
         "hinweis": {"type": "string"},
-        "governance_typ": {"type": "string"},
-        "risikophase": {"type": "string"},
+        "governance_typ": {"type": "string", "enum": list(GOVERNANCE_VOK)},
+        "risikophase": {"type": "string", "enum": list(RISIKOPHASE_VOK)},
         "fehlerquelle": {"type": "string"},
     },
     "required": ["risikotyp", "pruefpunkte", "hinweis", "governance_typ",
@@ -573,10 +584,15 @@ def baue_card_prompt(zitat: str, titel: str, wortlaut: str) -> str:
         "- anchors: 0–3 Anker in Laien-/Kanzleisprache (KEINE Wortlautkopie/-umstellung), "
         "je mit 'textgrundlage' = wörtliche Stelle. Lieber 0 als schwach.\n"
         "- nachbarnormen: bis 5 §§, die der Wortlaut zitiert, als '§ N Gesetz'.\n"
-        "- matcher_terms: bis 6 charakteristische Begriffe/Phrasen, die WÖRTLICH im § "
-        "stehen (für spätere deterministische Matcher).\n"
-        "ADVISORY (Entwurf, darf leer sein): risikotyp · pruefpunkte · hinweis · "
-        "governance_typ · risikophase · fehlerquelle — nur wenn klar zutreffend.\n"
+        "- matcher_terms: bis 6 SPEZIFISCHE Fachbegriffe DIESER Norm, die WÖRTLICH im § "
+        "stehen (für deterministische Matcher). KEINE allgemeinen Rechtsbegriffe wie "
+        "'Bundesrecht', 'Steuer', 'Gesetz', 'Person' — die feuern überall.\n"
+        "ADVISORY (Entwurf, darf leer bleiben, nur wenn klar zutreffend):\n"
+        "  risikotyp ∈ {haftung, mitwirkung, buchfuehrung, aenderung, frist, verfahren, "
+        "strafnah, gestaltung, organschaft, sonstiges};\n"
+        "  governance_typ ∈ {formal-periodisch, fortlaufend-faktisch, inhaerent};\n"
+        "  risikophase ∈ {latent, konkret, immanent}; pruefpunkte (Liste); "
+        "hinweis (ein Satz); fehlerquelle (kurz).\n"
         "Gib NUR das JSON nach Schema zurück."
     )
 
@@ -597,8 +613,10 @@ class Karte:
     kandidaten: list[Kandidat]            # engine: gegatete Anker + Kanten
     matcher_terms: list[str]              # engine: im Wortlaut belegte 1b-Kandidaten
     advisory: dict[str, Any]              # berater-/TCMS-Entwurf (NIE gegated)
+    fassung: str                          # Gesetzesstand (gueltig_ab) der Quell-Norm
+    quell_hash: str                       # Hash des Normtexts -> Regen-Trigger bei Änderung
     anker_vorgeschlagen: int
-    anker_akzeptiert: int
+    anker_gegatet: int                    # durch die Evidenz-Gates (NICHT human-akzeptiert)
     review_status: str = "neu"
 
     def as_dict(self) -> dict[str, Any]:
@@ -619,13 +637,39 @@ def _json_objekt(content: str) -> dict[str, Any]:
     return d if isinstance(d, dict) else {}
 
 
+_AUSNAHME_CUES = ("ausnahme", "ausgenommen", "gilt nicht", "gelten nicht", "nicht anzuwenden",
+                  "findet keine anwendung", "nicht anwendbar")
+_ANWEND_CUES = ("entsprechend anzuwenden", "entsprechend anwend", "gelten entsprechend",
+                "gilt entsprechend", "ist anzuwenden", "sind anzuwenden")
+
+
 def _finde_zitat_span(node_text: str, para_num: str) -> str:
     """Fenster um die erste '§ <para_num>'-Stelle im Wortlaut (Evidenz, dass die
-    Nachbarnorm hier wirklich zitiert wird). Leer, wenn nicht vorkommend."""
+    Nachbarnorm hier wirklich zitiert wird), auf Wortgrenzen geschnitten. Leer, wenn
+    nicht vorkommend."""
     m = re.search(rf"§+\s*{re.escape(para_num)}\b", node_text or "")
     if not m:
         return ""
-    return node_text[max(0, m.start() - 12):min(len(node_text), m.end() + 30)]
+    a, b = max(0, m.start() - 45), min(len(node_text), m.end() + 45)
+    frag = node_text[a:b]
+    if a > 0 and " " in frag:
+        frag = frag.split(" ", 1)[1]                  # angeschnittenes erstes Wort weg
+    if b < len(node_text) and " " in frag:
+        frag = frag.rsplit(" ", 1)[0]                 # angeschnittenes letztes Wort weg
+    return frag.strip()
+
+
+def _relation_aus_span(span: str) -> str:
+    """Relation aus dem Wortlaut ableiten (NICHT vom Modell geglaubt): Ausnahme-/
+    Anwendungs-Cues entscheiden — die Bedeutung steht im Text. Ein flaches verweist_auf
+    würde eine Ausnahme bedeutungsverkehrt als Treffer ziehen; 'ausgenommen_von' ist
+    zugleich der Negativ-Anker gegen Crosstalk."""
+    low = span.lower()
+    if any(c in low for c in _AUSNAHME_CUES):
+        return "ausgenommen_von"
+    if any(c in low for c in _ANWEND_CUES):
+        return "anwendbar_auf"
+    return "verweist_auf"
 
 
 def _card_zu_roh(card: dict[str, Any], node_text: str) -> list[dict[str, Any]]:
@@ -647,34 +691,53 @@ def _card_zu_roh(card: dict[str, Any], node_text: str) -> list[dict[str, Any]]:
         if not span:
             continue
         roh.append({"typ": "cross_ref", "funktion": "relation", "inhalt": f"Verweis auf {nb}",
-                    "textgrundlage": span, "bezugsnorm": nb, "relation": "verweist_auf",
-                    "konfidenz": "hoch"})
+                    "textgrundlage": span, "bezugsnorm": nb,
+                    "relation": _relation_aus_span(span), "konfidenz": "hoch"})
     return roh
+
+
+_GENERISCHE_TERME = {
+    "bundesrecht", "recht der europäischen union", "recht der europaeischen union",
+    "unionsrecht", "europäische union", "europaeische union", "steuer", "steuern",
+    "steuerrecht", "gesetz", "gesetze", "vorschrift", "vorschriften", "rechtsverordnung",
+    "behörde", "behoerde", "finanzbehörde", "finanzbehoerde", "person", "personen",
+}
 
 
 def _matcher_terms(card: dict[str, Any], node_text: str) -> list[str]:
     """matcher_terms (1b-Kandidaten): nur Begriffe, die WÖRTLICH im § stehen (Evidenz),
-    dedupliziert, gedeckelt. Anders als Anker hier KEIN Register-Bridge — der Matcher
-    soll exakt greifen."""
+    dedupliziert, gedeckelt, OHNE generische Hub-Terme ('Bundesrecht', 'Steuer', …) —
+    die feuern auf jedem Text und erzeugen genau den Crosstalk auf zentrale Normen.
+    Anders als Anker hier KEIN Register-Bridge — der Matcher soll exakt greifen."""
     low = node_text.lower()
     out: list[str] = []
     seen: set[str] = set()
     for t in (card.get("matcher_terms") or [])[:8]:
         ts, key = str(t).strip(), _norm(str(t))
-        if ts and key and key in low and key not in seen:
+        if ts and key and key in low and key not in seen and key not in _GENERISCHE_TERME:
             seen.add(key)
             out.append(ts)
     return out
 
 
+_ADVISORY_VOK = {"risikotyp": set(RISIKOTYP_VOK), "governance_typ": set(GOVERNANCE_VOK),
+                 "risikophase": set(RISIKOPHASE_VOK)}
+
+
 def _advisory(card: dict[str, Any]) -> dict[str, Any]:
-    """Advisory-Zone bereinigt durchreichen — NIE gegated, NIE auto-produktiv."""
+    """Advisory-Zone bereinigt durchreichen — NIE gegated, NIE auto-produktiv. Enum-
+    Felder auf kontrolliertes Vokabular zwingen (TCMS-Aggregation), Fremdwerte -> ''."""
     a = card.get("advisory") or {}
     out: dict[str, Any] = {}
     for k in _ADVISORY_KEYS:
         v = a.get(k)
-        out[k] = ([str(x).strip() for x in (v or []) if str(x).strip()]
-                  if k == "pruefpunkte" else str(v or "").strip())
+        if k == "pruefpunkte":
+            out[k] = [str(x).strip() for x in (v or []) if str(x).strip()]
+        elif k in _ADVISORY_VOK:
+            s = str(v or "").strip().lower()
+            out[k] = s if s in _ADVISORY_VOK[k] else ""
+        else:
+            out[k] = str(v or "").strip()
     return out
 
 
@@ -689,11 +752,13 @@ def verarbeite_karte(card: dict[str, Any], *, node: dict[str, Any],
         node_titel=node["titel"], verweist_ids=verweist_ids, ist_im_graph=ist_im_graph,
         max_kandidaten=8, max_paraphrasen=MAX_PARAPHRASEN)
     vorgeschlagen = len(card.get("anchors") or [])
-    akzeptiert = sum(1 for k in kand if k.typ == "paraphrase")
+    gegatet = sum(1 for k in kand if k.typ == "paraphrase")
+    quell_hash = hashlib.sha256((node["text"] or "").encode("utf-8")).hexdigest()[:16]
     return Karte(norm_id=node["id"], norm=node["zitat"], titel=node["titel"],
                  kandidaten=kand, matcher_terms=_matcher_terms(card, node["text"]),
-                 advisory=_advisory(card), anker_vorgeschlagen=vorgeschlagen,
-                 anker_akzeptiert=akzeptiert)
+                 advisory=_advisory(card), fassung=str(node.get("stand") or ""),
+                 quell_hash=quell_hash, anker_vorgeschlagen=vorgeschlagen,
+                 anker_gegatet=gegatet)
 
 
 def roh_karte(base_url: str, node: dict[str, Any], *, model: str = "", timeout: float = 300.0,
