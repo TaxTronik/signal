@@ -1,0 +1,113 @@
+# Gold v1 (EINGEFROREN) — Organschaft-Retrieval, Held-out.
+# rolle=dev: ab Gold-100+ (StB-Klausuren) ist das Test-Set blind; HIER darf getunt werden
+# (diese 19 sind durch die Analyse bekannt -> Dev-Set). Disjunkt von Ankern;
+# der Eval droppt exakte Normalisierungs-Treffer als Leckage.
+
+gold_version: v1
+stand: '2026-06-06'
+rolle: dev
+quelle: Masterthesis R. Koxha (Organschaft) — Sachverhalte PARAPHRASIERT (nicht verbatim);
+  §-Labels = Thesis-Zuordnung. Thesis bleibt lokal.
+n: 19
+faelle:
+- query: Wir wollen die Verluste unserer einen Tochter-GmbH mit den Gewinnen der anderen
+    verrechnen; die Mutter hält an beiden 100 % und mit beiden besteht ein Ergebnisabführungsvertrag.
+  ziele:
+  - norm:KStG:14
+  quelle: Kap 5.1 Konstellation 1 (Holding/Verlustnutzung)
+- query: Der Ergebnisabführungsvertrag wurde in einem Jahr nicht ordnungsgemäß in
+    der Handelsbilanz ausgewiesen — droht jetzt die rückwirkende Aberkennung der gesamten
+    Organschaft?
+  ziele:
+  - norm:KStG:14
+  quelle: Kap 4.1.4 Fehlerquelle 2 (GAV/tatsächliche Durchführung)
+- query: Wir haben eine Zielgesellschaft mitten im Jahr erworben; kann sie für dieses
+    Wirtschaftsjahr überhaupt noch rückwirkend in den ertragsteuerlichen Organkreis
+    aufgenommen werden?
+  ziele:
+  - norm:KStG:14
+  quelle: Kap 5.1.3 Konstellation 4 (Post-Merger-Integration)
+- query: Die Tochter hat aus der Zeit vor der Organschaft noch Verlustvorträge — dürfen
+    diese während des Bestehens der Organschaft genutzt werden?
+  ziele:
+  - norm:KStG:15
+  quelle: Kap 4.1.2 (Suspendierung vororganschaftlicher Verluste)
+- query: An unserer Organgesellschaft ist noch ein Minderheitsgesellschafter beteiligt,
+    der Ausgleichszahlungen erhält — was bedeutet das für die Besteuerung der Tochter?
+  ziele:
+  - norm:KStG:16
+  quelle: Kap 4.1.2 (Ausgleichszahlungen an Außenstehende)
+- query: Unsere Organgesellschaft ist eine GmbH und keine AG — welche zusätzlichen
+    Voraussetzungen gelten dann für die körperschaftsteuerliche Organschaft?
+  ziele:
+  - norm:KStG:17
+  quelle: Kap 4.1.1.1 / §17 (andere Kapitalgesellschaften)
+- query: Unsere kapitalintensive Tochter kann ihre Zinsen wegen der Zinsschranke nicht
+    voll abziehen — hilft die Organschaft, weil dann das gesamte EBITDA des Konzerns
+    zur Verfügung steht?
+  ziele:
+  - norm:KStG:15
+  - norm:EStG:4h
+  quelle: Kap 4.1.3 (EBITDA-Pooling / Konzern-Escape)
+- query: Vor Begründung der Organschaft soll die verlustträchtige Tochter umstrukturiert
+    und Anteile übertragen werden — Gefahr, dass die Verlustvorträge dabei untergehen?
+  ziele:
+  - norm:KStG:8c
+  quelle: Kap 4.1.4 Fehlerquelle 4 (schädlicher Beteiligungserwerb)
+- query: Ausschüttungen von der Tochter an die Mutter kosten sonst pauschal 5 % —
+    lässt sich diese Belastung über die Organschaft vermeiden?
+  ziele:
+  - norm:KStG:8b
+  quelle: Kap 4.1.3 (Vermeidung § 8b Abs. 5)
+- query: Folgt die gewerbesteuerliche Organschaft automatisch der körperschaftsteuerlichen,
+    und was passiert gewerbesteuerlich mit der eingegliederten Tochter?
+  ziele:
+  - norm:GewStG:2
+  quelle: Kap 4.2.1 (Betriebsstättenfiktion / Akzessorietät)
+- query: Bei der gewerbesteuerlichen Organschaft sollen bestimmte Kürzungen erst beim
+    Organträger angesetzt werden, nicht schon bei der Tochter — welche Sondervorschrift
+    regelt diese Ermittlung?
+  ziele:
+  - norm:GewStG:7a
+  quelle: Kap 4.2.2 (Sonderermittlung § 7a)
+- query: Unsere Immobilien-GmbH vermietet Gewerbeobjekte an Schwestergesellschaften
+    im Konzern — bekommt sie weiterhin die erweiterte gewerbesteuerliche Grundstückskürzung?
+  ziele:
+  - norm:GewStG:9
+  quelle: Kap 5.1.2 Konstellation 3 (Immobilien-GmbH im Organkreis)
+- query: Wann liegt umsatzsteuerlich eine Organschaft vor — reicht die Mehrheitsbeteiligung
+    an der Tochter oder braucht es mehr?
+  ziele:
+  - norm:UStG:2
+  quelle: Kap 4.3.1 (finanz./wirtsch./organ. Eingliederung)
+- query: Der Geschäftsführer, der bei Mutter und Tochter dieselbe Person war, scheidet
+    aus — bricht damit die umsatzsteuerliche Organschaft taggenau weg?
+  ziele:
+  - norm:UStG:2
+  quelle: Kap 5.2.3 Fehlschlagkonstellation (organisat. Eingliederung)
+- query: Leistungen zwischen Mutter und Tochter innerhalb desselben umsatzsteuerlichen
+    Organkreises — fällt darauf Umsatzsteuer an?
+  ziele:
+  - norm:UStG:2
+  quelle: Kap 4.3.2 (Nichtsteuerbarkeit der Innenumsätze)
+- query: Welcher Vertrag verpflichtet die Tochter, ihren ganzen Gewinn an die Mutter
+    abzuführen, und bildet das Kernstück der ertragsteuerlichen Organschaft?
+  ziele:
+  - norm:AktG:291
+  quelle: Kap 3.1 / 4.1.1.3 (Gewinnabführungsvertrag)
+- query: Die Mutter muss sich verpflichten, sämtliche Verluste der Tochter auszugleichen
+    — auf welche aktienrechtliche Vorschrift muss der Vertrag dafür dynamisch verweisen?
+  ziele:
+  - norm:AktG:302
+  quelle: Kap 4.1.1.3 / §17 (Verlustübernahme)
+- query: Das Finanzamt hat gegen die Organgesellschaft einen bestandskräftigen Bescheid
+    erlassen, obwohl eine Organschaft vorlag — wirkt dieser Bescheid auch gegen den
+    Organträger?
+  ziele:
+  - norm:AO:166
+  quelle: Kap 4.3.5 Fehlerquelle 7 (verkannte Organschaft / Drittwirkung)
+- query: Wenn die Organschaft erst in der Betriebsprüfung als unwirksam erkannt wird,
+    fallen auf die Nachzahlung Zinsen an — nach welcher Vorschrift?
+  ziele:
+  - norm:AO:233a
+  quelle: Kap 5.2.3 (Nachzahlungszinsen)

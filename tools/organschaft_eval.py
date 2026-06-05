@@ -103,7 +103,7 @@ def metriken(raenge: list[int | None]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Organschaft-Retrieval-Eval: Opus-Anker-Lift")
-    ap.add_argument("--gold", default="discovery/opus/kstg/organschaft_gold.yaml")
+    ap.add_argument("--gold", default="fixtures/gold/organschaft_v1.yaml")
     ap.add_argument("--opus", default="discovery/opus/kstg/discovery_kstg_organschaft.yaml")
     ap.add_argument("--encoder", default="bge-m3")
     ap.add_argument("--k", type=int, default=10)

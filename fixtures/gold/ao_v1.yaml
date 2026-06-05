@@ -1,0 +1,36 @@
+# Gold v1 (EINGEFROREN) — AO-Recall-Probe (Gestaltung/Vertreterhaftung).
+# KNOWN LIMITATION: zeigt ein RECALL-Problem (none R@50=0,33), NICHT Ranking —
+# eigenes Gold + hierarchisches Retrieval folgt separat (s. ENTSCHEIDUNG_Card-Retrieval.md).
+
+gold_version: v1
+stand: '2026-06-06'
+rolle: dev
+quelle: Produktionskatalog-Paraphrasen (§42 / §34+§69) — Intra-AO-Recall-Probe.
+n: 6
+faelle:
+- query: Über eine eigens gegründete Hülle im Ausland wird Gewinn umgeleitet, obwohl
+    dort niemand arbeitet.
+  ziele: &id001
+  - norm:AO:42
+  quelle: Prod-Katalog ao_gestaltungsmissbrauch
+- query: Die Konstruktion ergibt nur Sinn, um Steuern zu sparen – einen anderen Grund
+    gibt es nicht.
+  ziele: *id001
+  quelle: Prod-Katalog ao_gestaltungsmissbrauch
+- query: Auf dem Papier gehört es der Auslandsfirma, gelenkt wird aber alles vom Inland
+    aus.
+  ziele: *id001
+  quelle: Prod-Katalog ao_gestaltungsmissbrauch
+- query: Der Chef einer klammen GmbH bedient erst Lieferanten und Bank, das Finanzamt
+    geht leer aus.
+  ziele: &id002
+  - norm:AO:34
+  - norm:AO:69
+  quelle: Prod-Katalog ao_vertreterhaftung
+- query: Es war noch Geld vorhanden, doch ausgerechnet die Steuer wurde nicht überwiesen.
+  ziele: *id002
+  quelle: Prod-Katalog ao_vertreterhaftung
+- query: Statt das Amt zu bezahlen, hat der Geschäftsführer lieber den Betrieb am
+    Laufen gehalten.
+  ziele: *id002
+  quelle: Prod-Katalog ao_vertreterhaftung
