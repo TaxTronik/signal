@@ -23,6 +23,8 @@ import argparse
 import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from functools import lru_cache
@@ -62,6 +64,15 @@ def _verweist_ids(graph, node_id: str) -> set[str]:
     return ids
 
 
+def _openai_modelle(base_url: str, api_key: str) -> list[str]:
+    """Modell-IDs des Accounts (GET /v1/models) — für den Preflight-Check, damit ein
+    falscher --model nicht 30× als 404 endet."""
+    req = urllib.request.Request(f"{base_url.rstrip('/')}/v1/models",
+                                 headers={"Authorization": f"Bearer {api_key}"})
+    with urllib.request.urlopen(req, timeout=15) as r:  # noqa: S310
+        return sorted(m.get("id", "") for m in json.load(r).get("data", []) if m.get("id"))
+
+
 def _lies_subset(pfad: Path) -> list[str]:
     out: list[str] = []
     for zeile in pfad.read_text(encoding="utf-8").splitlines():
@@ -96,6 +107,20 @@ def main() -> int:
     if not server_verfuegbar(base_url, timeout=5.0) and args.provider == "local":
         print(f"Kein Endpoint unter {base_url}.", file=sys.stderr)
         return 2
+    if args.provider == "openai":                   # Preflight: Modell existiert + Auth ok?
+        try:
+            verfuegbar = _openai_modelle(base_url, api_key)
+        except urllib.error.HTTPError as e:
+            print(f"Modell-Liste abgelehnt (HTTP {e.code}) — Key/Zugang prüfen: "
+                  f"{e.read().decode('utf-8', 'replace')[:200]}", file=sys.stderr)
+            return 2
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            print(f"Modell-Liste nicht abrufbar ({type(e).__name__}).", file=sys.stderr)
+            return 2
+        if args.model not in verfuegbar:
+            print(f"Modell '{args.model}' ist im Account nicht verfügbar. Verfügbar:\n  "
+                  + "\n  ".join(verfuegbar), file=sys.stderr)
+            return 2
 
     graph = graph_oeffnen()
     if graph is None:
