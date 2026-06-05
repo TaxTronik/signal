@@ -40,13 +40,13 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 from risk_layer.discovery import (                       # noqa: E402
-    Karte, besteht_review_gate, besteht_training_gate, iter_paragraphen,
+    Karte, _normbase, besteht_review_gate, besteht_training_gate, iter_paragraphen,
     roh_karte, server_verfuegbar, verarbeite_karte,
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
 from risk_layer.idschema import para_level               # noqa: E402
 
-PROVIDER_BASEURL = {"local": "http://127.0.0.1:8000", "openai": "https://api.openai.com/v1"}
+PROVIDER_BASEURL = {"local": "http://127.0.0.1:8000", "openai": "https://api.openai.com"}
 
 
 def _atomar(pfad: Path, text: str) -> None:
@@ -67,7 +67,7 @@ def _verweist_ids(graph, node_id: str) -> set[str]:
 def _openai_modelle(base_url: str, api_key: str) -> list[str]:
     """Modell-IDs des Accounts (GET /v1/models) — für den Preflight-Check, damit ein
     falscher --model nicht 30× als 404 endet."""
-    req = urllib.request.Request(f"{base_url.rstrip('/')}/v1/models",
+    req = urllib.request.Request(f"{_normbase(base_url)}/v1/models",
                                  headers={"Authorization": f"Bearer {api_key}"})
     with urllib.request.urlopen(req, timeout=15) as r:  # noqa: S310
         return sorted(m.get("id", "") for m in json.load(r).get("data", []) if m.get("id"))

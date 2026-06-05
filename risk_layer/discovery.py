@@ -409,6 +409,13 @@ def erkenne_modell(base_url: str, *, timeout: float = 10.0) -> str:
     return ""
 
 
+def _normbase(base_url: str) -> str:
+    """Basis-URL ohne abschließendes '/v1' (Doppel-/v1 vermeiden): die Endpunkte hängen
+    '/v1/...' selbst an, die base darf also mit ODER ohne '/v1' übergeben werden."""
+    b = base_url.rstrip("/")
+    return b[:-3].rstrip("/") if b.endswith("/v1") else b
+
+
 def _chat(base_url: str, system: str, user: str, *, model: str = "",
           timeout: float = 300.0, n_predict: int = 1024, no_think: bool = False,
           api_key: str | None = None, provider: str = "local",
@@ -438,7 +445,7 @@ def _chat(base_url: str, system: str, user: str, *, model: str = "",
     if api_key:                                     # Key NUR im Header, nie geloggt
         headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/v1/chat/completions",
+        f"{_normbase(base_url)}/v1/chat/completions",
         data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
         return json.load(resp)["choices"][0]["message"]["content"]
