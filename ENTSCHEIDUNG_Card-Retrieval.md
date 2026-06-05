@@ -16,6 +16,14 @@ Verlierer fast alle UStG mit einzelnem scharfem Anker). PASS 4/4, kein FAIL-Krit
 **Freeze-Stand = Normpaket-Rerank auf 1241-Replacement-Bestand. Produktiv freigegeben (konservativ):
 `cards/card_anchors_v1.yaml` (1015, ohne Absatz).** Quelle: `benchmarks/normpaket.json`.
 
+**Residuenklassifikation (Schritt 1, VOR dem Lauf fixiert, `tools/residual_export.py`):** 21 oracle_rr-
+Residuen (1241-Replacement) → Topf 1 Reranker-eigen **2** · Topf 2 Scope-/Gesetz **0** (oracle scopt korrekt)
+· Topf 3 Coverage/Card fehlt **2** (EStG:3 nicht im Kandidatensatz, EStG:19/9a ohne Karten-Signal) · Topf 4
+Gold/Mehrteiligkeit **3** (AO-01c, GEW-7, KST-GEWST — cross-law, brauchen beide Normen) · Topf 5 intra-law
+Geschwisterkollision **12** · Topf 6 echte Ambiguität **2** (AO-03 abstrakte „Unterschiede"-Query, EST2-A1-6
+ohne Signal). **paketfähig = Topf 1 + Topf 5 = 14/21.** Validierung: 10/12 Paket-Gewinner stammten aus
+dieser Vorab-Menge → die Klassifikation war erklärend, nicht Deko. Raw: `benchmarks/residuals-export.json`.
+
 **Offene Punkte (NICHT jetzt — würden den Freeze öffnen):** (1) verlust-gegatetes Hybrid-Ranking
 `score = max(package, best_single_anchor)`; (2) Normfamilien-/Geschwister-Nachbekartung; (3) Generalisierung
 v3-Gold; (4) Scope-Quelle produktiv (Host-Workflow/Beraterauswahl). Tagessatz: *Normpakete sind netto

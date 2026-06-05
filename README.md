@@ -36,6 +36,12 @@ Scope / Rechtsraum
 → Norm-Aggregation
 ```
 
+**Freeze-Stand:** Innerhalb des Scopes rerankt ein **Normpaket** je Norm (Norm-Titel +
+§-Textauszug + Top-k Cards) statt einzelner Anker. Das repariert intra-law-Geschwister-
+kollisionen und signalverteilte Normen — **kann aber scharfe Einzelanker verwässern**
+(gemessen netto positiv, Precision-Trade-off offen dokumentiert, s. [FEATURES.md](FEATURES.md)).
+Der **Flat-Index** ist nur Baseline/Diagnose, **nicht** der finale Produktivpfad.
+
 Der Scope kann produktiv aus dem Host-Workflow bzw. aus Beraterauswahl stammen.
 Open-World-Scope-Schätzung aus bloßem Text bleibt ein Fallback-/Forschungsthema.
 
