@@ -22,6 +22,29 @@ fängt Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführ
 
 ---
 
+## Aktueller Architekturstand: Scope-aware Retrieval
+
+Der semantische Teil des Risk-Layers ist **nicht** als globaler Flat-Index gedacht.
+Eval-Läufe haben gezeigt: Werden alle Paraphrasen-Anker ungefiltert in denselben
+Kandidatenraum gelegt, entstehen cross-law- und intra-law-Verdrängungen. Der
+produktive Zielpfad ist deshalb:
+
+```text
+Scope / Rechtsraum
+→ Kandidaten innerhalb des Scopes
+→ Reranker
+→ Norm-Aggregation
+```
+
+Der Scope kann produktiv aus dem Host-Workflow bzw. aus Beraterauswahl stammen.
+Open-World-Scope-Schätzung aus bloßem Text bleibt ein Fallback-/Forschungsthema.
+
+Kuratierte Cards sind keine Rechtsentscheidung. Sie liefern **Evidenz für eine Norm**.
+Bewertet, freigegeben und produktiv übernommen werden sie erst nach fachlicher
+Kuration durch den Berufsträger.
+
+---
+
 ## Was es ist — eine headless Engine
 
 Der Risk-Layer ist eine **zustandslose Analyse-Engine** mit zwei Zugängen:
@@ -179,21 +202,32 @@ risk-layer trigger build                 # baut den Index aus dem Normgraph
 risk-layer trigger lookup "Bareinnahmen fehlen, die Kasse ist nicht nachvollziehbar"
 ```
 
-**Schicht 1.7 — Semantik / Embedding** (`embedding.py`). **BGE-M3** bettet die
-Gesetzestexte ein und findet Paraphrasen *ohne geteiltes Fachwort*. Liefert
-**Vorschläge** (Top-k mit Ähnlichkeitswert), **keine harten Marken** — gemessen
-existiert kein robuster Schwellwert. Kuratierte **Paraphrasen-Anker** je Norm werden
-mit-eingebettet und heben echte Treffer, ohne den Rauschboden zu senken. Das Modell
-liefert nur Vektoren; verglichen wird gegen den Korpus — nie Modellgedächtnis.
+**Schicht 1.7 — Semantik / Embedding** (`embedding.py`). **BGE-M3** bettet den
+Gesetzeskorpus sowie kuratierte Anker ein und findet Paraphrasen ohne geteiltes
+Fachwort. Die Semantik liefert **Norm-Vorschläge**, keine harten Markierungen.
+Gemessen gibt es keinen robusten globalen Schwellwert für Auto-Markierungen.
+
+**Cards / Anker als Evidenz.** Kuratierte Paraphrasen- und Tatbestand-Cards werden
+als Evidenz für eine Norm geführt. Breite Paragraphen-Anker können bei wachsendem
+Bestand diffuse Verdrängung erzeugen; für breite Schema-Normen sind deshalb
+tatbestand- bzw. absatznahe Cards vorzuziehen. Das Modell liefert nur Vektoren;
+verglichen wird gegen den Korpus — nie Modellgedächtnis.
+
+**Scope+Rerank.** Der Reranker ist nicht als Reparatur eines beliebig großen
+Flat-Index gedacht. Der Zielpfad ist scope-aware: Rechtsraum bestimmen, Kandidaten
+im Scope bilden, dann Reranker und Norm-Aggregation. Oracle-Scope-Läufe zeigen
+deutlich bessere Stabilität gegen cross-law-Verdrängung; deploybare Scope-Quellen
+sind Host-Workflow, Beraterauswahl oder später ein lokaler Klassifikator.
 
 ```bash
 risk-layer embedding build               # baut den Index (+ Katalog-Paraphrasen-Anker)
 risk-layer embedding suche "Der Chef hat die Lohnsteuer trotz Geld nicht abgeführt"
 ```
 
-> Der Index führt die **Paragraph-Ebene**; Anker auf Absatz-Ebene werden gekürzt
-> (📌 benannte Schuld, s. [FEATURES.md](FEATURES.md) §3). Ein **lautes Audit**
-> meldet beim Build jeden *toten Anker* (Paraphrase ohne Index-Ziel).
+> Der Index führt die **Paragraph-Ebene**; **tatbestand-/absatznahe Cards** für breite
+> Schema-Normen rollen per `para_level` auf ihre §-Zielnorm hoch (📌 s.
+> [FEATURES.md](FEATURES.md) §3). Ein **lautes Audit** meldet beim Build jeden
+> *toten Anker* (Paraphrase ohne Index-Ziel).
 
 **Normketten — Fundstellen als Kaskaden.** Eine Fundstelle ist oft eine Kette
 (*„§ 14 KStG iVm § 2 Abs. 2 GewStG"*). Treffer und Vorschläge liefern die **ganze
@@ -426,10 +460,13 @@ python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/,
   das Host-System). Siehe [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
 - **Unknown-als-Risiko + Berater-Definitionen — ✅ umgesetzt** (Zustandsmodell,
   offline-Gate, Lebenszyklus, define-on-the-fly) inkl. **Abgleich-Schleife** (BFH/BMF).
-- **Semantik (Schicht 1.7) — 🟡 umgesetzt mit benannter Grenze:** BGE-M3 +
-  Paraphrasen-Anker liefern Norm-Vorschläge; bewusst **kein** hartes Auto-Markieren.
-  **Offen (📌):** Index-Granularität auf Absatz-Ebene heben, domänenweite Anker,
-  optionales Embedding-Fine-Tuning. Details: [FEATURES.md](FEATURES.md).
+- **Semantik (Schicht 1.7/1.7b) — 🟡 umgesetzt mit gemessener Architekturgrenze:**
+  BGE-M3 + Cards + Reranker liefern Norm-Vorschläge. Der globale Flat-Index ist
+  nicht der finale Produktivpfad; Zielarchitektur ist **Scope+Rerank**.
+  Tatbestand-granulare Cards heben bekannte Bedarfsfälle hub-bias-frei, sind aber
+  nicht als Generalisierungsbeweis zu verkaufen. **Offen (📌):** Scope-Quelle im
+  Produkt, Intra-Law-Kollateral bei dichten Card-Beständen und Generalisierung auf
+  ungesehene Gold-Sets. Details: [FEATURES.md](FEATURES.md).
 
 ### Optionale Robustheit: spaCy-Lemmatisierung (/LF50/)
 

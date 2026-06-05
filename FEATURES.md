@@ -83,12 +83,33 @@ neutrale Sätze leer. Gemessen (`tools/embedding_bench.py --reranker`):
 Anker-Floor *schlägt* (naiv gegen reinen Gesetzestext schadet er dagegen). fp16 auf
 der GPU macht ihn schnell (~1 s/Dok); in der Engine fest aktiv (GPU-only).
 
-📌 **Granularität — gemessen entschieden:** Der Index führt bewusst die
-**Paragraph-Ebene**. Ein A/B mit Absatz-Splitting **regredierte** die Gold-Menge
-(mehr Vektoren ⇒ höherer Rausch-Floor, Recall −1; die risiko-relevanten §§ sind
-kurz genug, die langen sind Übergangsrecht). Die echte Absatz-Präzision (§ 173
-Abs. 1 vs. Abs. 2) löst der **kuratierte Paraphrasen-Anker** gezielt, nicht blankes
-Splitting. Encoder-Head-to-Head (BGE-M3 vs. Granite-R2 vs. Jina-v5 vs. Qwen3-0.6B/4B,
+**Scope+Rerank — Zielarchitektur:** Eval-Läufe zeigen, dass globale Flat-Indizes
+bei wachsendem Ankerbestand cross-law-Verdrängung erzeugen. Der produktive Pfad ist
+deshalb scope-aware: Rechtsraum / Region bestimmen, Kandidaten innerhalb des Scopes
+bilden, Reranker anwenden, danach Norm-Aggregation.
+
+- **Getestet und verworfen:** harter graph-geratener Law-Router · ankerfreie First-Stage ·
+  reines größeres Rerank-Fenster als Präzisionsreparatur · Graph-Embedding- und
+  lexikalischer Scope-Schätzer aus bloßem Text.
+- **Bestätigt:** Scope+Rerank ist der Zielpfad · Tatbestand-Cards sind als
+  bedarfsgetriebene Coverage-Maßnahme wirksam · Open-World-Scope-Schätzung bleibt offen ·
+  Produktiv-Scope kommt primär aus Host-Workflow, Beraterauswahl oder später lokalem
+  Klassifikator · **Normpaket-Reranking** (ein Paket je Norm: §-Text + Top-k Cards) hebt
+  unter Scope den motivierenden KStG-Knick (KStG-Dev 0,51→0,60) — Trade-off und Stand s. § Offene Punkte.
+
+📌 **Granularität — aktuelle Evidenz:** Blankes Absatz-Splitting des gesamten
+Normkorpus wurde gemessen verworfen: mehr Vektoren erhöhen den Rausch-Floor.
+Das gilt jedoch **nicht** für kuratierte Tatbestand-Cards. Für breite Schema-Normen
+(UStG § 3/10/15, EStG § 4/10, KStG § 8) sind tatbestand- bzw. absatznahe Cards
+die fachlich richtige Einheit (sie rollen per `para_level` auf ihre §-Zielnorm hoch).
+
+Gemessen: tatbestand-granulare Cards heben auf einem query-getriebenen Bedarfs-Set
+die Retrieval-Werte deutlich und hub-bias-frei. Diese Zahl ist jedoch als
+**Bedarfs-Coverage** zu etikettieren, **nicht** als Generalisierungsbeweis. Auf
+unberührtem Dev-Gold zeigte sich lokales Intra-Law-Kollateral, insbesondere KStG § 8
+gegen Organschaftsnormen. Daraus folgt: Cards werden **selektiv** deployed; breite
+Paragraphenanker werden für Schema-Normen nicht ungeprüft produktiv übernommen.
+Encoder-Head-to-Head (BGE-M3 vs. Granite-R2 vs. Jina-v5 vs. Qwen3-0.6B/4B,
 `benchmarks/*.json`): **BGE-M3 bleibt** — der Hebel sind **Anker + Reranker**, nicht
 das Modell. (Qwen3-4B ~2× bei un-verankerter Abdeckung, aber 8 GB VRAM — Reserve.)
 
@@ -207,15 +228,27 @@ Embedding/Paraphrasen-Anker, **Reranker**, **Smart-Windowing**, Anonymisierung,
 
 ## Offene Punkte / Ausbau 📌
 
-- **Reranker-Feinschliff** — Startup-Warmup (sonst trifft der *erste* Request ~15 s
-  Kaltstart: Lazy-Load + ROCm-Kernel-Warmup), Gesamt-Batch über alle Sätze
-  (1 s → 0,47 s), Frontend zeigt den `rerank`-Score, CLI-Flag.
-  *(Absatz-Granularität wurde gemessen verworfen — siehe § 3.)*
-- **Domänenweite Paraphrasen-Anker** — Anker heben nicht nur die eigene Norm,
-  sondern verschieben das relative Ranking aller anderen; ungeankerte Fälle sinken
-  relativ ab. Wer die halbe Domäne ankert, muss die andere Hälfte mitziehen.
-- **Embedding-Fine-Tuning** auf Steuer-Paraphrasen (Domänengewinn) als Alternative
-  zu mehr Ankern.
-- **Trigger-Kuratierung**: `geprueft`-Flag pflegen + „nur geprüfte" filtern (Host/CLI).
-- **Verwaltungs-/Urteilskorpus** + typisierte `wird_ausgelegt_durch`-Kanten;
-  Kontext-Stack für relative Verweise.
+- **Scope-Quelle im Produkt:** Der Zielpfad ist Scope+Rerank. Produktiv soll der
+  Scope primär aus Host-Workflow, Beraterauswahl oder Aktenkontext stammen.
+  Open-World-Scope-Schätzung aus bloßem Text ist bislang nicht ausreichend
+  zuverlässig; Graph- und lexikalische Schätzer wurden verworfen.
+- **Intra-Law-Kollateral:** Dichte Cards eines breiten Paragraphen können
+  Geschwisternormen desselben Gesetzes verdrängen (z. B. KStG § 8-Cards gegen
+  Organschaftsnormen). **Normpaket-Reranking** (ein Paket je Norm: §-Text + Top-k
+  Cards) ist gegen vorab fixierte Schwellen getestet und repariert den KStG-Knick
+  (KStG-Dev 0,51→0,60; v2-oracle 0,51→0,55) → Freeze-Stand. **Bekannter Trade-off:**
+  das Paket verteilt das Norm-Signal — es hilft signal-verteilten Normen, drückt aber
+  Normen mit einem einzelnen scharfen Anker (n=77: +12 neu ≤5, −11 verloren, netto
+  +1 @5 / +0,04 MRR). Offen: amtliche Gliederungscluster, Nachbekartung betroffener
+  Normfamilien, verlust-gegatetes Kriterium.
+- **Tatbestand-Cards / Card-Deployment-Regeln:** Breite Schema-Normen brauchen
+  tatbestandliche Cards. Produktiv werden Cards nur nach QC/Review deployed;
+  query-getriebene Coverage-Lifts sind nicht als Generalisierung zu verkaufen.
+- **Generalisierungsnachweis:** v3-Gold aus ungesehenen Quellen bleibt offen;
+  bestehende Zahlen sind als Dev-/Bedarfs-Set-Ergebnisse zu etikettieren.
+- **Reranker-Feinschliff:** Startup-Warmup (sonst ~15 s Kaltstart beim ersten
+  Request: Lazy-Load + ROCm-Kernel-Warmup), Gesamt-Batch über alle Sätze
+  (1 s → 0,47 s), Frontend-Anzeige des `rerank`-Scores, CLI-Flag.
+- **Embedding-Fine-Tuning** auf Steuer-Paraphrasen als Alternative zu mehr Ankern;
+  **Trigger-Kuratierung** (`geprueft`-Flag); **Verwaltungs-/Urteilskorpus** +
+  typisierte `wird_ausgelegt_durch`-Kanten, Kontext-Stack für relative Verweise.

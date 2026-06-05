@@ -1,5 +1,26 @@
 # Entscheidung: Card-Anker-Retrieval = breit einsammeln → Reranker, kein harter Router
 
+## FREEZE-STAND (eingefroren, 2026-06-06): Scope+Rerank mit Normpaket-Reranking
+> Normpaket-Reranking wird als Freeze-Stand übernommen. Der Modus erfüllt alle vorab fixierten
+> PASS-Kriterien: KStG-Dev erholt sich über die Baseline, v2-oracle_rr und v2-flat regredieren nicht,
+> und die Gewinne stammen überwiegend aus vorher als paketfähig klassifizierten Residuen.
+>
+> Der Modus ist jedoch **kein Pareto-Gewinn**. Er verbessert signalverteilte Normen und intra-law
+> Geschwisterkollisionen, kann aber Fälle verschlechtern, in denen zuvor ein einzelner sehr scharfer
+> Anker den Treffer getragen hat. Der Nettoeffekt ist positiv, der Trade-off bleibt offen dokumentiert.
+
+**Zahlen (vorab fixierte Schwellen, ein Lauf, `tools/normpaket_eval.py`):** KStG-Dev (primär)
+**0,506 → 0,603** (≥0,55, > Baseline-1015 0,587 → Knick repariert) · v2-oracle_rr 0,506→0,546 ·
+v2-flat 0,447→0,466 · Bewegung +12 neu ≤5 (10/12 paketfähig) / **−11 verloren** (netto +1 @5, +0,04 MRR;
+Verlierer fast alle UStG mit einzelnem scharfem Anker). PASS 4/4, kein FAIL-Kriterium ausgelöst.
+**Freeze-Stand = Normpaket-Rerank auf 1241-Replacement-Bestand. Produktiv freigegeben (konservativ):
+`cards/card_anchors_v1.yaml` (1015, ohne Absatz).** Quelle: `benchmarks/normpaket.json`.
+
+**Offene Punkte (NICHT jetzt — würden den Freeze öffnen):** (1) verlust-gegatetes Hybrid-Ranking
+`score = max(package, best_single_anchor)`; (2) Normfamilien-/Geschwister-Nachbekartung; (3) Generalisierung
+v3-Gold; (4) Scope-Quelle produktiv (Host-Workflow/Beraterauswahl). Tagessatz: *Normpakete sind netto
+positiv und reparieren den KStG-Kollateralfehler, mit dokumentiertem Precision-Trade-off bei scharfen Einzelankern.*
+
 **Status:** Zielarchitektur **eval-belegt (STARK)**: **Scope/Region → Kandidaten im Scope → Reranker
 → Norm-Aggregation** (rerank-on-oracle MRR 0,381 ≥ 0,34; cross-class Top-5 0,49→0,00; R@20 0,62→0,86).
 **Absatz-Tatbestand-Cards: Lift auf Bedarfs-Set (oracle 0,38→0,51, flat 0,31→0,45), hub-bias-frei

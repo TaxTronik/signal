@@ -1,0 +1,610 @@
+{
+  "n_residuen": 21,
+  "k": 200,
+  "residuen": [
+    {
+      "fall_id": "AO-01c",
+      "klasse": "cross_law",
+      "ziele": [
+        "AO:220",
+        "AO:240",
+        "EStG:36"
+      ],
+      "n_ziele": 3,
+      "rang": 6,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.014,
+      "verdraenger": [
+        {
+          "norm": "AO:157",
+          "gesetz": "AO",
+          "score": 0.094
+        },
+        {
+          "norm": "AO:218",
+          "gesetz": "AO",
+          "score": 0.028
+        },
+        {
+          "norm": "AO:37",
+          "gesetz": "AO",
+          "score": 0.025
+        }
+      ]
+    },
+    {
+      "fall_id": "AO-01d",
+      "klasse": "single",
+      "ziele": [
+        "AO:240"
+      ],
+      "n_ziele": 1,
+      "rang": 8,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.007,
+      "verdraenger": [
+        {
+          "norm": "AO:155",
+          "gesetz": "AO",
+          "score": 0.045
+        },
+        {
+          "norm": "AO:3",
+          "gesetz": "AO",
+          "score": 0.037
+        },
+        {
+          "norm": "AO:175",
+          "gesetz": "AO",
+          "score": 0.034
+        }
+      ]
+    },
+    {
+      "fall_id": "AO-03",
+      "klasse": "intra_law",
+      "ziele": [
+        "AO:172",
+        "AO:347"
+      ],
+      "n_ziele": 2,
+      "rang": 26,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.001,
+      "verdraenger": [
+        {
+          "norm": "AO:357",
+          "gesetz": "AO",
+          "score": 0.099
+        },
+        {
+          "norm": "AO:364a",
+          "gesetz": "AO",
+          "score": 0.044
+        },
+        {
+          "norm": "AO:365",
+          "gesetz": "AO",
+          "score": 0.027
+        }
+      ]
+    },
+    {
+      "fall_id": "AO-04",
+      "klasse": "intra_law",
+      "ziele": [
+        "AO:108",
+        "AO:149"
+      ],
+      "n_ziele": 2,
+      "rang": 7,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.019,
+      "verdraenger": [
+        {
+          "norm": "AO:93",
+          "gesetz": "AO",
+          "score": 0.033
+        },
+        {
+          "norm": "AO:399",
+          "gesetz": "AO",
+          "score": 0.029
+        },
+        {
+          "norm": "AO:117h",
+          "gesetz": "AO",
+          "score": 0.024
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A1b2",
+      "klasse": "single",
+      "ziele": [
+        "EStG:15"
+      ],
+      "n_ziele": 1,
+      "rang": 17,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.012,
+      "verdraenger": [
+        {
+          "norm": "EStG:2a",
+          "gesetz": "EStG",
+          "score": 0.638
+        },
+        {
+          "norm": "EStG:6",
+          "gesetz": "EStG",
+          "score": 0.411
+        },
+        {
+          "norm": "EStG:10",
+          "gesetz": "EStG",
+          "score": 0.283
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A1b3",
+      "klasse": "intra_law",
+      "ziele": [
+        "EStG:19",
+        "EStG:9a"
+      ],
+      "n_ziele": 2,
+      "rang": 63,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.0,
+      "verdraenger": [
+        {
+          "norm": "EStG:10",
+          "gesetz": "EStG",
+          "score": 0.017
+        },
+        {
+          "norm": "EStG:32a",
+          "gesetz": "EStG",
+          "score": 0.005
+        },
+        {
+          "norm": "EStG:6a",
+          "gesetz": "EStG",
+          "score": 0.001
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A1b4",
+      "klasse": "intra_law",
+      "ziele": [
+        "EStG:21",
+        "EStG:23"
+      ],
+      "n_ziele": 2,
+      "rang": 6,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.159,
+      "verdraenger": [
+        {
+          "norm": "EStG:7h",
+          "gesetz": "EStG",
+          "score": 0.5
+        },
+        {
+          "norm": "EStG:18",
+          "gesetz": "EStG",
+          "score": 0.484
+        },
+        {
+          "norm": "EStG:6b",
+          "gesetz": "EStG",
+          "score": 0.363
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A1b5",
+      "klasse": "single",
+      "ziele": [
+        "EStG:18"
+      ],
+      "n_ziele": 1,
+      "rang": 15,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.002,
+      "verdraenger": [
+        {
+          "norm": "EStG:3c",
+          "gesetz": "EStG",
+          "score": 0.049
+        },
+        {
+          "norm": "EStG:48b",
+          "gesetz": "EStG",
+          "score": 0.046
+        },
+        {
+          "norm": "EStG:4d",
+          "gesetz": "EStG",
+          "score": 0.009
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A2",
+      "klasse": "intra_law",
+      "ziele": [
+        "EStG:20",
+        "EStG:32d"
+      ],
+      "n_ziele": 2,
+      "rang": 15,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.015,
+      "verdraenger": [
+        {
+          "norm": "EStG:26b",
+          "gesetz": "EStG",
+          "score": 0.45
+        },
+        {
+          "norm": "EStG:10d",
+          "gesetz": "EStG",
+          "score": 0.23
+        },
+        {
+          "norm": "EStG:18",
+          "gesetz": "EStG",
+          "score": 0.069
+        }
+      ]
+    },
+    {
+      "fall_id": "EST1-A3",
+      "klasse": "intra_law",
+      "ziele": [
+        "EStG:33",
+        "EStG:33a"
+      ],
+      "n_ziele": 2,
+      "rang": 8,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.011,
+      "verdraenger": [
+        {
+          "norm": "EStG:10d",
+          "gesetz": "EStG",
+          "score": 0.029
+        },
+        {
+          "norm": "EStG:18",
+          "gesetz": "EStG",
+          "score": 0.027
+        },
+        {
+          "norm": "EStG:70",
+          "gesetz": "EStG",
+          "score": 0.022
+        }
+      ]
+    },
+    {
+      "fall_id": "EST2-A1-1",
+      "klasse": "single",
+      "ziele": [
+        "EStG:3"
+      ],
+      "n_ziele": 1,
+      "rang": null,
+      "ziel_im_kandidatensatz": false,
+      "ziel_score": null,
+      "verdraenger": [
+        {
+          "norm": "EStG:7i",
+          "gesetz": "EStG",
+          "score": 0.025
+        },
+        {
+          "norm": "EStG:10b",
+          "gesetz": "EStG",
+          "score": 0.011
+        },
+        {
+          "norm": "EStG:7h",
+          "gesetz": "EStG",
+          "score": 0.004
+        }
+      ]
+    },
+    {
+      "fall_id": "EST2-A1-3",
+      "klasse": "single",
+      "ziele": [
+        "EStG:22"
+      ],
+      "n_ziele": 1,
+      "rang": 11,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.0,
+      "verdraenger": [
+        {
+          "norm": "EStG:32a",
+          "gesetz": "EStG",
+          "score": 0.3
+        },
+        {
+          "norm": "EStG:16",
+          "gesetz": "EStG",
+          "score": 0.039
+        },
+        {
+          "norm": "EStG:10",
+          "gesetz": "EStG",
+          "score": 0.037
+        }
+      ]
+    },
+    {
+      "fall_id": "EST2-A1-6",
+      "klasse": "single",
+      "ziele": [
+        "EStG:33a"
+      ],
+      "n_ziele": 1,
+      "rang": 10,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.0,
+      "verdraenger": [
+        {
+          "norm": "EStG:4",
+          "gesetz": "EStG",
+          "score": 0.0
+        },
+        {
+          "norm": "EStG:7b",
+          "gesetz": "EStG",
+          "score": 0.0
+        },
+        {
+          "norm": "EStG:10",
+          "gesetz": "EStG",
+          "score": 0.0
+        }
+      ]
+    },
+    {
+      "fall_id": "GEW-7",
+      "klasse": "cross_law",
+      "ziele": [
+        "EStG:15",
+        "GewStG:7"
+      ],
+      "n_ziele": 2,
+      "rang": 9,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.241,
+      "verdraenger": [
+        {
+          "norm": "EStG:2a",
+          "gesetz": "EStG",
+          "score": 0.688
+        },
+        {
+          "norm": "GewStG:8",
+          "gesetz": "GewStG",
+          "score": 0.517
+        },
+        {
+          "norm": "EStG:4",
+          "gesetz": "EStG",
+          "score": 0.373
+        }
+      ]
+    },
+    {
+      "fall_id": "KST-10",
+      "klasse": "single",
+      "ziele": [
+        "KStG:10"
+      ],
+      "n_ziele": 1,
+      "rang": 9,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.013,
+      "verdraenger": [
+        {
+          "norm": "KStG:6",
+          "gesetz": "KStG",
+          "score": 0.032
+        },
+        {
+          "norm": "KStG:30",
+          "gesetz": "KStG",
+          "score": 0.024
+        },
+        {
+          "norm": "KStG:24",
+          "gesetz": "KStG",
+          "score": 0.024
+        }
+      ]
+    },
+    {
+      "fall_id": "KST-GEWST",
+      "klasse": "cross_law",
+      "ziele": [
+        "EStG:4",
+        "KStG:8"
+      ],
+      "n_ziele": 2,
+      "rang": 46,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.002,
+      "verdraenger": [
+        {
+          "norm": "EStG:48c",
+          "gesetz": "EStG",
+          "score": 0.076
+        },
+        {
+          "norm": "EStG:36",
+          "gesetz": "EStG",
+          "score": 0.031
+        },
+        {
+          "norm": "EStG:110",
+          "gesetz": "EStG",
+          "score": 0.026
+        }
+      ]
+    },
+    {
+      "fall_id": "UST1-08",
+      "klasse": "intra_law",
+      "ziele": [
+        "UStG:15",
+        "UStG:1a",
+        "UStG:3d"
+      ],
+      "n_ziele": 3,
+      "rang": 6,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.046,
+      "verdraenger": [
+        {
+          "norm": "UStG:13",
+          "gesetz": "UStG",
+          "score": 0.719
+        },
+        {
+          "norm": "UStG:6b",
+          "gesetz": "UStG",
+          "score": 0.645
+        },
+        {
+          "norm": "UStG:3",
+          "gesetz": "UStG",
+          "score": 0.63
+        }
+      ]
+    },
+    {
+      "fall_id": "UST1-11",
+      "klasse": "intra_law",
+      "ziele": [
+        "UStG:15"
+      ],
+      "n_ziele": 1,
+      "rang": 7,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.013,
+      "verdraenger": [
+        {
+          "norm": "UStG:14c",
+          "gesetz": "UStG",
+          "score": 0.321
+        },
+        {
+          "norm": "UStG:10",
+          "gesetz": "UStG",
+          "score": 0.232
+        },
+        {
+          "norm": "UStG:13",
+          "gesetz": "UStG",
+          "score": 0.071
+        }
+      ]
+    },
+    {
+      "fall_id": "UST2-01",
+      "klasse": "intra_law",
+      "ziele": [
+        "UStG:15",
+        "UStG:17"
+      ],
+      "n_ziele": 2,
+      "rang": 8,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.004,
+      "verdraenger": [
+        {
+          "norm": "UStG:10",
+          "gesetz": "UStG",
+          "score": 0.163
+        },
+        {
+          "norm": "UStG:14c",
+          "gesetz": "UStG",
+          "score": 0.078
+        },
+        {
+          "norm": "UStG:3",
+          "gesetz": "UStG",
+          "score": 0.071
+        }
+      ]
+    },
+    {
+      "fall_id": "UST2-03",
+      "klasse": "intra_law",
+      "ziele": [
+        "UStG:15",
+        "UStG:1a",
+        "UStG:3d"
+      ],
+      "n_ziele": 3,
+      "rang": 6,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.09,
+      "verdraenger": [
+        {
+          "norm": "UStG:13",
+          "gesetz": "UStG",
+          "score": 0.794
+        },
+        {
+          "norm": "UStG:3",
+          "gesetz": "UStG",
+          "score": 0.61
+        },
+        {
+          "norm": "UStG:6b",
+          "gesetz": "UStG",
+          "score": 0.532
+        }
+      ]
+    },
+    {
+      "fall_id": "UST2-10",
+      "klasse": "intra_law",
+      "ziele": [
+        "UStG:1",
+        "UStG:3a"
+      ],
+      "n_ziele": 2,
+      "rang": 12,
+      "ziel_im_kandidatensatz": true,
+      "ziel_score": 0.001,
+      "verdraenger": [
+        {
+          "norm": "UStG:10",
+          "gesetz": "UStG",
+          "score": 0.603
+        },
+        {
+          "norm": "UStG:3",
+          "gesetz": "UStG",
+          "score": 0.009
+        },
+        {
+          "norm": "UStG:14c",
+          "gesetz": "UStG",
+          "score": 0.009
+        }
+      ]
+    }
+  ]
+}
