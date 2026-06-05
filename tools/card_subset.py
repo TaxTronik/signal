@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -55,11 +56,31 @@ def _verweist(graph, nid: str) -> set[str]:
     return out
 
 
+# Steuer-Kernrecht (+ zugehörige Verordnungen) — Scope für die Zentralitäts-Stufe.
+KERNRECHT = {"AO", "EStG", "KStG", "GewStG", "UStG", "UmwStG", "ErbStG", "BewG", "AStG",
+             "GrEStG", "GrStG", "InvStG", "SolzG", "FGO",
+             "EStDV", "UStDV", "KStDV", "GewStDV", "ErbStDV", "LStDV"}
+
+
+def _in_degree(graph) -> dict[str, int]:
+    """Cross-Ref-In-Degree je Ziel-§ (para-Ebene): wie viele verschiedene §§ verweisen
+    auf ihn. Korpusgestützt, nicht modellgegated — die Zentralität ist die Relevanz."""
+    indeg: dict[str, set[str]] = defaultdict(set)
+    for src, dst in graph.con.execute("SELECT src, dst FROM kanten WHERE typ='verweist_auf'"):
+        if src and dst:
+            indeg[para_level(dst)].add(para_level(src))
+    return {k: len(v) for k, v in indeg.items()}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Deterministisches Card-Discovery-Subset")
     ap.add_argument("--seed", default="", help="Datei mit Prioritäts-norm_ids (ein je Zeile, "
                     "# Kommentar) — geht dem Korpus-Signal voran (gepflegte Liste)")
     ap.add_argument("--expand", action="store_true", help="1-Hop verweist_auf-Nachbarn aufnehmen")
+    ap.add_argument("--zentralitaet", type=int, default=0,
+                    help="zusätzlich Normen mit Cross-Ref-In-Degree >= N aufnehmen (0 = aus)")
+    ap.add_argument("--kernrecht", action="store_true",
+                    help="Zentralitäts-Stufe auf Steuer-Kernrecht beschränken")
     ap.add_argument("--limit", type=int, default=0, help="auf N Normen kürzen (0 = alle)")
     ap.add_argument("--out", default="discovery/cards_subset.txt")
     args = ap.parse_args()
@@ -103,24 +124,57 @@ def main() -> int:
                     nachbarn.append(m)
         gewaehlt += nachbarn
 
+    # Zentralitäts-Stufe (Union, ersetzt nichts): zentrale Normen ergänzen, ohne die
+    # handgesetzten Seed-/Katalog-/Nachbar-Normen zu verlieren.
+    zentral: list[str] = []
+    if args.zentralitaet > 0:
+        deg = _in_degree(graph)
+        seen = set(gewaehlt)
+        for nid, d in sorted(deg.items(), key=lambda x: (-x[1], x[0])):
+            if d < args.zentralitaet:
+                break                               # absteigend sortiert -> Rest ist kleiner
+            law = nid.split(":")[1] if ":" in nid else ""
+            if args.kernrecht and law not in KERNRECHT:
+                continue
+            if nid in seen or not im_graph(nid):
+                continue
+            seen.add(nid)
+            zentral.append(nid)
+        gewaehlt += zentral
+
     if args.limit:
         gewaehlt = gewaehlt[:args.limit]
 
+    seed_set, luecken_set = set(seed), set(luecken)
+    nachbar_set, zentral_set = set(nachbarn), set(zentral)
+
+    def _marke(n: str) -> str:
+        if n in seed_set:
+            return "seed"
+        if n in luecken_set:
+            return "luecke"
+        if n in katalog_normen:
+            return "katalog"
+        if n in nachbar_set:
+            return "nachbar"
+        if n in zentral_set:
+            return "zentral"
+        return "?"
+
     zeilen = [f"# Card-Discovery-Subset (deterministisch) — {len(gewaehlt)} Normen",
               f"# Seed {len(seed)} · Katalog-Lücken {len(luecken)} · übrige Katalog "
-              f"{len(rest_kat)} · Cross-Ref-Nachbarn {len(nachbarn)}",
-              "# Auswahl = Seed + Korpus-Signal, NICHT Modellurteil.", ""]
-    seed_set, luecken_set = set(seed), set(luecken)
+              f"{len(rest_kat)} · Nachbarn {len(nachbarn)} · zentral {len(zentral)}"
+              + (f" (In-Degree≥{args.zentralitaet}{', Kernrecht' if args.kernrecht else ''})"
+                 if args.zentralitaet else ""),
+              "# Auswahl = Seed + Korpus-Signal (Zentralität), NICHT Modellurteil.", ""]
     for n in gewaehlt:
-        marke = ("seed" if n in seed_set else "luecke" if n in luecken_set
-                 else "katalog" if n in katalog_normen else "nachbar")
-        zeilen.append(f"{n}    # {marke}")
+        zeilen.append(f"{n}    # {_marke(n)}")
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(zeilen) + "\n", encoding="utf-8")
     print(f"{len(gewaehlt)} Normen -> {out}  (Seed {len(seed)} / Lücken {len(luecken)} / "
-          f"Katalog {len(rest_kat)} / Nachbarn {len(nachbarn)})")
+          f"Katalog {len(rest_kat)} / Nachbarn {len(nachbarn)} / zentral {len(zentral)})")
     return 0
 
 
