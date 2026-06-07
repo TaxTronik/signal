@@ -1,103 +1,113 @@
 # Forgejo-Runner mit Docker-in-Docker (fuer die Build-CI)
 
-Wortgetreu nach der offiziellen Forgejo-Doku (gilt fuer Forgejo 15):
-<https://forgejo.org/docs/latest/admin/actions/docker-access/>
+Belegt am **gepflegten Referenz-Compose** von Forgejo (Forgejo 15):
+- Doku: <https://forgejo.org/docs/latest/admin/actions/docker-access/>
+- Referenz: <https://code.forgejo.org/forgejo/runner/src/branch/main/examples/docker-compose/compose-forgejo-and-runner.yml>
 
-Die Build-CI (`.forgejo/workflows/build.yml`, Job `engine-image`) ruft `docker build`
-und braucht dafuer einen Docker-Daemon **im Job**. Standardmaessig hat der Job-Container
-keinen — daher der Fehler:
+Die Build-CI (`.forgejo/workflows/build.yml`, Job `engine-image`) ruft `docker build` und
+braucht dafuer einen Docker-Daemon **im Job**. Default hat der Job-Container keinen ->
+`Cannot connect to the Docker daemon at unix:///var/run/docker.sock`.
 
-```
-Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?
-```
+Wir nutzen **Docker-in-Docker (DinD)**, NICHT `automount` (das mountet den Host-Socket,
+keine Isolation, und kann laut Doku kein tcp teilen).
 
-Wir nutzen **Docker-in-Docker (DinD)**, NICHT `automount`: `automount` mountet den
-**Host-Socket** in jeden Job (keine Isolation) und kann laut Doku **kein tcp** teilen
-(`"automount"` verhaelt sich bei `tcp://...` wie `"-"`). DinD haelt den Build vom
-Host-Docker isoliert (Mandantengeheimnis, vgl. README).
+## Der entscheidende Mechanismus: `container.network: host`
 
-## Die drei Schritte der Doku (auf unsere compose-Topologie uebertragen)
+Der Job-Container wird **im DinD** erstellt. Mit `network: host` teilt er sich den
+**Netz-Namespace des DinD** und erreicht dessen Daemon direkt auf **loopback**.
+Das ist der Weg, den das offizielle Referenz-Compose nutzt — **kein** host-gateway,
+**kein** `--add-host`.
 
-Die Doku startet den DinD per `docker run` und published ihn auf den Host
-(`127.0.0.1:2376`). Wir haben ihn stattdessen als compose-Service `docker-in-docker`
-(nur im compose-Netz, tcp `:2375`). Der Job laeuft in beiden Faellen **im DinD** und
-erreicht dessen Daemon ueber `host-gateway` — der relevante Pfad ist identisch.
+Der Workflow selbst setzt KEIN `DOCKER_HOST` (Docker-Zugriff ist Admin-/Runner-Sache).
+Die runner-config injiziert es per `runner.envs` in jeden Job.
 
-### Schritt 1 — DinD-Container (deine docker-compose.runner.yml)
+## Variante A (empfohlen): deinen bestehenden `--tls=false`-DinD behalten
+
+Minimal-Eingriff, nur runner-config. Dein DinD lauscht schon auf `tcp://0.0.0.0:2375`
+ohne TLS -> der Job erreicht ihn ueber `localhost` (gemeinsamer Netz-Namespace):
 
 ```yaml
+# data/config.yml  (genau die Datei, die der Daemon via --config laedt!)
+runner:
+  envs:
+    DOCKER_HOST: tcp://localhost:2375     # Job -> DinD im selben netns, kein TLS
+
+container:
+  network: host                           # <-- der Kern: Job teilt den DinD-netns
+  docker_host: "-"                        # Runner erstellt Jobs ueber sein eigenes
+                                          #   compose-DOCKER_HOST=tcp://docker-in-docker:2375
+```
+
+Kein Zertifikat, kein DNS, kein host-gateway. Danach: `docker compose -f
+docker-compose.runner.yml up -d` (oder `restart runner`).
+
+## Variante B (1:1 die Forgejo-Referenz): TLS-DinD
+
+Falls du exakt dem gepflegten Beispiel folgen willst (TLS, Hostname `docker`):
+
+```yaml
+# docker-compose.runner.yml
+volumes:
+  docker_certs:
+
 services:
   docker-in-docker:
-    image: docker:27-dind
+    image: data.forgejo.org/oci/docker:dind
+    hostname: docker                      # TLS-Zert gilt nur fuer 'docker' / localhost
     privileged: true
-    command: ['dockerd', '-H', 'tcp://0.0.0.0:2375', '--tls=false']
-    restart: unless-stopped
+    environment:
+      DOCKER_TLS_CERTDIR: /certs          # KEIN --tls=false-Command mehr
+    volumes:
+      - docker_certs:/certs
 
   runner:
     image: data.forgejo.org/forgejo/runner:12
-    depends_on:
-      docker-in-docker:
-        condition: service_started
+    depends_on: [docker-in-docker]
     environment:
-      # Runner -> DinD: damit ERSTELLT der Runner die Job-Container (nicht der Job-Zugriff!)
-      DOCKER_HOST: tcp://docker-in-docker:2375
+      DOCKER_HOST: tcp://docker:2376
+      DOCKER_CERT_PATH: /certs/client
+      DOCKER_TLS_VERIFY: "1"
     volumes:
       - ./data:/data
+      - docker_certs:/certs
     restart: unless-stopped
-    command: forgejo-runner daemon --config /data/runner-config.yml
+    command: forgejo-runner --config config.yml daemon
 ```
-
-### Schritt 2 + 3 — data/runner-config.yml
 
 ```yaml
+# data/config.yml
 runner:
-  # Schritt 3, Teil 1: wird per `docker exec -e DOCKER_HOST=...` in JEDEN Job/Step
-  # injiziert. Der Job nutzt diesen Wert, um den DinD-Daemon zu erreichen.
   envs:
-    DOCKER_HOST: tcp://dind.docker.internal:2375
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: /certs/client
 
 container:
-  # Schritt 2 (OPTIONAL): nur noetig, wenn Jobs `services:` nutzen. Fuer reines
-  # `docker build` weglassen -> "-": der Runner erstellt Jobs ueber sein eigenes
-  # DOCKER_HOST (compose, tcp://docker-in-docker:2375).
-  docker_host: "-"
-  # Schritt 3, Teil 2: loest den Namen aus runner.envs.DOCKER_HOST im Kontext des
-  # Job-Hosts (= der DinD) auf. OHNE diese Zeile: "lookup dind.docker.internal ...
-  # no such host". Der Name ist frei waehlbar, muss aber mit DOCKER_HOST oben passen.
-  options: "--add-host=dind.docker.internal:host-gateway"
+  network: host
+  options: -v /certs/client:/certs/client
+  valid_volumes:
+    - /certs/client
 ```
 
-Wichtig: **zwei verschiedene `DOCKER_HOST`** — nicht verwechseln:
+## Diagnose: warum `runner.envs` nicht greift
 
-| Wo | Wert | Zweck |
-|----|------|-------|
-| compose `runner.environment` | `tcp://docker-in-docker:2375` | Runner erstellt Job-Container auf dem DinD (compose-DNS) |
-| runner-config `runner.envs` | `tcp://dind.docker.internal:2375` | der **Job** erreicht den DinD-Daemon (ueber host-gateway) |
-
-Nach Aenderung: `docker compose -f docker-compose.runner.yml restart runner`.
-
-## Verifikation (ohne CI-Lauf)
-
-Genau den Job->DinD-Pfad isoliert testen — Container auf dem DinD mit `--add-host`,
-dann den Daemon ueber den Namen anpingen:
+Wenn der Job trotzdem `unix:///var/run/docker.sock` meldet, ist im Job KEIN `DOCKER_HOST`
+angekommen. Pruefen, welche Datei der Daemon wirklich laedt und ob deine Edits drin sind:
 
 ```bash
-docker compose -f docker-compose.runner.yml exec -T -e DOCKER_HOST=tcp://localhost:2375 \
-  docker-in-docker \
-  docker run --rm --add-host=dind.docker.internal:host-gateway alpine \
-  sh -c "grep dind.docker.internal /etc/hosts; wget -qO- http://dind.docker.internal:2375/_ping && echo ' <- daemon OK'"
+docker compose -f docker-compose.runner.yml exec -T runner \
+  sh -c 'ps -o args= -C forgejo-runner; echo "--- config:"; cat /data/config.yml 2>/dev/null || cat /data/runner-config.yml'
 ```
 
-- Druckt eine `/etc/hosts`-Zeile **und** `OK <- daemon OK` -> host-gateway funktioniert;
-  die runner-config oben ist alles, was fehlt.
-- **Keine** /etc/hosts-Zeile -> `--add-host`/host-gateway greift in deinem DinD nicht
-  (Docker-Version pruefen).
-- /etc/hosts-Zeile da, aber `wget` haengt/scheitert -> Routing zum Gateway blockiert;
-  dann Fallback: `container.network: host` + `runner.envs.DOCKER_HOST: tcp://127.0.0.1:2375`.
+Haeufigste Ursachen:
+- `--config` zeigt auf eine **andere** Datei als die editierte (Referenz: `config.yml` im
+  Workdir `/data`).
+- Einrueckung: `envs:` unter `runner:` (2 Spaces), Vars mit **4** Spaces; `network`/
+  `docker_host`/`options` unter `container:` (2 Spaces).
+- Daemon nach dem Edit nicht neu gestartet.
 
 ## Sicherheit
 
 - **Runner-Token** gehoert NICHT ins Repo/in Logs. Versehentlich exponiert -> Runner neu
-  registrieren (alten Token in der Forgejo-Admin-Oberflaeche entfernen).
-- Registry-Push ist in der CI gegated: nur bei Repo-Variable `PUBLISH=true` +
-  `secrets.REGISTRY_TOKEN` (sonst bleibt die CI gruen ohne Push).
+  registrieren (alten Token in der Forgejo-Admin-Oberflaeche loeschen).
+- Registry-Push ist gegated: nur bei `vars.PUBLISH=true` + `secrets.REGISTRY_TOKEN`.
