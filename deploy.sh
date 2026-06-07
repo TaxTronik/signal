@@ -22,7 +22,7 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; VOLL=0; FORCE=0; START=0
+SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; VOLL=0; FORCE=0; START=0; SERVICE=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
 
 while [[ $# -gt 0 ]]; do
@@ -35,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --voll)           VOLL=1 ;;
     --force)          FORCE=1 ;;
     --start)          START=1 ;;
+    --service)        SERVICE=1 ;;
     --modell)         MODELL="${2:?--modell braucht einen Wert}"; shift ;;
     --backend)        BACKEND="${2:?--backend braucht einen Wert}"; shift ;;
     --host)           BIND_HOST="${2:?--host braucht einen Wert}"; shift ;;
@@ -172,13 +173,35 @@ schritt "Status"
 cli modell status
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
-printf "${Y}Engine starten (headless /v1):${N}\n"
+printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
 printf "  export RISK_LAYER_TOKEN=\"\$(cat .engine_token)\"\n"
-printf "  %s -m risk_layer.web --host %s --port %s\n" "$PY" "$BIND_HOST" "$PORT"
-printf "${Y}LLM ueber die API: POST /v1/llm/start  -  GET /v1/llm/status${N}\n"
+printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"
+printf "${Y}Als systemd-Dienst (Autostart bei Boot): ./deploy.sh --service${N}\n"
 
-if [[ $START -eq 1 ]]; then
-  schritt "Engine starten"
+# --- systemd-Dienst direkt einrichten (--service) --------------------------
+if [[ $SERVICE -eq 1 ]]; then
+  schritt "systemd-Dienst einrichten (--llm-autostart, Autostart bei Boot)"
+  command -v systemctl >/dev/null 2>&1 || { echo "systemctl nicht gefunden – kein systemd-System." >&2; exit 1; }
+  PYBIN="$(command -v "$PY")"
+  UNIT_SRC="deploy/risk-layer.service.in"
+  [[ -f "$UNIT_SRC" ]] || { echo "Vorlage fehlt: $UNIT_SRC" >&2; exit 1; }
+  RENDER="$(sed -e "s|@USER@|$(id -un)|g" -e "s|@WORKDIR@|$(pwd)|g" \
+               -e "s|@TOKEN@|$TOKEN|g" -e "s|@EMB_DEVICE@|${RISK_LAYER_EMB_DEVICE:-cuda}|g" \
+               -e "s|@PYTHON@|$PYBIN|g" -e "s|@HOST@|$BIND_HOST|g" -e "s|@PORT@|$PORT|g" "$UNIT_SRC")"
+  if [[ $EUID -eq 0 ]]; then
+    printf '%s\n' "$RENDER" > /etc/systemd/system/risk-layer.service
+    systemctl daemon-reload && systemctl enable --now risk-layer.service
+    ok "System-Dienst aktiv: systemctl status risk-layer"
+  else
+    # Ohne root: User-Unit (läuft bei Login; 'loginctl enable-linger' für Boot ohne Login)
+    mkdir -p "$HOME/.config/systemd/user"
+    printf '%s\n' "$RENDER" | sed '/^User=/d' > "$HOME/.config/systemd/user/risk-layer.service"
+    systemctl --user daemon-reload && systemctl --user enable --now risk-layer.service
+    ok "User-Dienst aktiv: systemctl --user status risk-layer"
+    info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
+  fi
+elif [[ $START -eq 1 ]]; then
+  schritt "Engine starten (Engine + LLM, Vordergrund)"
   export RISK_LAYER_TOKEN="$TOKEN"
-  exec "$PY" -m risk_layer.web --host "$BIND_HOST" --port "$PORT"
+  exec "$PY" -m risk_layer.web --host "$BIND_HOST" --port "$PORT" --llm-autostart
 fi

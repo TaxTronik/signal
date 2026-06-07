@@ -1,0 +1,29 @@
+# systemd-Unit-Vorlage für die Risk-Layer /v1-Engine (TaxTronik).
+# Wird von `deploy.sh --service` gerendert (Platzhalter ersetzt) und nach
+# /etc/systemd/system/risk-layer.service installiert. Nicht direkt verwenden.
+#
+# Mandantengeheimnis (§ 203 StGB): die Engine ist zustandslos und persistiert
+# keine Mandantendaten; sie liest nur Festwissen (Korpus/Graph/Katalog) und
+# schreibt höchstens berater-kuratierte Definitionen unter WorkingDirectory.
+[Unit]
+Description=Risk-Layer /v1 Engine (TaxTronik) — headless, lokal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@WORKDIR@
+Environment=RISK_LAYER_TOKEN=@TOKEN@
+Environment=RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@
+# --llm-autostart bringt Schicht 2 (llama-server) im selben Aufruf mit hoch.
+ExecStart=@PYTHON@ -m risk_layer.web --host @HOST@ --port @PORT@ --graph corpus/graph.sqlite --llm-autostart --no-browser
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+# Falls WorkingDirectory unter /home liegt und gehärtet werden soll, NICHT
+# ProtectHome setzen (blockiert die definitionen/-Schreibzugriffe) — stattdessen
+# bei Bedarf: ReadWritePaths=@WORKDIR@/definitionen
+
+[Install]
+WantedBy=multi-user.target

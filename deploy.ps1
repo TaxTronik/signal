@@ -38,6 +38,7 @@ param(
     [switch]$Voll,
     [switch]$Force,
     [switch]$Start,
+    [switch]$Service,
     [string]$Modell = "",
     [ValidateSet("auto","cuda","hip","vulkan","cpu")][string]$Backend = "auto",
     [string]$BindHost = "127.0.0.1",
@@ -177,13 +178,18 @@ Schritt "Status"
 Cli @("modell", "status")
 
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
-Write-Host "Engine starten (headless /v1):" -ForegroundColor Yellow
+Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
 Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
-Write-Host "  python -m risk_layer.web --host $BindHost --port $Port"
-Write-Host "LLM ueber die API: POST /v1/llm/start  -  GET /v1/llm/status" -ForegroundColor Yellow
+Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"
+Write-Host "Doppelklick-Alltagsstart: start.cmd   |   Als Dienst: ./deploy.ps1 -Service" -ForegroundColor Yellow
 
-if ($Start) {
-    Schritt "Engine starten"
+if ($Service) {
+    Schritt "Windows-Autostart einrichten (Dienst/Task, --llm-autostart)"
+    & "$PSScriptRoot/install-service.ps1" -Port $Port -BindHost $BindHost
+    Write-Host "`nDienst eingerichtet - startet mit dem Rechner. (Foreground-Start uebersprungen.)" -ForegroundColor Green
+}
+elseif ($Start) {
+    Schritt "Engine starten (Engine + LLM, Vordergrund)"
     $env:RISK_LAYER_TOKEN = $token
-    & python -m risk_layer.web --host $BindHost --port $Port
+    & python -m risk_layer.web --host $BindHost --port $Port --llm-autostart
 }

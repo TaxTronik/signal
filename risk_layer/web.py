@@ -481,7 +481,8 @@ def make_handler(app: Anwendung):
 def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = None,
           berater_dir: str = "definitionen", graph_pfad: str | None = None,
           llm_url: str = "http://127.0.0.1:8080",
-          llm_model: str | None = None, llm_bin: str | None = None) -> None:
+          llm_model: str | None = None, llm_bin: str | None = None,
+          llm_autostart: bool = False) -> None:
     # Netz-Bind ohne Token verweigern (§ 203 StGB): die /v1-Engine ist auth-pflichtig,
     # sobald sie das Loopback verlässt. Ohne Token nur lokal (Entwicklung).
     if not _ist_loopback(host) and not os.environ.get("RISK_LAYER_TOKEN", ""):
@@ -492,6 +493,12 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
 
     app = Anwendung(katalog, berater_dir, graph_pfad, llm_url=llm_url,
                     llm_model=llm_model, llm_bin=llm_bin)
+
+    if llm_autostart:                 # Schicht 2 (llama-server) mit hochfahren – ein-Befehl-Start.
+        r = app.llm_start()           # idempotent + nicht-blockierend; Bereitschaft via /v1/llm/status
+        print("  LLM-Autostart: " + (
+            f"startet {r.get('modell')}" if r.get("startet") else
+            r.get("hinweis") or r.get("fehler") or "?"), file=sys.stderr)
 
     class _Server(ThreadingHTTPServer):
         # KEIN SO_REUSEADDR: ein zweiter Start auf belegtem Port soll laut scheitern,
@@ -539,10 +546,13 @@ def main(argv: list[str] | None = None) -> int:
                    help="llama-server URL für Schicht 2 (mitLLM:true, /v1/llm/*)")
     p.add_argument("--llm-model", default=None, help="expliziter GGUF-Pfad (sonst aus Registry)")
     p.add_argument("--llm-bin", default=None, help="Pfad zum llama-server-Binary")
+    p.add_argument("--llm-autostart", action="store_true",
+                   help="Schicht 2 (llama-server) beim Start mit hochfahren – ein-Befehl-Start "
+                        "des gesamten Stacks (Modell aus der Registry/--llm-model).")
     args = p.parse_args(argv)
     serve(host=args.host, port=args.port, katalog=args.katalog,
           berater_dir=args.berater, graph_pfad=args.graph, llm_url=args.llm_url,
-          llm_model=args.llm_model, llm_bin=args.llm_bin)
+          llm_model=args.llm_model, llm_bin=args.llm_bin, llm_autostart=args.llm_autostart)
     return 0
 
 
