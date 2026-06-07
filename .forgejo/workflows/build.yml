@@ -49,10 +49,9 @@ jobs:
     env:
       REGISTRY: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}
       IMAGE: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}/taxtronik/risk-layer-engine
-      # DinD-Daemon (separater Service im runner-compose). Setzt voraus, dass der Job
-      # diesen Namen auflöst -> runner-config.yml: container.network auf das compose-Netz
-      # (forgejo-runner_default) + container.docker_host: tcp://docker-in-docker:2375.
-      DOCKER_HOST: tcp://docker-in-docker:2375
+      # KEIN statisches DOCKER_HOST hier: der Runner verdrahtet Docker in den Job
+      # via runner-config.yml -> container.docker_host: "automount" (ein statischer
+      # Wert würde das Automount überschreiben).
     steps:
       - uses: actions/checkout@v4
 
