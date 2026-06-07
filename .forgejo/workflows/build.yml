@@ -49,10 +49,14 @@ jobs:
     env:
       REGISTRY: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}
       IMAGE: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}/taxtronik/risk-layer-engine
-      # tcp-DinD: 'automount' greift nicht (kein lokaler Socket zum Mounten). Der Job
-      # erreicht den DinD-Daemon über host.docker.internal (= Job-Gateway = der DinD).
-      # Falls der Name nicht auflöst: runner-config container.options:
-      #   "--add-host=host.docker.internal:host-gateway"  (oder network: host + 127.0.0.1).
+      # tcp-DinD (Forgejo-Doku admin/actions/docker-access): der Job laeuft IM DinD und
+      # erreicht dessen Daemon ueber host-gateway. Dafuer MUSS die runner-config den
+      # Namen aufloesen + Docker im Job zulassen (siehe deploy/forgejo-runner.md):
+      #   container:
+      #     docker_host: "-"        # Runner nutzt sein eigenes DOCKER_HOST (compose)
+      #     options: "--add-host=host.docker.internal:host-gateway"
+      # 'automount' ist hier falsch: mountet einen lokalen Socket, kann kein tcp und
+      # exponierte sonst den Host-Daemon (kein lokaler Socket vorhanden -> dein Fehler).
       DOCKER_HOST: tcp://host.docker.internal:2375
     steps:
       - uses: actions/checkout@v4
