@@ -49,9 +49,11 @@ jobs:
     env:
       REGISTRY: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}
       IMAGE: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}/taxtronik/risk-layer-engine
-      # KEIN statisches DOCKER_HOST hier: der Runner verdrahtet Docker in den Job
-      # via runner-config.yml -> container.docker_host: "automount" (ein statischer
-      # Wert würde das Automount überschreiben).
+      # tcp-DinD: 'automount' greift nicht (kein lokaler Socket zum Mounten). Der Job
+      # erreicht den DinD-Daemon über host.docker.internal (= Job-Gateway = der DinD).
+      # Falls der Name nicht auflöst: runner-config container.options:
+      #   "--add-host=host.docker.internal:host-gateway"  (oder network: host + 127.0.0.1).
+      DOCKER_HOST: tcp://host.docker.internal:2375
     steps:
       - uses: actions/checkout@v4
 
