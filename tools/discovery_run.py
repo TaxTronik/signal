@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -31,39 +30,22 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+
+from tools._common import utf8_konsole, verweist_ids     # noqa: E402
 
 from risk_layer.discovery import (                       # noqa: E402
     Kandidat, besteht_review_gate, besteht_training_gate, erkenne_modell,
     iter_paragraphen, roh_kandidaten, server_verfuegbar, verarbeite_kandidaten,
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
+from risk_layer.persistenz import atomar_schreiben       # noqa: E402
 
-
-def _verweist_ids(graph, node_id: str) -> set[str]:
-    """Ausgehende verweist_auf-Kanten eines §-Knotens (für die Relations-Erdung)."""
-    res = graph.aufloesen(node_id)
-    ids: set[str] = set()
-    for v in res.get("verweist_auf") or []:
-        i = (v.get("id") or v.get("dst") or v.get("ziel") or "") if isinstance(v, dict) else str(v)
-        if i:
-            ids.add(i)
-    return ids
-
-
-def _atomar(pfad: Path, text: str) -> None:
-    tmp = pfad.with_suffix(pfad.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, pfad)                       # atomar: kein halb-geschriebenes File bei Crash
+utf8_konsole()
 
 
 def _schreibe_yaml(pfad: Path, kopf: dict, kandidaten: list[dict]) -> None:
-    _atomar(pfad, yaml.safe_dump({**kopf, "n": len(kandidaten), "kandidaten": kandidaten},
-                                 allow_unicode=True, sort_keys=False))
+    atomar_schreiben(pfad, yaml.safe_dump({**kopf, "n": len(kandidaten), "kandidaten": kandidaten},
+                                          allow_unicode=True, sort_keys=False))
 
 
 def main() -> int:
@@ -137,10 +119,10 @@ def main() -> int:
             for k in verarbeite_kandidaten(
                     roh, quell_norm=node["id"], quell_law=node["law"],
                     node_text=node["text"], node_titel=node["titel"],
-                    verweist_ids=_verweist_ids(graph, node["id"]), ist_im_graph=ist_im_graph,
+                    verweist_ids=verweist_ids(graph, node["id"]), ist_im_graph=ist_im_graph,
                     enable_begriff=args.enable_begriff, enable_normrelation=args.enable_normrelation):
                 shard_kand.append(k.as_dict())
-        _atomar(pfad, json.dumps(shard_kand, ensure_ascii=False))
+        atomar_schreiben(pfad, json.dumps(shard_kand, ensure_ascii=False))
         kum += len(shard_kand)
         print(f"Shard {si + 1}/{len(shards)} ({len(shard)} §) → {len(shard_kand)} Kand. "
               f"(kumuliert {kum})", file=sys.stderr)
@@ -159,7 +141,7 @@ def main() -> int:
     _schreibe_yaml(out / "training_pairs.yaml", kopf, [k.as_dict() for k in training])
     _schreibe_yaml(out / "alle_kandidaten.yaml", kopf, alle_dicts)
     if fehler:
-        _atomar(out / "failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
+        atomar_schreiben(out / "failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
 
     vo = sum(1 for k in alle if k.quelle_typ == "verordnung")
     print(f"\n{len(nodes)} § → {len(alle)} Kandidaten ({vo} aus Verordnungen) · "

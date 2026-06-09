@@ -16,12 +16,17 @@ Aufruf:  python tools/embedding_eval.py
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tools._common import utf8_konsole                           # noqa: E402
+
 from risk_layer.embedding import index_oeffnen, encoder_oeffnen  # noqa: E402
+
+utf8_konsole()
 
 # (Satz, {akzeptable Ziel-Norm-IDs})  – Treffer = eine davon in Top-k.
 POSITIVE: list[tuple[str, set[str]]] = [
@@ -64,14 +69,19 @@ NEGATIVE: list[str] = [
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Schwellwert-Diagnose für den Embedding-Index")
+    # k = ausgelieferte Vorschlagstiefe (System: Top-5). Über --topk überschreibbar.
+    ap.add_argument("--topk", type=int, default=5,
+                    help="Vorschlagstiefe k für die Positiv-Treffer (Default 5)")
+    args = ap.parse_args()
+    topk = args.topk
+
     idx = index_oeffnen()
     if idx is None:
         print("Kein Embedding-Index. Erst: python -m risk_layer.cli embedding build", file=sys.stderr)
         return 1
     enc = encoder_oeffnen(idx.encoder_name if idx.encoder_name != "hash512" else "hash")
 
-    # k = ausgelieferte Vorschlagstiefe (System: Top-5). Über --topk überschreibbar.
-    topk = int(sys.argv[sys.argv.index("--topk") + 1]) if "--topk" in sys.argv else 5
     pos_korrekt: list[float] = []   # best-sim, wenn Zielnorm in Top-k
     pos_verfehlt: list[tuple[str, float]] = []
     for satz, ziele in POSITIVE:
@@ -83,7 +93,14 @@ def main() -> int:
         else:
             pos_verfehlt.append((satz[:40], best))
 
-    neg_best: list[float] = [idx.suche(s, enc, k=1, min_sim=0.0)[0]["sim"] for s in NEGATIVE]
+    neg_best: list[float] = []
+    for s in NEGATIVE:
+        treffer = idx.suche(s, enc, k=1, min_sim=0.0)
+        if not treffer:                 # leerer Index → kein [0]-Zugriff (IndexError)
+            print("Embedding-Index liefert keine Treffer (leer/defekt) — "
+                  "erst: python -m risk_layer.cli embedding build", file=sys.stderr)
+            return 2
+        neg_best.append(treffer[0]["sim"])
 
     pos_korrekt.sort()
     neg_best.sort(reverse=True)

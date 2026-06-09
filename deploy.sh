@@ -95,7 +95,8 @@ if [[ ! -f .engine_token || $FORCE -eq 1 ]]; then
   ok "neues Token erzeugt (.engine_token, gitignored)"
 else ok ".engine_token vorhanden (wiederverwendet)"; fi
 TOKEN="$(tr -d '[:space:]' < .engine_token)"
-info "RISK_LAYER_TOKEN = $TOKEN"
+# Token NICHT auf die Konsole drucken (Scrollback/CI-Logs) — nur den Speicherort nennen.
+info "RISK_LAYER_TOKEN liegt in .engine_token (nicht angezeigt)"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if [[ $SKIP_MODEL -eq 0 ]]; then
@@ -185,8 +186,18 @@ if [[ $SERVICE -eq 1 ]]; then
   PYBIN="$(command -v "$PY")"
   UNIT_SRC="deploy/risk-layer.service.in"
   [[ -f "$UNIT_SRC" ]] || { echo "Vorlage fehlt: $UNIT_SRC" >&2; exit 1; }
+  # Token NICHT in die Unit rendern (/etc/systemd/system/* ist welt-lesbar, 644) —
+  # stattdessen in eine separate EnvironmentFile mit chmod 600 (umask 077 deckt
+  # auch die Neuanlage ab); die Unit referenziert sie nur per Pfad.
+  if [[ $EUID -eq 0 ]]; then ENV_DIR="/etc/risk-layer"; else ENV_DIR="$HOME/.config/risk-layer"; fi
+  ENV_FILE="$ENV_DIR/engine.env"
+  mkdir -p "$ENV_DIR"
+  (umask 077; printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > "$ENV_FILE")
+  chmod 600 "$ENV_FILE"
+  [[ $EUID -eq 0 ]] && chown root:root "$ENV_FILE"
+  ok "Token-EnvironmentFile geschrieben: $ENV_FILE (chmod 600)"
   RENDER="$(sed -e "s|@USER@|$(id -un)|g" -e "s|@WORKDIR@|$(pwd)|g" \
-               -e "s|@TOKEN@|$TOKEN|g" -e "s|@EMB_DEVICE@|${RISK_LAYER_EMB_DEVICE:-cuda}|g" \
+               -e "s|@ENVFILE@|$ENV_FILE|g" -e "s|@EMB_DEVICE@|${RISK_LAYER_EMB_DEVICE:-cuda}|g" \
                -e "s|@PYTHON@|$PYBIN|g" -e "s|@HOST@|$BIND_HOST|g" -e "s|@PORT@|$PORT|g" "$UNIT_SRC")"
   if [[ $EUID -eq 0 ]]; then
     printf '%s\n' "$RENDER" > /etc/systemd/system/risk-layer.service

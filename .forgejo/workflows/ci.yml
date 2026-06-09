@@ -1,5 +1,9 @@
 name: Quality
 
+# Bewusst (noch) NICHT in dieser CI: mypy, Coverage-Gate, Windows-Runner,
+# PSScriptAnalyzer — zu schwergewichtig für den aktuellen Stand; bei Bedarf
+# als eigene Jobs nachziehen.
+
 on:
   push:
     branches: [main]
@@ -13,6 +17,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint (ruff, Runtime-Fehler-Niveau)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Konservativer Regelsatz, NUR Runtime-Fehler-Niveau (kein Stil-Bikeshedding):
+      #   E9  – Syntax-/IO-Fehler,  F63 – ungültige Vergleiche/Assertions,
+      #   F7  – Statement-Fehler (return außerhalb Funktion etc.),
+      #   F82 – undefinierte Namen.
+      - name: ruff check
+        run: |
+          python -m pip install --quiet ruff
+          python -m ruff check --select E9,F63,F7,F82 risk_layer tools tests
+
   tests:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -20,6 +44,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # '3.11' resolved im Runner auf den neuesten 3.11-Patch (>= 3.11.4,
+        # vgl. requires-python in pyproject.toml) — kein explizites Pinning nötig.
         python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +64,8 @@ jobs:
       #               das zusätzlich sentence-transformers + torch (~2 GB) zöge.
       #               Die Tests brauchen torch/sentence-transformers NICHT (lazy import,
       #               HashEncoder-Fallback) – also installieren wir sie bewusst NICHT.
-      # Ebenfalls bewusst NICHT installiert: das 'service'-Extra (fastapi/uvicorn, von
-      # keinem Test importiert) sowie 'llm' (llama-cpp-python) und 'nlp' (spacy).
+      # Ebenfalls bewusst NICHT installiert: die Extras 'llm' (llama-cpp-python) und
+      # 'nlp' (spacy). web.py ist reine Stdlib — es gibt kein fastapi/uvicorn-Extra.
       - name: Install dependencies (minimal, kein torch)
         run: |
           python -m pip install --upgrade pip

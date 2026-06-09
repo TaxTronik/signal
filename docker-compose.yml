@@ -30,16 +30,27 @@ services:
     ports:
       - "127.0.0.1:8000:8000"              # NUR Loopback nach außen; im selben Netz spricht TaxTronik 'engine:8000'
     depends_on:
-      - llm
+      llm:
+        condition: service_healthy           # erst starten, wenn das LLM /health liefert
     restart: unless-stopped
 
   # ---- Schicht 2 (LLM) — NVIDIA-GPU. Auf AMD/Windows auskommentieren + nativ. ----
   llm:
+    # bewusst latest-server-cuda (kein Tag-Pinning): Digest/versionierte Tags
+    # erfordern Registry-Zugriff zum Nachschlagen — bei Bedarf hier pinnen.
     image: ghcr.io/ggml-org/llama.cpp:server-cuda
     command: ["-m", "/models/granite-4.1-8b-Q5_K_M.gguf", "--host", "0.0.0.0",
               "--port", "8080", "-ngl", "99", "--jinja"]
     volumes:
       - ./models:/models:ro
+    # llama.cpp-server hat einen /health-Endpoint; das server-cuda-Image bringt curl mit.
+    # start_period großzügig: das GGUF (~6 GB) braucht beim Laden Zeit.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
     deploy:
       resources:
         reservations:

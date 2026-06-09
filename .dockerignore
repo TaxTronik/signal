@@ -1,0 +1,56 @@
+# =============================================================================
+# Build-Kontext schlank + sauber halten: das Dockerfile kopiert NUR
+# pyproject.toml, README.md, risk_layer/ und catalog/ — alles andere wäre
+# Kontext-Ballast (GB an Modellen) oder darf NIE in ein Image gelangen.
+# =============================================================================
+
+# Secrets — NIE in den Build-Kontext (§ 203 StGB / Auth-Token)
+.engine_token
+.env
+.env.local
+
+# Große lokale Artefakte (Modelle/Engine/Korpus — als Volumes gemountet, nicht eingebacken)
+models/
+engine/
+engine_*/
+*.gguf
+*.bin
+corpus/
+out/
+runs/
+discovery/
+abgleich/
+
+# Mandanten-/Alt-Daten (dürfen NIE ins Image)
+faelle/
+aufgaben/
+
+# Git + Tooling-Caches
+.git/
+.gitignore
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.idea/
+.vscode/
+.VSCodeCounter/
+
+# Nicht benötigt im Image (Tests/Doku/CI/Deploy-Skripte)
+tests/
+benchmarks/
+fixtures/
+examples/
+tools/
+deploy/
+.forgejo/
+*.md
+!README.md
+*.ps1
+*.sh
+*.cmd
+docker-compose.yml

@@ -20,17 +20,23 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Nur die Projektmetadaten zuerst (Layer-Caching der Dependencies)
+# Nur die Projektmetadaten zuerst (Layer-Caching der Dependencies): die
+# Dependencies werden VOR dem Quellcode installiert — eine reine Code-Änderung
+# in risk_layer/ invalidiert diesen (teuren) Layer damit NICHT.
 COPY pyproject.toml README.md ./
-COPY risk_layer ./risk_layer
-COPY catalog ./catalog
 
 ARG WITH_EMBEDDING=0
-# Basis immer; Embedding nur, wenn ausdrücklich gewünscht.
+# Basis immer; Embedding nur, wenn ausdrücklich gewünscht. "PyYAML>=6.0" spiegelt
+# [project].dependencies aus pyproject.toml (Two-Step: Deps explizit, Paket später
+# mit --no-deps — pip kann die Deps nicht ohne den Quellcode auflösen).
 RUN pip install --upgrade pip \
  && pip install "numpy>=1.26" "PyYAML>=6.0" \
- && if [ "$WITH_EMBEDDING" = "1" ]; then pip install "sentence-transformers>=2.7"; fi \
- && pip install -e .
+ && if [ "$WITH_EMBEDDING" = "1" ]; then pip install "sentence-transformers>=2.7"; fi
+
+# Quellcode erst NACH den Dependencies kopieren + Paket ohne Dep-Auflösung installieren.
+COPY risk_layer ./risk_layer
+COPY catalog ./catalog
+RUN pip install --no-deps .
 
 # Festwissen-Volumes (regenerierbar, mandantenfrei). corpus/ wird gemountet:
 #   corpus/graph.sqlite     – Normgraph (graph build)

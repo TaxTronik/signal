@@ -14,7 +14,9 @@ Wants=network-online.target
 Type=simple
 User=@USER@
 WorkingDirectory=@WORKDIR@
-Environment=RISK_LAYER_TOKEN=@TOKEN@
+# Token NICHT inline (die Unit-Datei ist welt-lesbar, Default 644) — er liegt in
+# einer separaten EnvironmentFile (chmod 600), gerendert von deploy.sh --service.
+EnvironmentFile=@ENVFILE@
 Environment=RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@
 # --llm-autostart bringt Schicht 2 (llama-server) im selben Aufruf mit hoch.
 ExecStart=@PYTHON@ -m risk_layer.web --host @HOST@ --port @PORT@ --graph corpus/graph.sqlite --llm-autostart

@@ -34,33 +34,18 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+
+from tools._common import utf8_konsole, verweist_ids     # noqa: E402
 
 from risk_layer.discovery import (                       # noqa: E402
-    CARD_JSON_SCHEMA, CARD_SYSTEM, Kandidat, _json_objekt, _normbase,
+    CARD_JSON_SCHEMA, CARD_SYSTEM, Kandidat, json_objekt, normbase,
     baue_card_prompt, besteht_review_gate, besteht_training_gate,
     iter_paragraphen, verarbeite_karte,
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
+from risk_layer.persistenz import atomar_schreiben       # noqa: E402
 
-
-def _atomar(pfad: Path, text: str) -> None:
-    tmp = pfad.with_suffix(pfad.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, pfad)
-
-
-def _verweist_ids(graph, node_id: str) -> set[str]:
-    ids: set[str] = set()
-    for v in graph.aufloesen(node_id).get("verweist_auf") or []:
-        i = (v.get("id") or v.get("dst") or v.get("ziel") or "") if isinstance(v, dict) else str(v)
-        if i:
-            ids.add(i)
-    return ids
+utf8_konsole()
 
 
 def _lies_subset(pfad: Path) -> list[str]:
@@ -169,7 +154,7 @@ def submit(args, base: str, api_key: str) -> int:
     jsonl = ("\n".join(lines) + "\n").encode("utf-8")
     out = Path(args.out).parent
     out.mkdir(parents=True, exist_ok=True)
-    _atomar(out / "batch_input.jsonl", jsonl.decode("utf-8"))   # lokal (gitignored) für Provenienz
+    atomar_schreiben(out / "batch_input.jsonl", jsonl.decode("utf-8"))   # lokal (gitignored) für Provenienz
     if args.dry_run:                                            # offline validierbar (kein Key/Upload)
         print(f"DRY-RUN: {len(subset)} Requests → {out}/batch_input.jsonl (kein Upload).")
         print("erste Zeile:", lines[0][:200])
@@ -183,7 +168,7 @@ def submit(args, base: str, api_key: str) -> int:
         "input_file_id": file_id, "endpoint": "/v1/chat/completions",
         "completion_window": args.completion_window}))
     bid = batch["id"]
-    _atomar(out / "batch_manifest.json", json.dumps(
+    atomar_schreiben(out / "batch_manifest.json", json.dumps(
         {"batch_id": bid, "input_file_id": file_id, "n": len(subset), "model": args.model,
          "stand": datetime.now(timezone.utc).isoformat(timespec="seconds")},
         ensure_ascii=False, indent=2))
@@ -205,10 +190,10 @@ def _merge(out_base: Path, cards_dir: Path, kopf: dict) -> tuple[int, int, int]:
                 review.append(kd)
             if besteht_training_gate(k):
                 training.append(kd)
-    _atomar(out_base / "cards_review.yaml",
+    atomar_schreiben(out_base / "cards_review.yaml",
             yaml.safe_dump({**kopf, "n": len(review), "kandidaten": review},
                            allow_unicode=True, sort_keys=False))
-    _atomar(out_base / "cards_training_pairs.yaml",
+    atomar_schreiben(out_base / "cards_training_pairs.yaml",
             yaml.safe_dump({**kopf, "n": len(training), "kandidaten": training},
                            allow_unicode=True, sort_keys=False))
     return n, len(review), len(training)
@@ -253,9 +238,9 @@ def fetch(args, base: str, api_key: str) -> int:
         except (KeyError, IndexError, TypeError):
             fehler.append({"id": nid, "fehler": "no_content"})
             continue
-        karte = verarbeite_karte(_json_objekt(card_text), node=node,
-                                 verweist_ids=_verweist_ids(graph, nid), ist_im_graph=ist_im_graph)
-        _atomar(cards_dir / (nid.replace(":", "_") + ".yaml"),
+        karte = verarbeite_karte(json_objekt(card_text), node=node,
+                                 verweist_ids=verweist_ids(graph, nid), ist_im_graph=ist_im_graph)
+        atomar_schreiben(cards_dir / (nid.replace(":", "_") + ".yaml"),
                 yaml.safe_dump(karte.as_dict(), allow_unicode=True, sort_keys=False))
         neu += 1
 
@@ -263,7 +248,7 @@ def fetch(args, base: str, api_key: str) -> int:
             "provider": "openai-batch", "batch_id": args.batch_id}
     n, nrev, ntrain = _merge(cards_dir.parent, cards_dir, kopf)
     if fehler:
-        _atomar(cards_dir.parent / "cards_failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
+        atomar_schreiben(cards_dir.parent / "cards_failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
     print(f"verarbeitet {neu} | Karten gesamt {n} | Review {nrev} | Training {ntrain}"
           + (f" | AUSFÄLLE {len(fehler)}" if fehler else ""))
     return 0
@@ -285,7 +270,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="submit: JSONL bauen, NICHT hochladen")
     args = ap.parse_args()
 
-    base = _normbase(args.base_url)
+    base = normbase(args.base_url)
     api_key = os.environ.get(args.api_key_env)
     if not api_key and not (args.cmd == "submit" and args.dry_run):
         print(f"Kein API-Key in ${args.api_key_env}.", file=sys.stderr)

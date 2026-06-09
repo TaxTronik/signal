@@ -33,41 +33,26 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-for _stream in (sys.stdout, sys.stderr):
-    try:
-        _stream.reconfigure(encoding="utf-8")
-    except (AttributeError, ValueError):
-        pass
+
+from tools._common import utf8_konsole, verweist_ids     # noqa: E402
 
 from risk_layer.discovery import (                       # noqa: E402
-    Karte, _normbase, besteht_review_gate, besteht_training_gate, iter_paragraphen,
+    Karte, besteht_review_gate, besteht_training_gate, iter_paragraphen, normbase,
     roh_karte, server_verfuegbar, verarbeite_karte,
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
 from risk_layer.idschema import para_level               # noqa: E402
+from risk_layer.persistenz import atomar_schreiben       # noqa: E402
+
+utf8_konsole()
 
 PROVIDER_BASEURL = {"local": "http://127.0.0.1:8000", "openai": "https://api.openai.com"}
-
-
-def _atomar(pfad: Path, text: str) -> None:
-    tmp = pfad.with_suffix(pfad.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, pfad)
-
-
-def _verweist_ids(graph, node_id: str) -> set[str]:
-    ids: set[str] = set()
-    for v in graph.aufloesen(node_id).get("verweist_auf") or []:
-        i = (v.get("id") or v.get("dst") or v.get("ziel") or "") if isinstance(v, dict) else str(v)
-        if i:
-            ids.add(i)
-    return ids
 
 
 def _openai_modelle(base_url: str, api_key: str) -> list[str]:
     """Modell-IDs des Accounts (GET /v1/models) — für den Preflight-Check, damit ein
     falscher --model nicht 30× als 404 endet."""
-    req = urllib.request.Request(f"{_normbase(base_url)}/v1/models",
+    req = urllib.request.Request(f"{normbase(base_url)}/v1/models",
                                  headers={"Authorization": f"Bearer {api_key}"})
     with urllib.request.urlopen(req, timeout=15) as r:  # noqa: S310
         return sorted(m.get("id", "") for m in json.load(r).get("data", []) if m.get("id"))
@@ -189,9 +174,9 @@ def main() -> int:
     neu = 0
     for nid, card in rohkarten:
         node = nodes[nid]
-        karte = verarbeite_karte(card, node=node, verweist_ids=_verweist_ids(graph, nid),
+        karte = verarbeite_karte(card, node=node, verweist_ids=verweist_ids(graph, nid),
                                  ist_im_graph=ist_im_graph)
-        _atomar(_datei(nid), yaml.safe_dump(karte.as_dict(), allow_unicode=True, sort_keys=False))
+        atomar_schreiben(_datei(nid), yaml.safe_dump(karte.as_dict(), allow_unicode=True, sort_keys=False))
         neu += 1
 
     # Merge ALLER vorhandenen Karten → Review/Training/Failures
@@ -212,14 +197,14 @@ def main() -> int:
     kopf = {"stand": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "provider": args.provider, "modell": args.model,
             "karten": n_karten, "subset": len(subset)}
-    _atomar(out.parent / "cards_review.yaml",
+    atomar_schreiben(out.parent / "cards_review.yaml",
             yaml.safe_dump({**kopf, "n": len(review), "kandidaten": review},
                            allow_unicode=True, sort_keys=False))
-    _atomar(out.parent / "cards_training_pairs.yaml",
+    atomar_schreiben(out.parent / "cards_training_pairs.yaml",
             yaml.safe_dump({**kopf, "n": len(training), "kandidaten": training},
                            allow_unicode=True, sort_keys=False))
     if fehler:
-        _atomar(out.parent / "cards_failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
+        atomar_schreiben(out.parent / "cards_failures.json", json.dumps(fehler, ensure_ascii=False, indent=2))
 
     print(f"\nKarten gesamt {n_karten} (neu {neu}) · Review {len(review)} · "
           f"Training {len(training)}" + (f" · AUSFÄLLE {len(fehler)}" if fehler else ""))

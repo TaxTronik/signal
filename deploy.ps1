@@ -76,6 +76,7 @@ if (-not $SkipDeps) {
     & python -m pip install -e . "numpy>=1.26"
     if ($LASTEXITCODE -ne 0) { throw "pip install (Kern) fehlgeschlagen." }
     if ($WithEmbedding) {
+        # Bewusste Luecke: kein --cuda-wheel-Pendant zu deploy.sh (torch-CUDA-Vorabinstallation) — Windows-Hosts nutzen das torch, das sentence-transformers waehlt.
         Info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
         & python -m pip install "sentence-transformers>=2.7" hf_transfer
         if ($LASTEXITCODE -ne 0) { throw "pip install sentence-transformers fehlgeschlagen." }
@@ -93,7 +94,8 @@ if ((-not (Test-Path -LiteralPath ".engine_token")) -or $Force) {
     OkMsg "neues Token erzeugt (.engine_token, gitignored)"
 } else { OkMsg ".engine_token vorhanden (wiederverwendet)" }
 $token = (Get-Content -LiteralPath ".engine_token" -Raw).Trim()
-Info "RISK_LAYER_TOKEN = $token"
+# Token NICHT auf die Konsole drucken (Scrollback/Logs) — nur den Speicherort nennen.
+Info "RISK_LAYER_TOKEN liegt in .engine_token (nicht angezeigt)"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if (-not $SkipModel) {
@@ -118,8 +120,15 @@ if (-not $SkipEngine) {
         OkMsg "llama-server gefunden (./engine oder PATH) - uebersprungen"
     } else {
         Info "laedt die passende llama.cpp-Release (NVIDIA->cuda, AMD->hip, sonst Vulkan/CPU) nach ./engine ..."
-        Cli @("modell", "engine", "--backend", $Backend)
-        OkMsg "Engine bereitgestellt"
+        # Download-Fehler NICHT fatal (wie deploy.sh): ohne llama-server laufen alle
+        # deterministischen Layer + /v1; nur 'mitLLM:true' ist inaktiv.
+        & python -m risk_layer.cli modell engine --backend $Backend
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [warnung] Engine-Download fehlgeschlagen. llama-server separat auf den PATH legen." -ForegroundColor Yellow
+            Info "Ohne ihn laufen alle deterministischen Layer + /v1; nur mitLLM:true ist inaktiv."
+        } else {
+            OkMsg "Engine bereitgestellt"
+        }
     }
 } else { Info "Engine uebersprungen (-SkipEngine)" }
 
