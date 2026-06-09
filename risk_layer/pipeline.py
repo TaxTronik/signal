@@ -24,21 +24,30 @@ import re
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from . import ingest as ingest_mod
 from .berater import BeraterStore
 from .catalog import Katalog, lade_katalog
 from .idschema import para_level as _para_level
 from .matcher import Schicht1Matcher
-from .models import Risikomarkierung, RunReport, Status, Treffer
-from .muster import MusterMatcher, StreitDetektor, saetze_mit_offset
+from .models import Begriffskarte, Risikomarkierung, RunReport, Status, Treffer
+from .muster import MusterMatcher, StreitDetektor, StreitFund, saetze_mit_offset
 from .reranker import (RERANK_TOPN, baue_norm_doc_fn, rerank_normen,
                        rerank_schwelle)
 from .resolver import anreichern_mit_berater, anreichern_mit_graph, resolve_alle
 from .schicht2 import KandidatenProvider, erkenne_kandidaten
 from .unknown_gate import DefinitorischProposer, UnknownGate, ist_belanglos
 from .zitate import finde_normzitate, norm_zu_zitat, parse_normzitat
+
+if TYPE_CHECKING:
+    # NUR für Typannotationen: embedding/reranker sind optionale Extras (numpy/
+    # sentence-transformers) – ein harter Import hier würde den deterministischen
+    # Kern an diese Pakete koppeln. TYPE_CHECKING hält die Laufzeit entkoppelt.
+    from .embedding import EmbeddingIndex, Encoder
+    from .graph import NormGraph
+    from .reranker import Reranker
+    from .triggerindex import TriggerIndex
 
 _KONFIDENZ_ZU_SIGNAL = {"hoch": 1.0, "mittel": 0.6, "niedrig": 0.3}
 
@@ -58,7 +67,8 @@ def _to_orig(omap: list[int], ns: int, ne: int) -> tuple[int, int]:
     return (omap[ns], omap[last] + 1)
 
 
-def _kandidaten_normen(text: str, graph, trigger, max_n: int = 10) -> tuple[list[str], set[str]]:
+def _kandidaten_normen(text: str, graph: NormGraph | None, trigger: TriggerIndex | None,
+                       max_n: int = 10) -> tuple[list[str], set[str]]:
     """Kandidaten-Normen fürs LLM: zitierte (präzise) + Trigger-Index (kuratierbar).
 
     Der Trigger-Index hat Vorrang vor freier LLM-Normnennung: das Modell WÄHLT aus
@@ -80,7 +90,10 @@ def _kandidaten_normen(text: str, graph, trigger, max_n: int = 10) -> tuple[list
                 out.append(f"{norm_zu_zitat(anker.norm_id)} – {res.get('titel', '')}".strip(" –"))
     if trigger is not None:
         for c in trigger.kandidaten(text, k=max_n):
-            seen.add(_para_level(c["norm_id"]))
+            pid = _para_level(c["norm_id"])
+            if pid in seen:
+                continue        # Dedup wie im Zitat-Zweig: zitierte UND getriggerte
+            seen.add(pid)       # Norm darf nur EINMAL in den LLM-Prompt
             if len(out) < max_n:
                 out.append(f"{c['zitat']} – {c['titel']}".strip(" –"))
     return out[:max_n], seen
@@ -95,7 +108,8 @@ def _karte_para_ids(karte) -> set[str]:
     return out
 
 
-def _pruefe_norm_vorschlag(nv: str, graph, gestuetzt_paras: set[str] | None = None) -> list[dict]:
+def _pruefe_norm_vorschlag(nv: str, graph: NormGraph | None,
+                           gestuetzt_paras: set[str] | None = None) -> list[dict]:
     """Prüft einen LLM-Norm-VORSCHLAG NUR auf Existenz im Korpus (kein Mapping).
 
     Der Vorschlag bleibt eine Interpretation des Modells; der Graph bestätigt nur,
@@ -259,6 +273,114 @@ class Pipeline:
             prov.append({"span": [ms, me], "state": zustand, "llm": True, "kandidaten": n})
         return kand, prov
 
+    def _llm_marken(
+        self, kandidaten: list[dict], treffer_spans: list[tuple[int, int, int]],
+        karten: list[Begriffskarte], karten_para: list[set[str]], *,
+        abweichung: bool, graph: NormGraph | None, gestuetzt_paras: set[str],
+    ) -> tuple[list[Risikomarkierung], list[tuple[int, int]]]:
+        """Schicht 2 – LLM-Kandidaten: konzept-bewusst & additiv (aus run() extrahiert).
+
+        Verwirft nur ECHTE Duplikate (ko-extensive Karten-Überlapper, gleiches
+        Konzept, LLM-LLM-Überlappung, belanglose Spans); im Abweichungs-Modus wird
+        eine abweichende LLM-Norm an der überlappten Karte vermerkt (mutiert
+        ``karten``). Rückgabe: (neue LLM-Risiken, deren belegte Spans).
+        """
+        risiken: list[Risikomarkierung] = []
+        llm_spans: list[tuple[int, int]] = []
+        for c in kandidaten:
+            span = c["span_text"]
+            off = c["char_offset"]
+            ende = off + len(span)
+            # Norm-Vorschlag EINMAL gegen den Graph prüfen und unten wiederverwenden:
+            # für behaltene Karten-Überlapper liefen die Graph-Lookups sonst doppelt
+            # (Abweichungs-Vermerk UND Risikomarkierung brauchen dasselbe Ergebnis).
+            nvs: list[dict] | None = None
+            kat = next(((bs, be, i) for bs, be, i in treffer_spans if not (ende <= bs or off >= be)), None)
+            ueberlagert = None
+            if kat is not None:
+                kbs, kbe, kat_i = kat
+                if abweichung:
+                    nvs = _pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras)
+                    nv_para = {_para_level(x["id"]) for x in nvs if x.get("id")}
+                    if nv_para and not (nv_para & karten_para[kat_i]):
+                        karten[kat_i].abweichung.append({
+                            "katalog_norm": sorted(karten_para[kat_i]),
+                            "llm_norm": nvs[0]["zitat"], "llm_norm_id": nvs[0]["id"],
+                            "im_korpus": nvs[0]["im_korpus"],
+                            "begruendung": c.get("begruendung_kurz", ""),
+                        })
+                # Echtes Duplikat, wenn die LLM-Marke (a) KO-EXTENSIV dieselbe Stelle neu
+                # markiert (gleicher Span = die Karte selbst, z.B. nur abweichende Norm)
+                # ODER (b) im Begründungs-Konzept mit dem Katalogbegriff überlappt. Sonst
+                # ist es eine ANDERE juristische Dimension auf überlappender Stelle =>
+                # behalten + taggen (additiver Zweit-Layer).
+                ov = max(0, min(ende, kbe) - max(off, kbs))
+                koextensiv = ov >= 0.8 * max(1, ende - off) and ov >= 0.8 * max(1, kbe - kbs)
+                if koextensiv or _gleiches_konzept(c.get("begruendung_kurz", ""),
+                                                   karten[kat_i].eintrag.begriff_kanonisch):
+                    continue
+                ueberlagert = karten[kat_i].eintrag.id
+            # nur gegen ANDERE LLM-Marken deduplizieren (nicht gegen Trigger/Streit).
+            if any(not (ende <= bs or off >= be) for bs, be in llm_spans):
+                continue
+            if ist_belanglos(span):
+                continue
+            if nvs is None:     # kein Karten-Überlapp/kein Abweichungs-Modus: jetzt prüfen
+                nvs = _pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras)
+            konf = c.get("konfidenz", "niedrig")
+            signale = {"quelle": "llm", "konfidenz": konf,
+                       "begruendung": c.get("begruendung_kurz", "")}
+            if ueberlagert:
+                signale["ueberlagert_karte"] = ueberlagert
+            risiken.append(Risikomarkierung(
+                start=off, end=ende, matched_text=span, status=Status.UNKNOWN_RISIKO,
+                titel=(c.get("begruendung_kurz") or span[:48]),
+                quelle="llm", score=_KONFIDENZ_ZU_SIGNAL.get(konf, 0.3),
+                signale=signale,
+                schadensintensitaet="mittel",
+                norm_vorschlag=nvs,
+            ))
+            llm_spans.append((off, ende))
+        return risiken, llm_spans
+
+    def _streit_verstaerker(self, streit_funde: list[StreitFund], omap: list[int],
+                            norm_text: str, text: str, karten: list[Begriffskarte],
+                            risiken: list[Risikomarkierung]) -> None:
+        """Streit-Verstärker (aus run() extrahiert): legt je Fund eine Brennpunkt-
+        Marke an UND verstärkt Begriffsmarken im SELBEN Satz als "streitig"
+        (mutiert ``karten`` und ``risiken`` in place; Offsets normalisiert → Original)."""
+        zonen_o = [_to_orig(omap, s.start, s.end) for s in saetze_mit_offset(norm_text)]
+        streit_zonen: list[tuple[int, int, str]] = []
+        for f in streit_funde:
+            fo_s, fo_e = _to_orig(omap, f.start, f.end)
+            zs, ze = next(((a, b) for a, b in zonen_o if a <= fo_s < b), (fo_s, fo_e))
+            streit_zonen.append((zs, ze, f.signal))
+            risiken.append(Risikomarkierung(
+                start=fo_s, end=fo_e, matched_text=text[fo_s:fo_e],
+                status=Status.UNKNOWN_RISIKO, titel=f"Subsumtions-Brennpunkt: {f.signal}",
+                quelle="streit", score=0.9, signale={"quelle": "streit", "signal": f.signal},
+                schadensintensitaet="hoch", ist_streitig=True, streit_signal=f.signal))
+
+        def _signal_fuer(a: int, b: int) -> str:
+            for zs, ze, sig in streit_zonen:
+                if not (b <= zs or a >= ze):
+                    return sig
+            return ""
+
+        for k in karten:
+            sig = _signal_fuer(k.treffer.start, k.treffer.end)
+            if sig:
+                k.ist_streitig = True
+                k.streit_signal = sig
+        for r in risiken:
+            if r.quelle == "streit":
+                continue
+            sig = _signal_fuer(r.start, r.end)
+            if sig:
+                r.ist_streitig = True
+                r.streit_signal = sig
+                r.score = min(1.0, r.score + 0.2)
+
     def run(
         self,
         text: str,
@@ -269,14 +391,14 @@ class Pipeline:
         gate: Optional[UnknownGate] = None,
         berater: Optional[BeraterStore] = None,
         nutzer: Optional[str] = None,
-        graph=None,
+        graph: Optional[NormGraph] = None,
         abweichung: bool = False,
-        trigger=None,
+        trigger: Optional[TriggerIndex] = None,
         detektor: bool = False,
         streit: bool = False,
-        embedding=None,
-        embedding_encoder=None,
-        reranker=None,
+        embedding: Optional[EmbeddingIndex] = None,
+        embedding_encoder: Optional[Encoder] = None,
+        reranker: Optional[Reranker] = None,
         smart_windowing: bool = False,
         fenster_max_chars: int = _FENSTER_MAX_CHARS,
     ) -> RunReport:
@@ -357,56 +479,11 @@ class Pipeline:
             risiken.extend(bmark)
             belegt_det += [(r.start, r.end) for r in bmark]
 
-        # Schicht 2 – LLM-Kandidaten: konzept-bewusst & additiv.
-        llm_spans: list[tuple[int, int]] = []
-        for c in kandidaten:
-            span = c["span_text"]
-            off = c["char_offset"]
-            ende = off + len(span)
-            kat = next(((bs, be, i) for bs, be, i in treffer_spans if not (ende <= bs or off >= be)), None)
-            ueberlagert = None
-            if kat is not None:
-                kbs, kbe, kat_i = kat
-                if abweichung:
-                    nvs = _pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras)
-                    nv_para = {_para_level(x["id"]) for x in nvs if x.get("id")}
-                    if nv_para and not (nv_para & karten_para[kat_i]):
-                        karten[kat_i].abweichung.append({
-                            "katalog_norm": sorted(karten_para[kat_i]),
-                            "llm_norm": nvs[0]["zitat"], "llm_norm_id": nvs[0]["id"],
-                            "im_korpus": nvs[0]["im_korpus"],
-                            "begruendung": c.get("begruendung_kurz", ""),
-                        })
-                # Echtes Duplikat, wenn die LLM-Marke (a) KO-EXTENSIV dieselbe Stelle neu
-                # markiert (gleicher Span = die Karte selbst, z.B. nur abweichende Norm)
-                # ODER (b) im Begründungs-Konzept mit dem Katalogbegriff überlappt. Sonst
-                # ist es eine ANDERE juristische Dimension auf überlappender Stelle =>
-                # behalten + taggen (additiver Zweit-Layer).
-                ov = max(0, min(ende, kbe) - max(off, kbs))
-                koextensiv = ov >= 0.8 * max(1, ende - off) and ov >= 0.8 * max(1, kbe - kbs)
-                if koextensiv or _gleiches_konzept(c.get("begruendung_kurz", ""),
-                                                   karten[kat_i].eintrag.begriff_kanonisch):
-                    continue
-                ueberlagert = karten[kat_i].eintrag.id
-            # nur gegen ANDERE LLM-Marken deduplizieren (nicht gegen Trigger/Streit).
-            if any(not (ende <= bs or off >= be) for bs, be in llm_spans):
-                continue
-            if ist_belanglos(span):
-                continue
-            konf = c.get("konfidenz", "niedrig")
-            signale = {"quelle": "llm", "konfidenz": konf,
-                       "begruendung": c.get("begruendung_kurz", "")}
-            if ueberlagert:
-                signale["ueberlagert_karte"] = ueberlagert
-            risiken.append(Risikomarkierung(
-                start=off, end=ende, matched_text=span, status=Status.UNKNOWN_RISIKO,
-                titel=(c.get("begruendung_kurz") or span[:48]),
-                quelle="llm", score=_KONFIDENZ_ZU_SIGNAL.get(konf, 0.3),
-                signale=signale,
-                schadensintensitaet="mittel",
-                norm_vorschlag=_pruefe_norm_vorschlag(c.get("norm_vorschlag", ""), graph, gestuetzt_paras),
-            ))
-            llm_spans.append((off, ende))
+        # Schicht 2 – LLM-Kandidaten: konzept-bewusst & additiv (s. _llm_marken).
+        llm_risiken, llm_spans = self._llm_marken(
+            kandidaten, treffer_spans, karten, karten_para,
+            abweichung=abweichung, graph=graph, gestuetzt_paras=gestuetzt_paras)
+        risiken.extend(llm_risiken)
 
         # Schicht 1.5 – deterministischer Trigger-Detektor (OHNE Modell).
         # trig_hits wurde oben EINMAL berechnet (auch fürs Coverage-Gating).
@@ -458,7 +535,13 @@ class Pipeline:
                 normen = m["normen"]
                 if rr_doc is not None:
                     normen = rerank_normen(reranker, m["text"], normen, rr_doc, 5)
-                    normen = [n for n in normen if n.get("rerank", 1.0) >= schwelle]
+                    # Defensiv: rerank_normen scort inzwischen JEDEN Kandidaten (auch
+                    # Einzelkandidaten, s. Docstring dort). Fehlt der Score dennoch
+                    # (künftiger score-loser Pfad), fällt der Kandidat DURCH – ein
+                    # Phantom-Default wie früher 1.0 würde die Abstention aushebeln
+                    # und ungeprüfte §§ in die Vorschläge spülen.
+                    normen = [n for n in normen
+                              if n.get("rerank", float("-inf")) >= schwelle]
                     if not normen:
                         continue                # Abstention: kein relevanter § für den Satz
                 semantik_vorschlaege.append({
@@ -483,37 +566,7 @@ class Pipeline:
         # die im SELBEN Satz liegenden Begriffsmarken als "streitig" verstärken.
         # streit_funde wurde oben EINMAL berechnet (auch fürs Coverage-Gating).
         if streit_funde:
-            zonen_o = [_to_orig(omap, s.start, s.end) for s in saetze_mit_offset(norm_text)]
-            streit_zonen: list[tuple[int, int, str]] = []
-            for f in streit_funde:
-                fo_s, fo_e = _to_orig(omap, f.start, f.end)
-                zs, ze = next(((a, b) for a, b in zonen_o if a <= fo_s < b), (fo_s, fo_e))
-                streit_zonen.append((zs, ze, f.signal))
-                risiken.append(Risikomarkierung(
-                    start=fo_s, end=fo_e, matched_text=text[fo_s:fo_e],
-                    status=Status.UNKNOWN_RISIKO, titel=f"Subsumtions-Brennpunkt: {f.signal}",
-                    quelle="streit", score=0.9, signale={"quelle": "streit", "signal": f.signal},
-                    schadensintensitaet="hoch", ist_streitig=True, streit_signal=f.signal))
-
-            def _signal_fuer(a: int, b: int) -> str:
-                for zs, ze, sig in streit_zonen:
-                    if not (b <= zs or a >= ze):
-                        return sig
-                return ""
-
-            for k in karten:
-                sig = _signal_fuer(k.treffer.start, k.treffer.end)
-                if sig:
-                    k.ist_streitig = True
-                    k.streit_signal = sig
-            for r in risiken:
-                if r.quelle == "streit":
-                    continue
-                sig = _signal_fuer(r.start, r.end)
-                if sig:
-                    r.ist_streitig = True
-                    r.streit_signal = sig
-                    r.score = min(1.0, r.score + 0.2)
+            self._streit_verstaerker(streit_funde, omap, norm_text, text, karten, risiken)
 
         risiken.sort(key=lambda r: (r.start, r.end))
 

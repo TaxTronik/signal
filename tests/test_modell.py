@@ -1,6 +1,7 @@
 """Modell-Integration: Registry, HF-Auflösung, Download, Engine-Manager (gemockt)."""
 
 import io
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -87,6 +88,37 @@ def test_manager_start_ohne_binary_meldet_fehlende_engine(monkeypatch, tmp_path)
         mgr.start()
 
 
+def test_manager_leitet_serverausgabe_in_logdatei_und_schliesst_beim_stop(monkeypatch, tmp_path):
+    # stdout/stderr gehen in eine Logdatei statt DEVNULL: Startfehler wie
+    # "unknown architecture" (zu alte Engine) müssen diagnostizierbar sein.
+    binpath = tmp_path / "llama-server"
+    binpath.write_text("x")
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"x")
+    aufruf = {}
+
+    class FakeProc:
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, timeout=None): return 0
+        def kill(self): pass
+
+    def fake_popen(cmd, stdout=None, stderr=None, **kw):
+        aufruf["stdout"], aufruf["stderr"] = stdout, stderr
+        return FakeProc()
+
+    monkeypatch.setattr(M.subprocess, "Popen", fake_popen)
+    mgr = M.LlamaServerManager(model, binary=str(binpath))
+    mgr.start()
+    assert aufruf["stdout"] is not M.subprocess.DEVNULL
+    assert hasattr(aufruf["stdout"], "write")              # echtes Datei-Handle
+    assert aufruf["stderr"] is M.subprocess.STDOUT         # stderr im selben Log
+    assert mgr.log_pfad and Path(mgr.log_pfad).exists()
+    mgr.stop()
+    assert aufruf["stdout"].closed                          # Handle beim Stop zu
+    Path(mgr.log_pfad).unlink()  # auf Windows nur möglich, wenn das Handle zu ist
+
+
 def test_download_datei_schreibt_datei(monkeypatch, tmp_path):
     class FakeResp:
         status = 200
@@ -99,6 +131,86 @@ def test_download_datei_schreibt_datei(monkeypatch, tmp_path):
     ziel = tmp_path / "f.gguf"
     M.download_datei("http://x/f", ziel)
     assert ziel.read_bytes() == b"hello"
+
+
+def _fake_resp(status, headers, body):
+    class FakeResp:
+        def __init__(self):
+            self.status = status
+            self.headers = headers
+            self._b = io.BytesIO(body)
+        def read(self, n): return self._b.read(n)
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+    return FakeResp()
+
+
+def test_download_datei_resume_206_setzt_fort(monkeypatch, tmp_path):
+    # Teildownload + Server mit Range-Support (206): anhängen, Gesamtgröße
+    # aus Content-Range ("bytes a-b/<gesamt>").
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"he")
+    def urlopen(req, timeout=60):
+        assert req.get_header("Range") == "bytes=2-"
+        return _fake_resp(206, {"Content-Range": "bytes 2-4/5", "Content-Length": "3"}, b"llo")
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    stand = []
+    M.download_datei("http://x/f", ziel, fortschritt=lambda g, t: stand.append((g, t)))
+    assert ziel.read_bytes() == b"hello"
+    assert stand[-1] == (5, 5)
+
+
+def test_download_datei_resume_416_bedeutet_bereits_vollstaendig(monkeypatch, tmp_path):
+    # Datei ist KOMPLETT, Resume fragt "bytes=<size>-" -> Server: 416. Das ist
+    # kein Fehler, sondern "fertig": kein Traceback, Datei unangetastet,
+    # Fortschritt meldet sauber 100 % (Gesamtgröße aus "bytes */<gesamt>").
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"hello")
+    def urlopen(req, timeout=60):
+        assert req.get_header("Range") == "bytes=5-"
+        raise urllib.error.HTTPError(req.full_url, 416, "Range Not Satisfiable",
+                                     {"Content-Range": "bytes */5"}, None)
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    stand = []
+    out = M.download_datei("http://x/f", ziel, fortschritt=lambda g, t: stand.append((g, t)))
+    assert out == ziel and ziel.read_bytes() == b"hello"
+    assert stand == [(5, 5)]
+
+
+def test_download_datei_416_ohne_content_range_faellt_auf_dateigroesse_zurueck(monkeypatch, tmp_path):
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"hello")
+    def urlopen(req, timeout=60):
+        raise urllib.error.HTTPError("http://x/f", 416, "Range Not Satisfiable", {}, None)
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    stand = []
+    M.download_datei("http://x/f", ziel, fortschritt=lambda g, t: stand.append((g, t)))
+    assert stand == [(5, 5)]
+
+
+def test_download_datei_andere_http_fehler_bleiben_sichtbar(monkeypatch, tmp_path):
+    # NUR 416 wird als "bereits vollständig" gedeutet – ein 404 muss weiter knallen.
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"he")
+    def urlopen(req, timeout=60):
+        raise urllib.error.HTTPError("http://x/f", 404, "Not Found", {}, None)
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    with pytest.raises(urllib.error.HTTPError):
+        M.download_datei("http://x/f", ziel)
+
+
+def test_download_datei_resume_server_ignoriert_range(monkeypatch, tmp_path):
+    # Server OHNE Range-Support antwortet trotz Range-Header mit 200 und der
+    # GANZEN Datei: neu schreiben statt anhängen (sonst läge die Datei doppelt
+    # vor) und Content-Length NICHT um das Vorhandene aufblähen.
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"he")
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda req, timeout=60: _fake_resp(200, {"Content-Length": "5"}, b"hello"))
+    stand = []
+    M.download_datei("http://x/f", ziel, fortschritt=lambda g, t: stand.append((g, t)))
+    assert ziel.read_bytes() == b"hello"      # NICHT b"hehello"
+    assert stand[-1] == (5, 5)                # gesamt = 5, nicht 5 + 2
 
 
 # --- Backend-Erkennung / -Auswahl -----------------------------------------

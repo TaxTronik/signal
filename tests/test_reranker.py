@@ -29,8 +29,11 @@ def test_rerank_sortiert_nach_score_und_haengt_ihn_an():
 def test_rerank_ohne_reranker_ist_einfach_top_k():
     normen = [{"norm_id": "A"}, {"norm_id": "B"}, {"norm_id": "C"}]
     assert rerank_normen(None, "frage", normen, doc_fn=lambda x: x, k=2) == normen[:2]
-    # Einzelkandidat wird nicht umsortiert (kein Cross-Encoder-Aufruf nötig)
-    assert rerank_normen(_MockReranker({}), "f", normen[:1], lambda x: x, k=5) == normen[:1]
+    # Auch ein Einzelkandidat wird gescort: der rerank-Score ist die
+    # Abstention-Basis der Pipeline (die frühere len<=1-Abkürzung ließ
+    # Einzelkandidaten OHNE Score ungeprüft passieren).
+    einzel = rerank_normen(_MockReranker({}), "f", normen[:1], lambda x: x, k=5)
+    assert einzel == [{"norm_id": "A", "rerank": 0.0}]
 
 
 def test_rerank_schwelle_default_und_env(monkeypatch):

@@ -114,14 +114,27 @@ class BgeM3Encoder:
             with self._lock:
                 if self._modell is None:   # double-checked: nur EIN Thread lädt
                     patch_rocm_dist()      # ROCm: fehlendes is_initialized abfangen
-                    from sentence_transformers import SentenceTransformer  # lazy
-                    self._modell = SentenceTransformer(self._modell_name, device=self._device,
-                                                       trust_remote_code=self._trust)
-                    hole = (getattr(self._modell, "get_embedding_dimension", None)
-                            or self._modell.get_sentence_embedding_dimension)
+                    try:
+                        from sentence_transformers import SentenceTransformer  # lazy
+                        modell = SentenceTransformer(self._modell_name, device=self._device,
+                                                     trust_remote_code=self._trust)
+                    except Exception as exc:
+                        # Lazy-Load schlaegt erst beim ERSTEN encode() fehl – dann
+                        # braucht der Aufrufer eine handelbare Meldung statt eines
+                        # nackten ImportError tief im Stack. self._modell bleibt
+                        # None ⇒ der naechste Aufruf versucht es erneut (kein
+                        # halb-initialisierter Zustand).
+                        raise RuntimeError(
+                            f"Embedding-Modell '{self._modell_name}' konnte nicht geladen werden: {exc} — "
+                            "Abhilfe: pip install \".[embedding]\"; offline muss das "
+                            "Modell bereits im HF-Cache liegen."
+                        ) from exc
+                    hole = (getattr(modell, "get_embedding_dimension", None)
+                            or modell.get_sentence_embedding_dimension)
                     d = hole()                  # ST renames die Methode; beides abfangen
                     if d:                       # echte Dimension übernehmen (modellabhängig)
                         self.dim = int(d)
+                    self._modell = modell       # erst NACH Erfolg zuweisen
         return self._modell
 
     def encode(self, texts: list[str]) -> np.ndarray:
@@ -175,40 +188,79 @@ class Qwen3Encoder(BgeM3Encoder):
         super().__init__(modell=f"Qwen/Qwen3-Embedding-{variante}", device=device)
 
 
+def _braucht_st(name: str) -> None:
+    """Import-Guard fuer alle sentence-transformers-Encoder: ohne das optionale
+    Extra kommt der Fehler SOFORT beim Oeffnen mit klarer Abhilfe – nicht erst
+    beim ersten encode() als nackter ImportError tief im Request-Stack."""
+    try:
+        import sentence_transformers  # noqa: F401
+    except ImportError as exc:
+        raise ImportError(
+            f"Encoder {name!r} braucht sentence-transformers: pip install \".[embedding]\""
+        ) from exc
+
+
+_GUELTIGE_ENCODER = ("auto", "bge-m3", "granite-311m-r2", "jina-v5",
+                     "qwen3", "qwen3-4b", "qwen3-8b", "hash", "hash<N> (z. B. hash512)")
+
+
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
                     device: str | None = None) -> Encoder:
     """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash;
     ``granite-311m-r2`` das mehrsprachige Granite-R2 (ModernBERT); ``jina-v5``
     Jina-v5-small-retrieval (CC-BY-NC, nur Eval).
 
+    Unbekannte Namen sind ein ValueError (statt stillem Hash-Fallback: ein
+    Tippfehler wie "bge-3m" wuerde sonst unbemerkt den semantisch schwachen
+    Notpfad aktivieren). ``hash``/``hashN`` bleiben als expliziter Notpfad –
+    ``encoder_oeffnen(index.encoder_name)`` muss fuer Hash-Indizes round-trippen.
+
     ``device`` wird durchgereicht. Für Einzelabfragen (Web-Request) ist CPU
     sinnvoll: hält die GPU frei und ist für einen Satz schnell genug. Der Index-
     BUILD nutzt dagegen explizit die GPU.
     """
     if name in ("granite-311m-r2", "granite-r2", "granite"):
+        _braucht_st(name)
         return GraniteR2Encoder(device=device)
     if name in ("jina-v5", "jina-v5-small-retrieval", "jina"):
+        _braucht_st(name)
         return JinaV5Encoder(device=device)
     if name in ("qwen3", "qwen3-emb-0.6b", "qwen3-embedding"):
+        _braucht_st(name)
         return Qwen3Encoder(device=device)
     if name in ("qwen3-4b", "qwen3-emb-4b"):
+        _braucht_st(name)
         return Qwen3Encoder(device=device, variante="4B")
     if name in ("qwen3-8b", "qwen3-emb-8b"):
+        _braucht_st(name)
         return Qwen3Encoder(device=device, variante="8B")
     if name in ("bge-m3", "auto"):
         try:
             import sentence_transformers  # noqa: F401
-            return BgeM3Encoder(device=device)
-        except Exception:
+        except ImportError as exc:
             if name == "bge-m3":
-                raise
+                raise ImportError(
+                    "Encoder 'bge-m3' braucht sentence-transformers: "
+                    "pip install \".[embedding]\"") from exc
+            # nur 'auto' degradiert BEWUSST zum abhaengigkeitsfreien Notpfad
+            return HashEncoder(dim=dim)
+        return BgeM3Encoder(device=device)
+    # Generisch "hashN": ein Index mit encoder_name "hash256" muss sich ueber
+    # encoder_oeffnen(idx.encoder_name) wieder oeffnen lassen (Round-Trip).
+    # Nacktes "hash" (tools/) nutzt den dim-Parameter (Default 512 ⇒ "hash512").
+    m = re.fullmatch(r"hash(\d+)?", name)
+    if m:
+        return HashEncoder(dim=int(m.group(1)) if m.group(1) else dim)
     # Lokaler Modellpfad (z. B. fine-getuntes Artefakt) → BgeM3-kompatibler ST-Encoder.
     # So lädt embedding_bench das Fine-Tune-Artefakt als Akzeptanz-Gate.
     if Path(name).exists():
+        _braucht_st(name)
         enc = BgeM3Encoder(modell=name, device=device)
         enc.name = name
         return enc
-    return HashEncoder(dim=dim)
+    raise ValueError(
+        f"Unbekannter Encoder-Name {name!r}. Gültig: {', '.join(_GUELTIGE_ENCODER)} "
+        "oder ein existierender lokaler Modellpfad.")
 
 
 # --- Index ------------------------------------------------------------------
@@ -224,6 +276,11 @@ class EmbeddingIndex:
         self.titel = titel
         self.encoder_name = encoder_name
         self.dim = int(vectors.shape[1]) if vectors.size else 0
+        # Anker-Statistik: von build() befuellt. Reguläre Attribute mit Defaults,
+        # damit sie auch nach load() existieren (Persistenz fuehrt sie nicht) –
+        # sonst AttributeError je nach Entstehungsweg des Index.
+        self.n_paraphrase_anker: int = 0
+        self.verlorene_anker: list[dict[str, Any]] = []
 
     # -- Bau ----------------------------------------------------------------
     @classmethod
@@ -336,7 +393,11 @@ class EmbeddingIndex:
                 texte.append(str(text).strip())
                 n_anker += 1
 
-        vecs = encoder.encode(texte) if texte else np.zeros((0, encoder.dim), np.float32)
+        # Leerer Korpus: (0, 0) statt (0, encoder.dim) – encoder.dim ist VOR dem
+        # Lazy-Load nur der Klassen-Default (z. B. Qwen3-4B: 1024 statt echt 2560)
+        # und wuerde eine falsche Dimension in den persistierten Index schreiben.
+        # self.dim ist fuer leere Matrizen ohnehin definiert 0.
+        vecs = encoder.encode(texte) if texte else np.zeros((0, 0), np.float32)
         idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name)
         idx.n_paraphrase_anker = n_anker
         idx.verlorene_anker = verlorene_anker
@@ -362,6 +423,22 @@ class EmbeddingIndex:
         return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"])
 
     # -- Laufzeit -----------------------------------------------------------
+    def _encoder_pruefen(self, encoder: Encoder, qdim: int) -> None:
+        """Schutz vor Index/Encoder-Mismatch: ein mit anderem Encoder gebauter
+        Index liefert bei gleicher Dimension STILL unsinnige Ähnlichkeiten, bei
+        anderer Dimension nur einen kryptischen matmul-Fehler. Beides hier mit
+        klarer Abhilfe abfangen. Geprueft wird NACH encode(): erst dann traegt
+        ein lazy geladener ST-Encoder seine echte Dimension."""
+        if self.encoder_name and encoder.name != self.encoder_name:
+            raise ValueError(
+                f"Encoder-Mismatch: Index wurde mit {self.encoder_name!r} gebaut, "
+                f"abgefragt mit {encoder.name!r}. Encoder über "
+                "encoder_oeffnen(index.encoder_name) öffnen oder Index neu bauen.")
+        if self.dim and qdim != self.dim:
+            raise ValueError(
+                f"Dimensions-Mismatch: Index hat dim={self.dim}, Query-Vektor "
+                f"dim={qdim} (Encoder {encoder.name!r}). Index neu bauen.")
+
     def _sammeln(self, reihenfolge, sims: np.ndarray, k: int,
                  min_sim: float) -> list[dict[str, Any]]:
         """Läuft Indizes in der gegebenen (absteigenden) Reihenfolge ab und
@@ -406,6 +483,7 @@ class EmbeddingIndex:
               min_sim: float = 0.5) -> list[dict[str, Any]]:
         """Die k semantisch nächsten §§ zum gesamten Text."""
         qvec = encoder.encode([text])[0]
+        self._encoder_pruefen(encoder, int(qvec.shape[0]))
         return self._topk(qvec, k, min_sim)
 
     def kandidaten_pro_satz(self, text: str, encoder: Encoder, *, k: int = 3,
@@ -419,6 +497,7 @@ class EmbeddingIndex:
         if not saetze:
             return []
         qv = encoder.encode([s.text for s in saetze])
+        self._encoder_pruefen(encoder, int(qv.shape[1]))
         out: list[dict[str, Any]] = []
         for s, v in zip(saetze, qv):
             treffer = self._topk(v, k, min_sim)

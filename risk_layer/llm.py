@@ -20,8 +20,10 @@ import json
 import logging
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
+from pathlib import PureWindowsPath
 from typing import Any
 
 from .schicht2 import KANDIDATEN_JSON_SCHEMA, SYSTEMPROMPT
@@ -44,10 +46,15 @@ def _env_timeout(default: float = 300.0) -> float:
 
 
 def server_verfuegbar(base_url: str = "http://127.0.0.1:8080", *, timeout: float = 2.0) -> bool:
-    """Schneller Erreichbarkeits-Check eines llama-server (GET /health)."""
+    """Schneller Erreichbarkeits-Check eines llama-server (GET /health).
+
+    ``urlopen`` wirft fuer Status >= 400 einen ``HTTPError`` (Subklasse von
+    ``URLError``) – ein ladender Server (503) landet also im ``except`` und gilt
+    korrekt als NICHT verfuegbar. Der Statusvergleich deckt nur 2xx/3xx ab.
+    """
     try:
         with urllib.request.urlopen(f"{base_url.rstrip('/')}/health", timeout=timeout) as r:  # noqa: S310
-            return 200 <= r.status < 500
+            return 200 <= r.status < 400
     except (urllib.error.URLError, TimeoutError, ConnectionError, OSError):
         return False
 
@@ -181,7 +188,13 @@ def _kandidaten_aus_text(s: str) -> list[dict[str, Any]]:
     try:
         d = json.loads(s)
         if isinstance(d, dict):
-            return d.get("kandidaten", []) or []
+            roh = d.get("kandidaten")
+            # Typ-Validierung: kaputte Backends liefern ``kandidaten`` auch mal als
+            # String/Objekt oder Listen mit Nicht-Dicts – das darf nicht erst
+            # ausserhalb des try/except in _nachziehen crashen.
+            if isinstance(roh, list):
+                return [k for k in roh if isinstance(k, dict)]
+            return []
     except json.JSONDecodeError:
         pass
     i = s.find('"kandidaten"')
@@ -191,19 +204,37 @@ def _kandidaten_aus_text(s: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     tiefe = 0
     start = None
+    in_string = False
+    escape = False
     for j in range(start_arr, len(s)):
         c = s[j]
-        if c == "{":
+        # String-bewusster Scanner: ``{``/``}`` INNERHALB von JSON-Strings (z. B.
+        # eine begruendung_kurz mit "{...}") duerfen die Klammertiefe nicht
+        # verschieben, sonst zerschneidet die Bergung valide Objekte.
+        if in_string:
+            if escape:
+                escape = False
+            elif c == "\\":
+                escape = True
+            elif c == '"':
+                in_string = False
+            continue
+        if c == '"':
+            in_string = True
+        elif c == "{":
             if tiefe == 0:
                 start = j
             tiefe += 1
-        elif c == "}":
+        elif c == "}" and tiefe > 0:
             tiefe -= 1
             if tiefe == 0 and start is not None:
                 try:
-                    out.append(json.loads(s[start:j + 1]))
+                    obj = json.loads(s[start:j + 1])
                 except json.JSONDecodeError:
                     pass
+                else:
+                    if isinstance(obj, dict):
+                        out.append(obj)
                 start = None
     return out
 
@@ -229,18 +260,37 @@ def _finde_span(text: str, span: str) -> tuple[int, int]:
     return (m.start(), m.end() - m.start()) if m else (-1, 0)
 
 
+def _offset(wert: Any) -> int:
+    """Defensives Parsen von ``char_offset``.
+
+    0 ist ein GÜLTIGER Offset – ein ``or``-Fallback wuerde ihn verwerfen.
+    None/Strings/Müll vom Modell ergeben -1 (⇒ Suche via ``_finde_span``)
+    statt eines ValueError ausserhalb jedes try/except.
+    """
+    if wert is None or isinstance(wert, bool):
+        return -1
+    try:
+        return int(wert)
+    except (TypeError, ValueError):
+        return -1
+
+
 def _nachziehen(segment_text: str, roh: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Verifiziert + verortet jede Spanne im Quelltext (whitespace-tolerant).
 
     Nicht auffindbare Spannen werden verworfen – eine Halluzination kann so
     höchstens einen Fehlalarm erzeugen, nie einen erfundenen Rechtssatz.
     """
+    if not isinstance(roh, list):
+        return []
     out: list[dict[str, Any]] = []
     for k in roh:
-        span = str(k.get("span_text", "")).strip()
+        if not isinstance(k, dict):
+            continue
+        span = str(k.get("span_text") or "").strip()
         if not span:
             continue
-        off = int(k.get("char_offset", -1) or -1)
+        off = _offset(k.get("char_offset"))
         if 0 <= off and segment_text[off:off + len(span)] == span:
             laenge = len(span)
         else:
@@ -250,9 +300,9 @@ def _nachziehen(segment_text: str, roh: list[dict[str, Any]]) -> list[dict[str, 
         out.append({
             "span_text": segment_text[off:off + laenge],   # echte Quell-Spanne
             "char_offset": off,
-            "begruendung_kurz": str(k.get("begruendung_kurz", "")),
-            "konfidenz": str(k.get("konfidenz", "niedrig")),
-            "norm_vorschlag": str(k.get("norm_vorschlag", "")).strip(),
+            "begruendung_kurz": str(k.get("begruendung_kurz") or ""),
+            "konfidenz": str(k.get("konfidenz") or "niedrig"),
+            "norm_vorschlag": str(k.get("norm_vorschlag") or "").strip(),
         })
     return out
 
@@ -282,8 +332,14 @@ class LlamaServerProvider:
         self.pruefe_verfuegbar = pruefe_verfuegbar
         # Von kandidaten() je Aufruf gesetzt, von _infer in den Prompt gezogen
         # (Template-Method – statt externer Injektion durch die Pipeline).
-        self._kontext: list[str] | None = None
-        self._abweichung = False
+        # threading.local statt einfacher Attribute: ein GETEILTER Provider in
+        # mehreren Threads (z. B. Web-Server) wuerde sich Kontext/Abweichung
+        # sonst gegenseitig ueberschreiben. _infer behaelt bewusst die
+        # 2-Argument-Signatur – Tests/Mocks ueberschreiben genau diese.
+        self._je_aufruf = threading.local()
+        # Modellname-Cache: None = noch nicht erfolgreich ermittelt (Finding:
+        # ein Fehlschlag darf den Fallback nicht dauerhaft einfrieren).
+        self._modell_cache: str | None = None
 
     def audit_info(self) -> dict[str, Any]:
         return {
@@ -295,17 +351,25 @@ class LlamaServerProvider:
         }
 
     def _modell_name(self) -> str:
-        """Am Server geladener Modellname (gecacht, via /v1/models) – fuer die
-        modell-bewusste Prompt-Steuerung (z. B. Thinking-Suffix)."""
-        if getattr(self, "_modell_cache", None) is None:
-            name = self.modell or ""
-            d = _hole_json(f"{self.base_url}/v1/models", timeout=3.0)
-            if isinstance(d, dict):
-                daten = d.get("data") or d.get("models") or []
-                if daten and isinstance(daten[0], dict):
-                    name = str(daten[0].get("id") or daten[0].get("name") or name)
-            self._modell_cache = name
-        return self._modell_cache
+        """Am Server geladener Modellname (via /v1/models) – fuer die modell-
+        bewusste Prompt-Steuerung (z. B. Thinking-Suffix).
+
+        Gecacht wird NUR eine erfolgreiche Antwort: schlaegt /v1/models fehl
+        (Server laedt noch / kurzzeitig weg), bleibt der Cache leer und der
+        naechste Aufruf fragt erneut. Sonst friert der Fallback-Name dauerhaft
+        ein und die Qwen-Schalter (/no_think, enable_thinking=False) greifen
+        fuer die gesamte Provider-Lebensdauer nie.
+        """
+        if self._modell_cache is not None:
+            return self._modell_cache
+        name = self.modell or ""
+        d = _hole_json(f"{self.base_url}/v1/models", timeout=3.0)
+        if isinstance(d, dict):
+            daten = d.get("data") or d.get("models") or []
+            if daten and isinstance(daten[0], dict):
+                name = str(daten[0].get("id") or daten[0].get("name") or name)
+                self._modell_cache = name          # nur Erfolg cachen
+        return name
 
     def _denk_suffix(self) -> str:
         """Qwen3 braucht '/no_think' (sonst Thinking-Modus trotz JSON-Schema); andere
@@ -315,12 +379,16 @@ class LlamaServerProvider:
     def _infer(self, segment_text: str, bekannte_begriffe: list[str]) -> str:
         """Chat-Completion mit dem MODELL-EIGENEN Chat-Template (instruct!) +
         erzwungenem JSON-Schema (/LF110/). Gibt den Antworttext zurück."""
+        # Je-Aufruf-Zustand aus dem threadlokalen Speicher (Defaults, falls
+        # _infer direkt – etwa in Tests – ohne kandidaten() aufgerufen wird).
+        kontext = getattr(self._je_aufruf, "kontext", None)
+        abweichung = getattr(self._je_aufruf, "abweichung", False)
         body = {
             "messages": [
                 {"role": "system", "content": SYSTEMPROMPT},
                 {"role": "user", "content": _user_prompt(
-                    segment_text, bekannte_begriffe, self._kontext,
-                    self._abweichung, denk_suffix=self._denk_suffix())},
+                    segment_text, bekannte_begriffe, kontext,
+                    abweichung, denk_suffix=self._denk_suffix())},
             ],
             "temperature": self.temperatur,
             "seed": self.seed,
@@ -350,8 +418,8 @@ class LlamaServerProvider:
     def kandidaten(self, segment_text: str, bekannte_begriffe: list[str],
                    kontext_normen: list[str] | None = None,
                    abweichung: bool = False) -> list[dict[str, Any]]:
-        self._kontext = kontext_normen          # vom _infer in den Prompt gezogen
-        self._abweichung = abweichung
+        self._je_aufruf.kontext = kontext_normen    # vom _infer in den Prompt gezogen
+        self._je_aufruf.abweichung = abweichung
         # Readiness-Gate: lädt/down ⇒ sofort leer (kein 2-Minuten-Hänger).
         if self.pruefe_verfuegbar and not server_verfuegbar(self.base_url, timeout=2.0):
             return []
@@ -377,6 +445,15 @@ class LlamaServerProvider:
         return _nachziehen(segment_text, _kandidaten_aus_text(roh_text))
 
 
+def _modell_dateiname(model_path: str) -> str:
+    """Dateiname eines Modellpfads fuers Audit – robust fuer ``/`` UND ``\\``.
+
+    ``PureWindowsPath`` akzeptiert beide Trenner; ein ``rsplit("/")`` liesse
+    unter Windows den kompletten Pfad als Modellnamen stehen.
+    """
+    return PureWindowsPath(model_path).name
+
+
 class LlamaCppProvider:
     """In-process-Variante über das optionale ``llama-cpp-python``."""
 
@@ -387,7 +464,7 @@ class LlamaCppProvider:
         except ImportError as exc:  # pragma: no cover - optionaler Pfad
             raise ImportError("llama-cpp-python fehlt: pip install \".[llm]\"") from exc
         self.model_path = model_path
-        self.modell = model_path.rsplit("/", 1)[-1]
+        self.modell = _modell_dateiname(model_path)
         self.quantisierung = quantisierung
         self.seed = seed
         self.temperatur = temperatur

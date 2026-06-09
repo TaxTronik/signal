@@ -51,13 +51,18 @@ KANDIDATEN_JSON_SCHEMA: dict[str, Any] = {
 }
 
 # Äquivalente GBNF-Grammatik für llama.cpp (alternativ zum JSON-Schema, /LF110/).
+# DERZEIT UNGENUTZT: die Provider erzwingen das JSON-Schema via response_format;
+# die Grammatik ist für den llama.cpp-Grammar-Modus (--grammar) reserviert. Sie
+# MUSS feldgleich mit KANDIDATEN_JSON_SCHEMA bleiben – inkl. des optionalen
+# norm_vorschlag, sonst kann der Grammar-Pfad nie eine Norm-Einordnung liefern.
 KANDIDATEN_GBNF = r'''
 root        ::= "{" ws "\"kandidaten\"" ws ":" ws "[" ws (kandidat (ws "," ws kandidat)*)? ws "]" ws "}"
 kandidat    ::= "{" ws
                 "\"span_text\"" ws ":" ws string ws "," ws
                 "\"char_offset\"" ws ":" ws integer ws "," ws
                 "\"begruendung_kurz\"" ws ":" ws string ws "," ws
-                "\"konfidenz\"" ws ":" ws konfidenz ws
+                "\"konfidenz\"" ws ":" ws konfidenz
+                (ws "," ws "\"norm_vorschlag\"" ws ":" ws string)? ws
               "}"
 konfidenz   ::= "\"niedrig\"" | "\"mittel\"" | "\"hoch\""
 string      ::= "\"" ([^"\\] | "\\" .)* "\""

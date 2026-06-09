@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -114,13 +117,38 @@ def download_datei(
     req = urllib.request.Request(url, headers={"User-Agent": "risk-layer/0.1"})
     if vorhanden:
         req.add_header("Range", f"bytes={vorhanden}-")
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        # Gesamtgröße bestimmen (Content-Range bei Fortsetzung, sonst Content-Length)
-        cr = resp.headers.get("Content-Range")
-        gesamt = int(cr.split("/")[-1]) if cr else (
-            int(resp.headers.get("Content-Length", 0)) + vorhanden)
-        modus = "ab" if (vorhanden and resp.status == 206) else "wb"
-        gelesen = vorhanden if modus == "ab" else 0
+    try:
+        antwort = urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
+    except urllib.error.HTTPError as exc:
+        # 416 = Range nicht erfüllbar: die Datei ist BEREITS VOLLSTÄNDIG geladen
+        # (Resume ab Dateiende). Kein Fehler – erneutes "modell download" soll
+        # sauber "fertig" melden statt mit Traceback abzubrechen. Die Gesamt-
+        # größe steht (falls geliefert) im Content-Range ("bytes */<gesamt>").
+        if exc.code == 416 and vorhanden:
+            cr = exc.headers.get("Content-Range", "") if exc.headers else ""
+            try:
+                gesamt = int(cr.split("/")[-1])
+            except ValueError:
+                gesamt = vorhanden
+            _log.info("bereits vollständig: %s (%s)", ziel.name, menschlich(vorhanden))
+            if fortschritt:
+                fortschritt(vorhanden, gesamt)
+            return ziel
+        raise
+    with antwort as resp:
+        if vorhanden and resp.status == 206:
+            # echte Fortsetzung: Gesamtgröße aus Content-Range ("bytes a-b/<gesamt>")
+            cr = resp.headers.get("Content-Range")
+            gesamt = int(cr.split("/")[-1]) if cr else (
+                int(resp.headers.get("Content-Length", 0)) + vorhanden)
+            modus, gelesen = "ab", vorhanden
+        else:
+            # Frischer Download ODER der Server IGNORIERT den Range-Header und
+            # antwortet 200 mit der GANZEN Datei: dann neu schreiben statt anhängen
+            # (sonst läge die Datei doppelt vor) – und Content-Length ist hier schon
+            # die Gesamtgröße, ``vorhanden`` darf NICHT aufaddiert werden.
+            gesamt = int(resp.headers.get("Content-Length", 0))
+            modus, gelesen = "wb", 0
         with ziel.open(modus) as fh:
             while True:
                 chunk = resp.read(blocksize)
@@ -306,6 +334,9 @@ def _lade_und_entpacke(name: str, url: str, ziel_dir: Path,
             zf.extractall(ziel_dir)
     else:  # .tar.gz (Linux-Builds)
         with tarfile.open(arch) as tf:
+            # filter="data" (Schutz gegen Tar-Slip/absolute Pfade/Sonderdateien) gibt
+            # es erst ab Python 3.11.4 – deshalb requires-python >= 3.11.4. BEWUSST
+            # kein Fallback ohne Filter: das wäre der Verlust genau dieses Schutzes.
             tf.extractall(ziel_dir, filter="data")
     arch.unlink()
 
@@ -365,6 +396,8 @@ class LlamaServerManager:
         self.n_gpu_layers = n_gpu_layers
         self.extra = extra
         self._proc: subprocess.Popen | None = None
+        self._log_datei = None                 # offenes Handle der Server-Logdatei
+        self.log_pfad: str | None = None       # für Diagnose-Hinweise sichtbar
 
     @property
     def url(self) -> str:
@@ -400,10 +433,22 @@ class LlamaServerManager:
             )
         if not Path(self.model_path).exists():
             raise FileNotFoundError(f"Modell nicht gefunden: {self.model_path}")
-        self._proc = subprocess.Popen(
-            self.kommando(),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
+        # stdout/stderr NICHT nach DEVNULL: Startfehler ("unknown architecture" bei
+        # zu alter Engine, s. Hinweis bei lfm2.5 oben) wären sonst undiagnostizierbar.
+        # Logdatei statt PIPE, damit der Server nie an einem vollen, ungelesenen
+        # Pipe-Puffer blockiert; das Handle wird in stop() geschlossen.
+        fd, self.log_pfad = tempfile.mkstemp(prefix="llama-server-", suffix=".log")
+        self._log_datei = os.fdopen(fd, "wb")
+        _log.info("llama-server-Log: %s", self.log_pfad)
+        try:
+            self._proc = subprocess.Popen(
+                self.kommando(),
+                stdout=self._log_datei, stderr=subprocess.STDOUT,
+            )
+        except Exception:
+            self._log_datei.close()     # Handle nicht verwaisen lassen
+            self._log_datei = None
+            raise
 
     def warte_bereit(self, timeout: float = 180.0, intervall: float = 1.5) -> bool:
         import time
@@ -437,6 +482,11 @@ class LlamaServerManager:
                 except subprocess.TimeoutExpired:
                     pass
         self._proc = None
+        if self._log_datei is not None:
+            # Log-Handle sauber freigeben (Windows hält die Datei sonst gesperrt);
+            # die Datei selbst bleibt zur Diagnose liegen (Pfad: self.log_pfad).
+            self._log_datei.close()
+            self._log_datei = None
 
 
 def menschlich(bytes_: int) -> str:

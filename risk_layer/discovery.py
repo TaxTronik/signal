@@ -49,13 +49,17 @@ UMSTELLUNG_JACCARD = 0.6
 KRITISCHE_BEFUNDE = frozenset({"norm_unbelegt"})
 
 # quelle_typ wird ABGELEITET (nicht vom Modell), darum nicht im Schema.
+# Strict-konform wie CARD_JSON_SCHEMA: der OpenAI-strict-Modus verlangt
+# additionalProperties:false UND alle properties in required, sonst lehnt die
+# echte API den Request mit 400 ab (llama-server ist hier nur toleranter).
+# "Optionale" Felder kommen damit immer mit; leer ("" / [] / "keine") = ungesetzt.
 DISCOVERY_JSON_SCHEMA: dict[str, Any] = {
-    "type": "object",
+    "type": "object", "additionalProperties": False,
     "properties": {
         "kandidaten": {
             "type": "array",
             "items": {
-                "type": "object",
+                "type": "object", "additionalProperties": False,
                 "properties": {
                     "typ": {"type": "string", "enum": list(TYP)},
                     "funktion": {"type": "string", "enum": list(FUNKTION)},
@@ -68,7 +72,9 @@ DISCOVERY_JSON_SCHEMA: dict[str, Any] = {
                     "generisch": {"type": "boolean"},
                     "konfidenz": {"type": "string", "enum": list(KONFIDENZ)},
                 },
-                "required": ["typ", "funktion", "inhalt", "textgrundlage", "konfidenz"],
+                "required": ["typ", "funktion", "inhalt", "textgrundlage", "ziel_norm",
+                             "bezugsnorm", "relation", "nachbarnormen", "generisch",
+                             "konfidenz"],
             },
         }
     },
@@ -226,25 +232,31 @@ def verarbeite_kandidaten(
     normrelation (nur bei ``enable_normrelation``) eng über Verweis/Wortlaut/Titel.
     begriff/paraphrase tragen nie eine Relation."""
     verweist_para = {para_level(i) for i in verweist_ids}
-    text_low = node_text.lower()
-    titel_low = (node_titel or "").lower()
+    # _norm()-Werte (lower + whitespace-kollabiert) IMMER gegen _norm()-Text
+    # vergleichen: ein bloßes lower() liesse jede mehrwortige Paraphrase an einer
+    # Zeilenumbruch-Stelle des § faelschlich passieren bzw. scheitern.
+    text_norm = _norm(node_text)
+    titel_norm = _norm(node_titel or "")
     rang = {"hoch": 0, "mittel": 1, "niedrig": 2}
 
     out: list[Kandidat] = []
     gesehen: set[tuple] = set()
     n_para = 0
-    for k in sorted(roh, key=lambda x: rang.get(str(x.get("konfidenz", "niedrig")), 3)):
+    # Lesezugriffe mit ``or``-Fallback: strict-Schema garantiert die Felder zwar,
+    # tolerantere Backends (llama-server ohne strict) koennen aber null liefern –
+    # str(None) waere "None" und wuerde die Gates korrumpieren.
+    for k in sorted(roh, key=lambda x: rang.get(str(x.get("konfidenz") or "niedrig"), 3)):
         if len(out) >= max_kandidaten:
             break
-        typ = str(k.get("typ", "")).strip()
+        typ = str(k.get("typ") or "").strip()
         if typ not in TYP:
             continue
         if typ == "begriff" and not enable_begriff:
             continue                            # Pass-1-Default: begriff aus (Substantiv-Rauschen)
         if typ == "normrelation" and not enable_normrelation:
             continue                            # Pass-1-Default: normrelation aus (Rauschen)
-        inhalt = str(k.get("inhalt", "")).strip()
-        tg = str(k.get("textgrundlage", "")).strip()
+        inhalt = str(k.get("inhalt") or "").strip()
+        tg = str(k.get("textgrundlage") or "").strip()
         if not inhalt or not tg:
             continue
         # Anti-Halluzination: Textgrundlage muss wörtlich (whitespace-tolerant) im § stehen.
@@ -254,7 +266,7 @@ def verarbeite_kandidaten(
         tg = node_text[off:off + ln]                      # echte Quell-Spanne
         # Paraphrase-Gate: keine bloße Wortlautkopie/-umstellung.
         if typ == "paraphrase":
-            if _norm(inhalt) == _norm(tg) or _norm(inhalt) in text_low:
+            if _norm(inhalt) == _norm(tg) or _norm(inhalt) in text_norm:
                 continue
             if _token_jaccard(inhalt, tg) >= UMSTELLUNG_JACCARD:
                 continue                            # Wortlaut-Umstellung -> kein Register-Bridge
@@ -265,15 +277,15 @@ def verarbeite_kandidaten(
         if typ == "begriff" and _norm(inhalt) == _norm(tg):
             continue
 
-        funktion = str(k.get("funktion", "unklar")).strip()
+        funktion = str(k.get("funktion") or "unklar").strip()
         if funktion not in FUNKTION:
             funktion = "unklar"
-        konf = str(k.get("konfidenz", "niedrig")).strip()
+        konf = str(k.get("konfidenz") or "niedrig").strip()
         if konf not in KONFIDENZ:
             konf = "niedrig"
 
         # ziel_norm: leer => der geminte § selbst. Authority IMMER ableiten.
-        ziel = str(k.get("ziel_norm", "")).strip()
+        ziel = str(k.get("ziel_norm") or "").strip()
         ziel_id = _erste_id(ziel) if ziel else quell_norm
         teile = ziel_id.split(":")
         ziel_law = teile[1] if len(teile) >= 2 else quell_law
@@ -284,21 +296,21 @@ def verarbeite_kandidaten(
         # begriff/paraphrase nie. Fremdnorm muss parsebar + kein Selbstbezug sein.
         bezug, bezug_id, relation = "", "", "keine"
         if typ in ("cross_ref", "normrelation"):
-            bezug = str(k.get("bezugsnorm", "")).strip()
+            bezug = str(k.get("bezugsnorm") or "").strip()
             bezug_id = _erste_id(bezug)
             if not bezug_id or para_level(bezug_id) == para_level(ziel_id or quell_norm):
                 continue                        # Fremdnorm fehlt / Selbstbezug -> raus
             if typ == "cross_ref":
-                relation = str(k.get("relation", "")).strip()
+                relation = str(k.get("relation") or "").strip()
                 if relation not in ("verweist_auf", "ausgenommen_von", "anwendbar_auf"):
                     relation = "verweist_auf"                 # aus dem Wortlaut abgeleitet (s. _card_zu_roh)
                 gestuetzt = ist_im_graph(bezug_id)            # parsebar + im Graph
             else:                               # normrelation: eng + graph-/wortlaut-/titel-gestützt
-                relation = str(k.get("relation", "")).strip()
+                relation = str(k.get("relation") or "").strip()
                 if relation not in ("konkretisiert", "ermaechtigungsbezug"):
                     continue
                 gestuetzt = (para_level(bezug_id) in verweist_para
-                             or _norm(bezug) in text_low or _norm(bezug) in titel_low)
+                             or _norm(bezug) in text_norm or _norm(bezug) in titel_norm)
             if not gestuetzt:
                 continue
 
@@ -704,17 +716,38 @@ _GENERISCHE_TERME = {
 }
 
 
+# Wortgrenzen wie in matcher.py: deutsche Umlaute/ß und Akzente zählen als
+# Wortzeichen, damit z. B. „satz" NICHT mitten in „Umsatzsteuer" als Evidenz gilt.
+_WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÖØ-öø-ÿ"
+_WB_OPEN = rf"(?<![{_WB}])"
+_WB_CLOSE = rf"(?![{_WB}])"
+
+
+def _im_wortlaut(term_norm: str, text_low: str) -> bool:
+    """Prüft, ob der Term als GANZE Wortfolge im Wortlaut steht (wortgrenzen-
+    bewusst, whitespace-tolerant). Ein Substring-``in`` liesse Teilwörter wie
+    „satz" in „Umsatzsteuer" passieren – genau die Hub-Treffer, die das
+    Evidenz-Gate verhindern soll."""
+    toks = term_norm.split()
+    if not toks:
+        return False
+    kern = r"\s+".join(re.escape(t) for t in toks)
+    return re.search(rf"{_WB_OPEN}{kern}{_WB_CLOSE}", text_low) is not None
+
+
 def _matcher_terms(card: dict[str, Any], node_text: str) -> list[str]:
-    """matcher_terms (1b-Kandidaten): nur Begriffe, die WÖRTLICH im § stehen (Evidenz),
-    dedupliziert, gedeckelt, OHNE generische Hub-Terme ('Bundesrecht', 'Steuer', …) —
-    die feuern auf jedem Text und erzeugen genau den Crosstalk auf zentrale Normen.
-    Anders als Anker hier KEIN Register-Bridge — der Matcher soll exakt greifen."""
+    """matcher_terms (1b-Kandidaten): nur Begriffe, die WÖRTLICH im § stehen (Evidenz,
+    als ganze Wortfolge – kein Substring), dedupliziert, gedeckelt, OHNE generische
+    Hub-Terme ('Bundesrecht', 'Steuer', …) — die feuern auf jedem Text und erzeugen
+    genau den Crosstalk auf zentrale Normen. Anders als Anker hier KEIN
+    Register-Bridge — der Matcher soll exakt greifen."""
     low = node_text.lower()
     out: list[str] = []
     seen: set[str] = set()
     for t in (card.get("matcher_terms") or [])[:8]:
         ts, key = str(t).strip(), _norm(str(t))
-        if ts and key and key in low and key not in seen and key not in _GENERISCHE_TERME:
+        if (ts and key and _im_wortlaut(key, low)
+                and key not in seen and key not in _GENERISCHE_TERME):
             seen.add(key)
             out.append(ts)
     return out
@@ -781,10 +814,14 @@ def roh_karte(base_url: str, node: dict[str, Any], *, model: str = "", timeout: 
     return _json_objekt(content)
 
 
+# öffentliche Aliase für tools/ (card_batch & Co. importieren keine _privaten Namen)
+json_objekt = _json_objekt
+normbase = _normbase
+
 __all__ = [
     "Kandidat", "verarbeite_kandidaten", "besteht_review_gate", "besteht_training_gate",
     "iter_paragraphen", "discovery_paragraph", "roh_kandidaten", "DISCOVERY_SYSTEM",
     "baue_user_prompt", "DISCOVERY_JSON_SCHEMA", "server_verfuegbar", "erkenne_modell",
     "Karte", "verarbeite_karte", "roh_karte", "baue_card_prompt", "CARD_SYSTEM",
-    "CARD_JSON_SCHEMA",
+    "CARD_JSON_SCHEMA", "json_objekt", "normbase",
 ]

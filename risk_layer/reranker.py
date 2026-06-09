@@ -62,16 +62,29 @@ class CrossEncoderReranker:
             with self._lock:
                 if self._modell is None:
                     patch_rocm_dist()          # ROCm: fehlendes is_initialized abfangen
-                    from sentence_transformers import CrossEncoder  # lazy
-                    self._modell = CrossEncoder(self._modell_name, device=self._device)
+                    try:
+                        from sentence_transformers import CrossEncoder  # lazy
+                        modell = CrossEncoder(self._modell_name, device=self._device)
+                    except Exception as exc:
+                        # Lazy-Load schlaegt erst beim ERSTEN Request fehl – dann
+                        # braucht der Aufrufer eine handelbare Meldung statt eines
+                        # nackten ImportError tief im Stack. self._modell bleibt
+                        # None ⇒ der naechste Aufruf versucht es erneut (kein
+                        # halb-initialisierter Zustand).
+                        raise RuntimeError(
+                            f"Reranker-Modell '{self._modell_name}' konnte nicht geladen werden: {exc} — "
+                            "Abhilfe: pip install \".[embedding]\"; offline muss das "
+                            "Modell bereits im HF-Cache liegen."
+                        ) from exc
                     # fp16 auf der GPU: ~25x schneller (11,9 s -> 0,47 s je Dokument).
                     # fp32 ist auf RDNA4/ROCm eine Falle – dieselbe Lektion wie beim LLM.
                     # CPU bleibt fp32 (half() wird dort nicht unterstützt).
                     try:
-                        if next(self._modell.model.parameters()).device.type == "cuda":
-                            self._modell.model.half()
+                        if next(modell.model.parameters()).device.type == "cuda":
+                            modell.model.half()
                     except Exception:
                         pass
+                    self._modell = modell      # erst NACH Erfolg zuweisen
         return self._modell
 
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
@@ -107,13 +120,22 @@ class Qwen3Reranker:
             with self._lock:
                 if self._model is None:
                     patch_rocm_dist()
-                    import torch
-                    from transformers import AutoModelForCausalLM, AutoTokenizer
-                    tok = AutoTokenizer.from_pretrained(self._modell_name, padding_side="left")
-                    dev = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
-                    dtype = torch.float16 if "cuda" in str(dev) else torch.float32
-                    model = AutoModelForCausalLM.from_pretrained(
-                        self._modell_name, torch_dtype=dtype).to(dev).eval()
+                    try:
+                        import torch
+                        from transformers import AutoModelForCausalLM, AutoTokenizer
+                        tok = AutoTokenizer.from_pretrained(self._modell_name, padding_side="left")
+                        dev = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
+                        dtype = torch.float16 if "cuda" in str(dev) else torch.float32
+                        model = AutoModelForCausalLM.from_pretrained(
+                            self._modell_name, torch_dtype=dtype).to(dev).eval()
+                    except Exception as exc:
+                        # s. CrossEncoderReranker._laden: handelbare Meldung, kein
+                        # halb-initialisierter Zustand, Retry beim naechsten Aufruf.
+                        raise RuntimeError(
+                            f"Reranker-Modell '{self._modell_name}' konnte nicht geladen werden: {exc} — "
+                            "Abhilfe: pip install \".[embedding]\" plus transformers/torch; "
+                            "offline muss das Modell bereits im HF-Cache liegen."
+                        ) from exc
                     self._tok, self._dev = tok, dev
                     self._yes = tok.convert_tokens_to_ids("yes")
                     self._no = tok.convert_tokens_to_ids("no")
@@ -125,8 +147,8 @@ class Qwen3Reranker:
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
         if not paare:
             return []
+        self._laden()    # ZUERST: klare RuntimeError statt nacktem ImportError von torch
         import torch
-        self._laden()
         out: list[float] = []
         with self._lock:                            # forward-Pass serialisieren
             for i in range(0, len(paare), 16):      # Batches à 16
@@ -175,10 +197,16 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
         if not phrasen:
             continue
         quellen = list(e.norm_anker) + [k.primaer for k in e.normketten if k.primaer]
+        # norm_anker und Ketten-Kopf koennen auf DENSELBEN § aufloesen – ohne
+        # Dedup landen die Phrasen dann doppelt im Doc-Text desselben §.
+        gesehen: set[str] = set()
         for z in quellen:
             for a in parse_normzitat(z):
                 if a.norm_id:
-                    anker.setdefault(para_level(a.norm_id.to_id()), []).extend(phrasen)
+                    pid = para_level(a.norm_id.to_id())
+                    if pid not in gesehen:
+                        gesehen.add(pid)
+                        anker.setdefault(pid, []).extend(phrasen)
                     break
 
     cache: dict[str, str] = {}
@@ -203,8 +231,15 @@ def rerank_normen(reranker: Reranker | None, query: str,
                   normen: list[dict[str, Any]], doc_fn, k: int) -> list[dict[str, Any]]:
     """Sortiert die Norm-Kandidaten eines Satzes per Cross-Encoder um (gegen
     ``doc_fn(norm_id)``) und gibt die Top-k zurück; jede Marke trägt ihren
-    ``rerank``-Score (für Abstention/Anzeige). Ohne Reranker: einfach Top-k."""
-    if reranker is None or len(normen) <= 1:
+    ``rerank``-Score (für Abstention/Anzeige). Ohne Reranker: einfach Top-k.
+
+    Auch EINZELNE Kandidaten werden gescort: der Rerank-Score ist die
+    Abstention-Basis der Pipeline. Die fruehere ``len(normen) <= 1``-Abkuerzung
+    sparte nur einen forward-Pass ("umsortieren unnoetig"), liess aber Einzel-
+    Kandidaten OHNE Score passieren – mit dem abgesenkten Reranker-Floor (0,35)
+    rutschten so gerade die unplausiblen Faelle (Score 0,35–0,49) durch.
+    """
+    if reranker is None or not normen:
         return normen[:k]
     scores = reranker.score([(query, doc_fn(n["norm_id"])) for n in normen])
     rang = sorted(range(len(normen)), key=lambda i: scores[i], reverse=True)[:k]
