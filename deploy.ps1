@@ -12,7 +12,7 @@
 .PARAMETER Voll
   Breiter Steuer-Korpus (~21 Gesetze) statt nur der im Katalog referenzierten.
 .PARAMETER Modell
-  Modell-Key statt des Defaults (qwen3-14b). Siehe 'risk-layer modell list'.
+  Modell-Key statt des Defaults (granite-4.1-8b). Siehe 'risk-layer modell list'.
 .PARAMETER Backend
   GPU-Backend der Engine: auto (Default; NVIDIA->cuda, AMD->hip, sonst Vulkan/CPU)
   oder explizit cuda|hip|vulkan|cpu.

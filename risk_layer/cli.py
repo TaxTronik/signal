@@ -365,6 +365,7 @@ def _cmd_zitat(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from . import modell as M  # Default-Modell aus der Registry (Help-Text stale-sicher)
     p = argparse.ArgumentParser(
         prog="risk-layer",
         description="Schlüsselbegriff-Assistenz – deterministische Schicht-1-Auswertung.",
@@ -443,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     m = sub.add_parser("modell", help="LLM-Modell (GGUF) verwalten und llama-server starten")
     m.add_argument("aktion", choices=["list", "download", "engine", "status", "start"])
-    m.add_argument("--modell", help="Modell-Key (Default: qwen3-14b)")
+    m.add_argument("--modell", help=f"Modell-Key (Default: {M.DEFAULT_MODELL})")
     m.add_argument("--llm-bin", help="Pfad zum llama-server-Binary")
     m.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
     m.add_argument("--backend", choices=["auto", "cuda", "hip", "vulkan", "cpu"],

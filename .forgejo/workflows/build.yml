@@ -1,6 +1,6 @@
-# Forgejo-nativer BUILD-Workflow (ergänzt .github/workflows/ci.yml + security.yml,
-# die Forgejo ohnehin mitliest → Tests/Security laufen dort schon, nicht doppeln).
-# Hier: Deploy-Artefakte validieren + die zustandslose Engine als Container bauen
+# Forgejo-nativer BUILD-Workflow. Schwester-Workflows im selben Verzeichnis:
+# ci.yml (Quality/Tests) + security.yml (pip-audit/gitleaks) — hier NUR:
+# Deploy-Artefakte validieren + die zustandslose Engine als Container bauen
 # (und optional in die Forgejo-Registry pushen).
 name: Build
 
