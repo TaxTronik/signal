@@ -34,6 +34,14 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     Normketten, summary, textHash, katalogVersion) PLUS engineVersion. KEIN
     Persistieren – TaxTronik speichert das Ergebnis in RiskAnalysis/RiskMarking.
     """
+    # BEWUSST kein separates Zeichenlimit auf `text`: der Pfad ist auth-pflichtig
+    # (vertrauenswuerdige Integration), Sachverhalte/Klausuren sind legitim lang, und
+    # der Body ist bereits auf _MAX_BODY (8 MiB, web.py) gedeckelt. Bei mitLLM=true
+    # laeuft der ganze Text durch den Provider (pipeline.run smart_windowing=False) –
+    # konsistent zur CLI. Wird LLM-Kosten auf grossen Dokumenten je zum Problem, ist
+    # der Hebel `smart_windowing` (implementiert + getestet, dann CLI+Web konsistent
+    # setzen UND gegen Gold messen), KEIN blankes Textlimit. Der `text`-Echo in der
+    # Antwort ist tragend: die spans referenzieren Offsets in genau diesen Text.
     text = str(payload.get("text", ""))
     opt = payload.get("optionen") or {}
     mit_llm = bool(payload.get("mitLLM", False))
