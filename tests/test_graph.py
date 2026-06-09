@@ -41,6 +41,30 @@ def test_aufloesen_fallback_auf_vorfahr(graph):
     assert r["verwendet"] == "norm:TestG:2:abs1"
 
 
+def test_aufloesen_misserfolg_hat_konsistente_schluessel(graph):
+    # Misserfolgs-Dict trägt DIESELBEN Schlüssel wie der Erfolgsfall
+    # ("verweist_auf"/"verwendet"); "verweise" bleibt als Alt-Alias erhalten.
+    r = graph.aufloesen("norm:NixG:1")
+    assert r["gefunden"] is False
+    assert r["verweist_auf"] == [] and r["dangling"] == []
+    assert r["verwendet"] is None
+    assert r["verweise"] == []                  # additiver Alt-Schlüssel
+
+
+def test_mehrfachzitat_behaelt_hoechste_konfidenz(tmp_path):
+    # Zwei Zitate aufs selbe Ziel: explizit (hoch) ZUERST, implizit (mittel)
+    # danach – Last-Write-Wins hätte „mittel" stehen lassen, gewinnen muss
+    # die HÖCHSTE Konfidenz.
+    from risk_layer.gii import NormKnoten
+    k = NormKnoten(
+        id="norm:AO:1", law="AO", para="1", titel="Anwendungsbereich",
+        text="Siehe § 2 Abs. 1 AO im Detail. Später gilt § 2 Abs. 1 entsprechend.")
+    g = NormGraph.build([k], tmp_path / "konf.sqlite")
+    rows = g._query(
+        "SELECT konfidenz FROM kanten WHERE src='norm:AO:1' AND dst='norm:AO:2:abs1'")
+    assert [r["konfidenz"] for r in rows] == ["hoch"]
+
+
 def test_stats(graph):
     s = graph.stats()
     assert s["knoten"] >= 6 and s["kanten"] >= 1
@@ -59,6 +83,10 @@ def test_suche_titel(tmp_path):
     res = g.suche_titel("Missbrauch Gestaltung")
     assert res and res[0]["id"] == "norm:AO:42"
     assert g.suche_titel("Schätzung")[0]["id"] == "norm:AO:162"
+    # suche_titel teilt sich den Knoten-Cache mit suche_text – Mutationen am
+    # Ergebnis dürfen NICHT in den Cache durchschlagen (Kopien).
+    res[0]["titel"] = "MUTIERT"
+    assert g.suche_titel("Missbrauch Gestaltung")[0]["titel"] != "MUTIERT"
 
 
 def test_suche_text_findet_relevante_paragraphen(tmp_path):

@@ -64,3 +64,67 @@ def test_rss_lehnt_dtd_entity_ab():
              b'<rss><channel><item><title>&a;</title></item></channel></rss>')
     with pytest.raises(ValueError):
         rss.parse_rss(bombe, "BFH")
+
+
+def test_text_doppelt_escaptes_html_ohne_literale_tags():
+    # "&amp;lt;p&amp;gt;" → (XML-Parser) "&lt;p&gt;" → (unescape) wäre "<p>"
+    # als literaler Tag im Klartext gelandet; der zweite Strip räumt das ab.
+    feed = (b'<?xml version="1.0"?><rss><channel><item>'
+            b'<title>T</title>'
+            b'<description>&amp;lt;p&amp;gt;Hallo&amp;lt;/p&amp;gt;</description>'
+            b'<guid>g1</guid></item></channel></rss>')
+    eintrag = rss.parse_rss(feed, "BFH")[0]
+    assert "<" not in eintrag.beschreibung and ">" not in eintrag.beschreibung
+    assert "Hallo" in eintrag.beschreibung
+
+
+def test_hole_alle_mit_fehlern_meldet_ausgefallenen_feed(monkeypatch, caplog):
+    # Fehlerkanal wie corpus.hole_alle: ein toter Feed darf nicht mehr wie
+    # „keine neuen Entscheidungen" aussehen.
+    import logging
+
+    def fake_hole_feed(url, quelle, *, timeout=25.0):
+        if quelle == "BFH":
+            raise ValueError("Feed kaputt")
+        return [rss.RssEintrag(quelle, "Titel", "link", "guid-1", "datum", "Text")]
+
+    monkeypatch.setattr(rss, "hole_feed", fake_hole_feed)
+    with caplog.at_level(logging.WARNING, logger="risk_layer.rss"):
+        erg = rss.hole_alle_mit_fehlern()
+    assert list(erg.fehler) == ["BFH"]
+    assert "ValueError" in erg.fehler["BFH"]
+    assert [e.quelle for e in erg.eintraege] == ["BMF"]
+    assert any("BFH" in r.message for r in caplog.records)
+    # Abwärtskompatible Fassade liefert weiterhin die nackte Liste (abgleich.laufe)
+    assert [e.quelle for e in rss.hole_alle()] == ["BMF"]
+
+
+def test_hole_feed_lehnt_zu_grossen_feed_explizit_ab(monkeypatch):
+    # Stilles Kappen bei _MAX_FEED endete als kryptischer ParseError (stiller
+    # Ausfall) – jetzt gibt es einen sprechenden Fehler für den Fehlerkanal.
+    import pytest
+
+    class _FakeResp:
+        def __init__(self, daten):
+            self.daten = daten
+            self.pos = 0
+
+        def read(self, amt=None):
+            if amt is None:
+                amt = len(self.daten) - self.pos
+            out = self.daten[self.pos:self.pos + amt]
+            self.pos += len(out)
+            return out
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    daten = b"<rss>" + b"x" * 100
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=25.0: _FakeResp(daten))
+    monkeypatch.setattr(rss, "_MAX_FEED", 50)     # Cap testbar klein
+    with pytest.raises(ValueError, match=r"größer als"):
+        rss.hole_feed("http://x/feed.rss", "BFH")

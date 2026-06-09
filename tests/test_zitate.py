@@ -8,6 +8,7 @@ import pytest
 
 from risk_layer.idschema import NormID
 from risk_layer.zitate import (
+    extrahiere_anker,
     finde_normzitate,
     norm_zu_zitat,
     parse_entscheidung,
@@ -56,6 +57,71 @@ def test_ff_offener_bereich_geflaggt():
     anker = parse_normzitat("§ 2 Abs. 2 ff. UStG")
     assert anker and anker[0].norm_id.offener_bereich is True
     assert anker[0].konfidenz == "mittel"
+
+
+def test_buchst_wert_mit_punkt_ist_kein_offener_bereich():
+    # "Buchst. f." trägt den lit-WERT f – die ff./f.-Erkennung darf ihn nicht
+    # fressen und das Zitat nicht fälschlich als offenen Bereich flaggen.
+    anker = parse_normzitat("§ 33 Abs. 1 Buchst. f. EStG")
+    assert [a.norm_id.to_id() for a in anker] == ["norm:EStG:33:abs1:litf"]
+    assert anker[0].norm_id.offener_bereich is False
+
+
+def test_ff_nach_buchst_wert_bleibt_offener_bereich():
+    # "Buchst. a ff." – das ff. gehört NICHT zum lit-Wert, sondern flaggt den Bereich
+    anker = parse_normzitat("§ 4 Nr. 21 Buchst. a ff. UStG")
+    assert anker[0].norm_id.to_id() == "norm:UStG:4:nr21:lita"
+    assert anker[0].norm_id.offener_bereich is True
+
+
+# Tiefenmarker mit reinen Buchstabenwerten („Buchst. a") – gemeinsame Grammatik
+# von Parser und Span-Scanner (vorher divergent, Span endete vor „Buchst.") ----
+
+def test_buchstaben_tiefenwert_parst():
+    assert _ids("§ 4 Nr. 21 Buchst. a UStG") == ["norm:UStG:4:nr21:lita"]
+
+
+def test_extrahiere_anker_buchstabenwert_nicht_fehlattribuiert():
+    # Repro: der Span muss „Buchst. a" einschließen; vorher endete er davor,
+    # „Buchst" wurde als (unbekanntes) Gesetz probiert und das Zitat landete
+    # per default_law beim FALSCHEN Gesetz (norm:EStG:4:nr21).
+    anker = extrahiere_anker("Nach § 4 Nr. 21 Buchst. a UStG ist befreit.",
+                             default_law="EStG")
+    assert [a.norm_id.to_id() for a in anker if a.norm_id] == ["norm:UStG:4:nr21:lita"]
+
+
+# §-Bereiche mit einfachem Bindestrich ----------------------------------------
+
+def test_para_bereich_mit_bindestrich_expandiert():
+    assert _ids("§§ 14-17 AO") == [
+        "norm:AO:14", "norm:AO:15", "norm:AO:16", "norm:AO:17",
+    ]
+
+
+def test_para_suffix_und_liste_kippen_nicht():
+    # Buchstabensuffix bleibt ein einzelner §, Aufzählung bleibt Liste
+    assert _ids("§ 64a AO") == ["norm:AO:64a"]
+    assert _ids("§§ 14, 15 AO") == ["norm:AO:14", "norm:AO:15"]
+
+
+# „und"-Aufzählung von Tiefenwerten (Listen-Expansion, Spez. 2.2) -------------
+
+def test_tiefen_liste_mit_und_expandiert():
+    anker = parse_normzitat("§ 1 Satz 1 und 2 AO")
+    assert [a.norm_id.to_id() for a in anker] == ["norm:AO:1:s1", "norm:AO:1:s2"]
+    assert anker[0].konfidenz == "mittel"      # expandiert ⇒ nicht „hoch"
+
+
+def test_tiefen_liste_mit_komma_und_und():
+    assert _ids("§ 2 Abs. 2 Nr. 2, 3 und 5 UStG") == [
+        "norm:UStG:2:abs2:nr2", "norm:UStG:2:abs2:nr3", "norm:UStG:2:abs2:nr5",
+    ]
+
+
+def test_und_frisst_kein_folgewort():
+    # „und folgende" ist KEIN Listenwert – der Einzelbuchstabe darf das
+    # Folgewort nicht anschneiden (s. (?!\w) in der Grammatik)
+    assert _ids("§ 1 Satz 1 und folgende AO") == ["norm:AO:1:s1"]
 
 
 @pytest.mark.parametrize("zitat,erwartet", [
@@ -131,6 +197,20 @@ def test_fg_mit_ort():
     assert uid.aktenzeichen == "2-K-245/17"
 
 
+def test_entscheidung_ohne_datum_az_verankert():
+    # Ohne Datum darf der Az-Scanner führende Wörter („Urteil") nicht mitfressen –
+    # sonst joint urteil:BFH:Urteil-XI-R-29/22 nie mit urteil:BFH:XI-R-29/22.
+    uid = parse_entscheidung("BFH, Urteil XI R 29/22")
+    assert uid is not None
+    assert uid.to_id() == "urteil:BFH:XI-R-29/22"
+
+
+def test_entscheidung_beschluss_und_sonderregister():
+    uid = parse_entscheidung("BFH, Beschluss v. 28.11.2016 – GrS 1/15")
+    assert uid is not None
+    assert uid.to_id() == "urteil:BFH:GrS-1/15"      # Sonderregister bleibt parsebar
+
+
 # Freitext-Scan: weiterhin korrekt UND gegen polynomialen Lazy-Scan begrenzt ----
 
 def test_finde_normzitate_findet_normale_zitate():
@@ -138,6 +218,21 @@ def test_finde_normzitate_findet_normale_zitate():
         "Siehe § 162 Abs. 1 Satz 2 AO und § 42 AO.") if a.norm_id}
     assert any(i.startswith("norm:AO:162") for i in ids)
     assert "norm:AO:42" in ids
+
+
+def test_finde_normzitate_ueberlaeuft_keine_satzgrenze():
+    # „AO" gehört zum FOLGESATZ – vorher entstand norm:AO:17:abs2 mit
+    # Konfidenz hoch (falsch-positiv), weil die Zeichenklasse Punkt+Wörter
+    # zwischen §-Zahl und Gesetz zuließ.
+    anker = finde_normzitate("Es gilt § 17 Abs. 2. Die AO regelt das Verfahren.")
+    assert not [a.norm_id.to_id() for a in anker if a.norm_id]
+
+
+def test_finde_normzitate_inline_abkuerzungen_bleiben():
+    # legitime Abkürzungspunkte INNERHALB des Zitats (Abs./S.) laufen weiter durch
+    ids = {a.norm_id.to_id() for a in finde_normzitate(
+        "Nach § 17 Abs. 2 S. 1 AO ist zu schätzen.") if a.norm_id}
+    assert "norm:AO:17:abs2:s1" in ids
 
 
 def test_finde_normzitate_bounded_gegen_redos():

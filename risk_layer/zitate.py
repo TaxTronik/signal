@@ -13,9 +13,16 @@ import itertools
 import re
 import weakref
 from dataclasses import dataclass
+from typing import Literal
 
 from .idschema import NormID, Quellentyp, UrteilID, VerwID
 from .lawmap import DEFAULT_LAWMAP, LawMap
+
+# Konfidenz-Skala (aufsteigend) – EINE zentrale Quelle für Annotation UND
+# Vergleiche (graph nutzt die Reihenfolge für „höchste Konfidenz gewinnt").
+# Bewusst Literal statt Enum: die Strings sind API (as_dict, SQLite, Fixtures).
+Konfidenz = Literal["niedrig", "mittel", "hoch"]
+KONFIDENZ_STUFEN: tuple[Konfidenz, ...] = ("niedrig", "mittel", "hoch")
 
 # Kompilierte Freitext-Scan-Regex je LawMap. finde_normzitate baute die große
 # Law-Alternation und kompilierte sie bei JEDEM Aufruf neu – input-unabhängige
@@ -34,18 +41,39 @@ def _scan_pattern(lawmap: LawMap) -> re.Pattern[str]:
         # (laengste Kette < 60 Zeichen). Die Begrenzung verhindert einen polynomialen
         # Lazy-Scan auf gecraftetem Nutzertext ("§1 " + langer Nicht-Gesetz-Schwanz),
         # da finde_normzitate im mitLLM-Pfad ueber den GANZEN Text laeuft.
-        pat = re.compile(rf"(?:§§?|\bArt\.)\s*\d+[\w.\s,–\-]{{0,80}}?\b(?:{law_alt})\b")
+        # Der (?!…)-Wächter stoppt am SATZENDE (Punkt + Whitespace + Großbuchstabe):
+        # „… § 17 Abs. 2. Die AO regelt …" darf NICHT zu norm:AO:17:abs2 werden –
+        # das Gesetz gehört zum Folgesatz. Abkürzungspunkte in echten Zitaten
+        # („Abs. 2", „S. 1") folgt immer eine Ziffer, die bleiben erlaubt.
+        # Bewusster Verzicht: Ordinalformen („2. Halbsatz AO") werden dadurch
+        # nicht gescannt – die parste auch _DEPTH_RE nie (kein Recall-Verlust).
+        pat = re.compile(
+            rf"(?:§§?|\bArt\.)\s*\d+"
+            rf"(?:(?!\.\s+[A-ZÄÖÜ])[\w.\s,–\-]){{0,80}}?"
+            rf"\b(?:{law_alt})\b")
         _SCAN_PATTERN_CACHE[lawmap] = pat
     return pat
 
 
 # --- Normzitat-Parser -------------------------------------------------------
 
-# Tiefenmarker (Spez. 2.1). Längere Varianten zuerst (z. B. "Satz" vor "S").
+# Tiefenmarker-Grammatik (Spez. 2.1) – die EINE Quelle für Parser (_DEPTH_RE)
+# UND Fließtext-Span-Scanner (_ZITAT_SPAN). Vorher war sie doppelt definiert
+# und divergierte: der Span kannte keine reinen Buchstabenwerte („Buchst. a"),
+# brach das Zitat davor ab und attribuierte den Rest ans falsche Gesetz.
+# Längere Marker-Varianten zuerst (z. B. "Satz" vor "S").
+_TIEFE_KINDS = r"Absatz|Abs|Nummer|Nr|Satz|S|Buchstabe|Buchst|lit|Halbsatz|Halbs|Alt|Var"
+# Wert: Zahl mit optionalem Buchstabensuffix („8c") ODER reiner Buchstabe („a").
+_TIEFE_WERT = r"\d+[a-z]?|[a-z]"
+
 _DEPTH_RE = re.compile(
-    r"(?P<kind>Absatz|Abs|Nummer|Nr|Satz|S|Buchstabe|Buchst|lit|Halbsatz|Halbs|Alt|Var)\.?\s*"
-    r"(?P<v1>\d+[a-z]?|[a-z])"
-    r"(?:\s*(?:bis|–|—|-)\s*(?P<v2>\d+[a-z]?|[a-z]))?"
+    rf"(?P<kind>{_TIEFE_KINDS})\.?\s*"
+    rf"(?P<v1>{_TIEFE_WERT})"
+    rf"(?:\s*(?:bis|–|—|-)\s*(?P<v2>{_TIEFE_WERT})"
+    # „Satz 1 und 2" / „Nr. 2, 3 und 5": Aufzählung von Tiefenwerten (Spez. 2.2,
+    # Listen-Expansion). (?!\w) verhindert, dass der Einzelbuchstaben-Wert das
+    # erste Zeichen eines Folgeworts frisst („Satz 1 und folgende").
+    rf"|(?P<liste>(?:\s*(?:,|und)\s*(?:{_TIEFE_WERT})(?!\w))+))?"
 )
 
 _PARA_NUM = re.compile(r"\d+[a-z]*")
@@ -57,7 +85,7 @@ class GeparsterAnker:
 
     norm_id: NormID | None
     roh: str
-    konfidenz: str          # niedrig | mittel | hoch
+    konfidenz: Konfidenz    # niedrig | mittel | hoch (s. KONFIDENZ_STUFEN)
     relativ: bool = False
 
     def as_dict(self) -> dict[str, object]:
@@ -98,12 +126,19 @@ def _expand_range(v1: str, v2: str) -> list[str]:
     return [v1, v2]
 
 
+# Bereichsmarker zwischen §-Nummern: „bis", Gedankenstriche – und der einfache
+# Bindestrich, aber NUR zwischen zwei Nummern(-Suffixen) („14-17", „64a-65").
+# Der Lookahead auf eine Ziffer schützt Wortkopplungen („§ 6b-Rücklage") davor,
+# als Bereich gelesen zu werden.
+_PARA_BEREICH = re.compile(r"\bbis\b|–|—|[0-9a-z]\s*-\s*(?=\d)")
+
+
 def _expand_paras(para_part: str) -> tuple[list[str], bool]:
     """Expandiert die §-Nummern (Liste/Bereich). Returns (paras, expandiert?)."""
     nums = _PARA_NUM.findall(para_part)
     if not nums:
         return [], False
-    if re.search(r"\bbis\b|–|—", para_part) and len(nums) >= 2:
+    if _PARA_BEREICH.search(para_part) and len(nums) >= 2:
         return _expand_range(nums[0], nums[-1]), True
     if len(nums) > 1:                       # Liste: "14, 17"
         return nums, True
@@ -111,7 +146,7 @@ def _expand_paras(para_part: str) -> tuple[list[str], bool]:
 
 
 def _parse_depth(depth_part: str) -> tuple[list[tuple[tuple[str, str], ...]], bool]:
-    """Parst Tiefenmarker, kartesisch über Bereiche expandiert.
+    """Parst Tiefenmarker, kartesisch über Bereiche/Listen expandiert.
 
     Returns (Liste von Tiefen-Tupeln, expandiert?).
     """
@@ -122,6 +157,12 @@ def _parse_depth(depth_part: str) -> tuple[list[tuple[tuple[str, str], ...]], bo
         if m.group("v2"):
             expandiert = True
             werte = _expand_range(m.group("v1"), m.group("v2"))
+        elif m.group("liste"):
+            # „Satz 1 und 2" → s1, s2; „Nr. 2, 3 und 5" → nr2, nr3, nr5.
+            # findall mit Gruppe holt nur die Werte, nicht die Trenner.
+            expandiert = True
+            werte = [m.group("v1")] + re.findall(
+                rf"(?:,|und)\s*({_TIEFE_WERT})", m.group("liste"))
         else:
             werte = [m.group("v1")]
         achsen.append([(label, w) for w in werte])
@@ -143,9 +184,16 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
         law, alias = treffer
         s = s[: len(s) - len(alias)].strip()
 
-    # 2) "ff."/"f." → offener Bereich
-    offener = bool(re.search(r"\bff?\.", s))
-    s = re.sub(r"\bff?\.", "", s).strip()
+    # 2) "ff."/"f." → offener Bereich. AUSNAHME: direkt hinter einem Buchstaben-
+    # Marker ist „f." ein lit-WERT („§ 33 Abs. 1 Buchst. f. EStG") und bleibt
+    # für _DEPTH_RE im String – sonst ginge litf verloren und das Zitat würde
+    # fälschlich als offener Bereich geflaggt.
+    ff_treffer = [m for m in re.finditer(r"\bff?\.", s)
+                  if not re.search(r"(?:Buchst(?:abe)?|lit)\.?\s*$", s[: m.start()])]
+    offener = bool(ff_treffer)
+    for m in reversed(ff_treffer):          # rückwärts entfernen → Offsets stabil
+        s = s[: m.start()] + s[m.end():]
+    s = s.strip()
 
     # 3) Modus: Art. vs § vs (impliziter §, z. B. „162 AO") vs relativ
     artikel_mode = bool(re.match(r"^(Art\.?|Artikel)\b", s))
@@ -173,6 +221,7 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     if not paras and not artikel_mode:
         return [GeparsterAnker(norm_id=None, roh=roh, konfidenz="niedrig", relativ=law is None)]
 
+    konf: Konfidenz
     if law:
         konf = "mittel" if (offener or expandiert) else "hoch"
     else:
@@ -194,11 +243,16 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     return anker
 
 
-# Zitat-Span im Fließtext (mit/ohne Gesetzesnamen), für intra-/cross-law-Kanten
+# Zitat-Span im Fließtext (mit/ohne Gesetzesnamen), für intra-/cross-law-Kanten.
+# Aus DERSELBEN Tiefenmarker-Grammatik gebaut wie _DEPTH_RE (keine zweite,
+# divergierende Definition mehr). (?!\w) nach dem Wert verhindert, dass der
+# Einzelbuchstaben-Wert ins Folgewort läuft („… Alt e‹rnative›"). Bewusst OHNE
+# „und"-Aufzählungen: im Fließtext wäre „Satz 1 und 2 weitere Personen" sonst
+# falsch als Listen-Zitat gelesen – die Listen-Expansion macht parse_normzitat.
 _ZITAT_SPAN = re.compile(
-    r"§§?\s*\d+[a-z]*"
-    r"(?:\s+(?:Abs(?:atz)?|Nr(?:ummer)?|Satz|S|Buchst(?:abe)?|lit|Halbs(?:atz)?|Alt|Var)\.?"
-    r"\s*\d+[a-z]?(?:\s*(?:bis|–|—|-)\s*\d+[a-z]?)?)*"
+    rf"§§?\s*\d+[a-z]*"
+    rf"(?:\s+(?:{_TIEFE_KINDS})\.?"
+    rf"\s*(?:{_TIEFE_WERT})(?!\w)(?:\s*(?:bis|–|—|-)\s*(?:{_TIEFE_WERT})(?!\w))?)*"
 )
 
 
@@ -264,7 +318,17 @@ _GERICHT_RE = re.compile(
     r"\s*(?P<ger>BVerfG|BVerwG|BFH|BGH|EuGH|EuG|FG\s+[A-ZÄÖÜ][^\s,]+|FG)"
 )
 _DATUM_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{4}")
-_AZ_RE = re.compile(r"[A-Za-z0-9][\w .\-]{0,40}?\d{1,4}/\d{2,4}")  # begrenzt (kein Lazy-Blowup)
+# Aktenzeichen am Senats-/Registerzeichen VERANKERT (kein Lazy-Vorlauf mehr, der
+# führende Wörter wie „Urteil" ins Az zog und den Join mit urteil:BFH:XI-R-29/22
+# brach): römische Senatszahl (XI, III), arabische Kammer-/Senatszahl (2 BvL,
+# 2 K), EuG-Register (T-…; C ist als römische Zahl ohnehin abgedeckt) oder
+# kurzes Sonderregister (GrS, VGS). Lange Wörter („Urteil", „Beschluss")
+# scheitern an der 4-Zeichen-Grenze des Sonderregister-Zweigs.
+_AZ_RE = re.compile(
+    r"\b(?:[IVXLC]{1,5}|\d{1,3}|T|[A-Z][A-Za-z]{1,3})"   # Senat/Register-Anker
+    r"(?:[ \-][A-Za-z]{1,5}\.?)*"                         # Registerzeichen (R, ZR, BvL, K …)
+    r"[ \-]\d{1,4}/\d{2,4}"                               # lfd. Nummer / Jahr
+)
 _FUNDSTELLE_RE = re.compile(r"[A-ZÄÖÜ][A-Za-zÄÖÜ.]*\.?\s*[IVX]*\s*\d{4},\s*\d+")
 
 _GERICHT_QUELLENTYP = {

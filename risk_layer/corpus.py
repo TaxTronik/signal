@@ -14,18 +14,32 @@ Katalogs abgeleitet und in ``corpus/gesetze.yaml`` als editierbare Config abgele
 from __future__ import annotations
 
 import io
+import logging
 import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
 from .catalog import Katalog
 from .zitate import parse_normzitat
 
+_log = logging.getLogger(__name__)
+
 GII_BASIS = "https://www.gesetze-im-internet.de"
 DEFAULT_KORPUS = Path("corpus")
+
+# Authority-Klasse als Literal statt freiem String – Tippfehler ("verordung")
+# fallen beim Typcheck bzw. in lade_config auf, API/Serialisierung unverändert.
+Art = Literal["gesetz", "verordnung"]
+ART_WERTE: tuple[Art, ...] = ("gesetz", "verordnung")
+
+# Obergrenze für einen xml.zip-Download: echte gii-Archive sind einstellige MiB
+# (größtes: EStG ~5 MiB). 256 MiB ist eine großzügige Schranke gegen eine
+# fehlkonfigurierte/kompromittierte Quelle – bounded read wie rss._MAX_FEED.
+_MAX_ZIP = 256 * 1024 * 1024
 
 # LAW-Code → gii-Slug (Sonderfälle; Default ist die Kleinschreibung des Codes).
 GII_SLUG = {
@@ -78,7 +92,7 @@ VERORDNUNGEN: frozenset[str] = frozenset(
 )
 
 
-def art_fuer(law: str) -> str:
+def art_fuer(law: str) -> Art:
     """Authority-Klasse eines LAW-Codes: 'verordnung' oder (Default) 'gesetz'."""
     return "verordnung" if law in VERORDNUNGEN else "gesetz"
 
@@ -113,7 +127,7 @@ class Gesetz:
     law: str
     slug: str
     url: str
-    art: str = "gesetz"   # Authority-Klasse: gesetz | verordnung
+    art: Art = "gesetz"   # Authority-Klasse: gesetz | verordnung
 
 
 def ableiten_aus_katalog(katalog: Katalog) -> list[Gesetz]:
@@ -122,8 +136,17 @@ def ableiten_aus_katalog(katalog: Katalog) -> list[Gesetz]:
     for eintrag in katalog:
         for zitat in eintrag.norm_anker:
             for anker in parse_normzitat(zitat):
-                if anker.norm_id:
-                    laws.append(anker.norm_id.law)
+                if anker.norm_id is None:
+                    continue
+                # Sentinel-Law "?" (Kürzel nicht in der LawMap) NICHT in die
+                # Config übernehmen – sonst landet ein Phantom-Gesetz mit URL
+                # ".../?/xml.zip" in gesetze.yaml. Der eigentliche Fix ist die
+                # LawMap-Pflege (test_seed_deckt_korpus), hier nur der Filter.
+                if anker.norm_id.law == "?":
+                    _log.debug("Norm-Anker ohne auflösbares Gesetz übersprungen: %r "
+                               "(Eintrag %s)", zitat, eintrag.id)
+                    continue
+                laws.append(anker.norm_id.law)
     gesehen: dict[str, Gesetz] = {}
     for law in laws:
         if law in gesehen:
@@ -158,12 +181,33 @@ def schreibe_config(gesetze: list[Gesetz], korpus: Path = DEFAULT_KORPUS) -> Pat
 
 
 def lade_config(korpus: Path = DEFAULT_KORPUS) -> list[Gesetz]:
+    """Liest gesetze.yaml – DEFENSIV, die Datei ist ausdrücklich handeditierbar.
+
+    Statt nacktem KeyError/TypeError aus einem vertippten Eintrag gibt es eine
+    Fehlermeldung, die Datei UND Eintrag benennt.
+    """
     pfad = config_pfad(korpus)
     if not pfad.exists():
         return []
     rows = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
-    return [Gesetz(law=r["law"], slug=r["slug"], url=r.get("url") or gii_url(r["slug"]),
-                   art=(r.get("art") or art_fuer(r["law"]))) for r in rows]
+    if not isinstance(rows, list):
+        raise ValueError(f"{pfad}: Liste von Gesetzes-Einträgen erwartet, "
+                         f"nicht {type(rows).__name__}")
+    gesetze: list[Gesetz] = []
+    for i, r in enumerate(rows, start=1):
+        if not isinstance(r, dict):
+            raise ValueError(f"{pfad}: Eintrag {i} muss ein Mapping sein, "
+                             f"nicht {type(r).__name__}: {r!r}")
+        law, slug = r.get("law"), r.get("slug")
+        if not law or not slug:
+            raise ValueError(f"{pfad}: Eintrag {i} braucht 'law' und 'slug': {r!r}")
+        art = r.get("art") or art_fuer(str(law))
+        if art not in ART_WERTE:
+            raise ValueError(f"{pfad}: Eintrag {i} ('{law}'): unbekannte art "
+                             f"{art!r} (erlaubt: {ART_WERTE})")
+        gesetze.append(Gesetz(law=str(law), slug=str(slug),
+                              url=str(r.get("url") or gii_url(str(slug))), art=art))
+    return gesetze
 
 
 def xml_verzeichnis(korpus: Path = DEFAULT_KORPUS) -> Path:
@@ -183,11 +227,20 @@ def hole_gesetz(g: Gesetz, korpus: Path = DEFAULT_KORPUS, *, timeout: float = 30
         raise ValueError(f"unzulässiger law-Code (Pfad-Traversal): {g.law!r}")
     req = urllib.request.Request(g.url, headers={"User-Agent": "risk-layer/0.1 (lokal)"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (feste, vom Nutzer bestätigte Quelle)
-        roh = resp.read()
+        roh = resp.read(_MAX_ZIP)
+        # Exakt am Cap UND es kommen noch Daten → expliziter Fehler statt eines
+        # still gekappten (korrupten) Archivs.
+        if len(roh) == _MAX_ZIP and resp.read(1):
+            raise ValueError(f"{g.law}: Download größer als {_MAX_ZIP} Bytes – "
+                             f"abgebrochen ({g.url})")
     with zipfile.ZipFile(io.BytesIO(roh)) as zf:
-        xml_namen = [n for n in zf.namelist() if n.lower().endswith(".xml")]
+        # Sortiert = deterministische Wahl, unabhängig von der Archiv-Reihenfolge.
+        xml_namen = sorted(n for n in zf.namelist() if n.lower().endswith(".xml"))
         if not xml_namen:
             raise ValueError(f"{g.law}: kein XML im Archiv {g.url}")
+        if len(xml_namen) > 1:
+            _log.warning("%s: %d XML-Dateien im Archiv %s – nehme deterministisch "
+                         "%r (sortiert erste)", g.law, len(xml_namen), g.url, xml_namen[0])
         daten = zf.read(xml_namen[0])
     ziel.mkdir(parents=True, exist_ok=True)
     pfad.write_bytes(daten)

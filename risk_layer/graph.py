@@ -20,7 +20,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .gii import NormKnoten
-from .zitate import extrahiere_anker
+from .zitate import KONFIDENZ_STUFEN, extrahiere_anker
+
+# Rang je Konfidenz (niedrig < mittel < hoch) – für „höchste Konfidenz gewinnt"
+# beim Kantenbau. Skala kommt zentral aus zitate (eine Quelle der Wahrheit).
+_KONF_RANG = {stufe: rang for rang, stufe in enumerate(KONFIDENZ_STUFEN)}
 
 DEFAULT_DB = Path("corpus") / "graph.sqlite"
 
@@ -74,7 +78,10 @@ class NormGraph:
               k.quellentyp, k.gueltig_ab, k.gueltig_bis) for k in knoten],
         )
 
-        # verweist_auf-Kanten aus den Normtexten
+        # verweist_auf-Kanten aus den Normtexten. Hinweis Performance: Absatz-/
+        # Nummer-Knoten enthalten Textausschnitte ihres §-Elterns mehrfach, der
+        # Zitat-Scan läuft also über teils redundante Texte – bewusst toleriert,
+        # das ist reine BUILD-Zeit (einmaliger Wartungsschritt), kein Laufzeitpfad.
         kanten: dict[tuple[str, str, str], tuple[str, int]] = {}
         for k in knoten:
             for anker in extrahiere_anker(k.text, default_law=k.law):
@@ -83,7 +90,12 @@ class NormGraph:
                 dst = anker.norm_id.to_id()
                 if dst == k.id:
                     continue
-                kanten[(k.id, dst, "verweist_auf")] = (anker.konfidenz, 1 if dst in ids else 0)
+                schluessel = (k.id, dst, "verweist_auf")
+                alt = kanten.get(schluessel)
+                # Mehrere Zitate auf dasselbe Ziel: die HÖCHSTE Konfidenz bleibt
+                # stehen (vorher gewann per Dict-Overwrite einfach das letzte).
+                if alt is None or _KONF_RANG[anker.konfidenz] > _KONF_RANG[alt[0]]:
+                    kanten[schluessel] = (anker.konfidenz, 1 if dst in ids else 0)
         con.executemany(
             "INSERT OR REPLACE INTO kanten VALUES (?,?,?,?,?)",
             [(s, d, t, konf, vorh) for (s, d, t), (konf, vorh) in kanten.items()],
@@ -121,7 +133,12 @@ class NormGraph:
                 rows = self._query("SELECT * FROM knoten WHERE id=?", (verwendet,))
                 row = rows[0] if rows else None
         if row is None or not self._gueltig(row, am):
-            return {"id": norm_id, "gefunden": False, "verweise": [], "dangling": []}
+            # Schlüssel konsistent zum Erfolgsfall ("verweist_auf"/"verwendet"),
+            # damit Konsumenten nicht pro Pfad andere Keys behandeln müssen.
+            # "verweise" war der alte (nur hier benutzte) Name – bleibt additiv
+            # als leerer Alias erhalten, falls externe Skripte ihn lesen.
+            return {"id": norm_id, "gefunden": False, "verwendet": None,
+                    "verweist_auf": [], "verweise": [], "dangling": []}
 
         verweise, dangling = [], []
         for e in self._query("SELECT * FROM kanten WHERE src=? AND typ='verweist_auf'", (verwendet,)):
@@ -139,22 +156,28 @@ class NormGraph:
         }
 
     def suche_titel(self, query: str, limit: int = 8) -> list[dict[str, Any]]:
-        """Lexische Suche über die §-Überschriften (für die Norm-Auswahl im UI)."""
+        """Lexische Suche über die §-Überschriften (für die Norm-Auswahl im UI).
+
+        Nutzt die lazy gecachten §-Knoten des Volltext-Index (_vt_nodes) statt
+        pro Aufruf alle §-Zeilen aus SQLite zu laden. Gescort wird weiterhin per
+        Substring über den Titel (der Wort-Index _vt_index tokenisiert exakt und
+        fände „Gestaltung" in „Gestaltungsmöglichkeiten" nicht).
+        """
         woerter = [w.lower() for w in re.split(r"\W+", query) if len(w) >= 3]
         if not woerter:
             return []
-        rows = self._query(
-            "SELECT id, titel, law, para FROM knoten "
-            "WHERE absatz IS NULL AND nummer IS NULL AND titel != ''")
-        bewertet: list[tuple[int, sqlite3.Row]] = []
-        for r in rows:
-            t = (r["titel"] or "").lower()
+        self._volltext_index()
+        bewertet: list[tuple[int, dict[str, Any]]] = []
+        for node in self._vt_nodes:
+            t = node["titel"].lower()
+            if not t:
+                continue
             score = sum(1 for w in woerter if w in t)
             if score:
-                bewertet.append((score, r))
+                bewertet.append((score, node))
         bewertet.sort(key=lambda x: (-x[0], x[1]["id"]))
-        return [{"id": r["id"], "titel": r["titel"], "zitat": f"§ {r['para']} {r['law']}"}
-                for _, r in bewertet[:limit]]
+        # Kopien zurückgeben – Aufrufer dürfen den Cache nicht mutieren.
+        return [dict(node) for _, node in bewertet[:limit]]
 
     def _volltext_index(self):
         """Lazy invertierter Index (Wort → §-Knoten) über Titel + Wortlaut aller §§.
