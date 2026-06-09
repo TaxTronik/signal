@@ -27,6 +27,38 @@ from dataclasses import dataclass
 # ("Belege\nfehlen") nicht zerreißen. Einzel-Newlines zählen als Whitespace.
 _SATZ_TRENNER = re.compile(r"[.!?;:]+")
 
+# Ein PUNKT ist nur dann Satzgrenze, wenn er nicht zu einer juristischen
+# Abkürzung gehört („gem. § 146 Abs. 1 AO" ist EIN Satz – sonst zerfällt die
+# Ko-Okkurrenz und kein Muster feuert) UND danach ein plausibler Satzanfang
+# folgt. !?;: trennen weiterhin immer.
+#
+# Abkürzungsschutz: bekannte Kurzformen + JEDER Einzelbuchstabe vor dem Punkt
+# (deckt i. S. d. / z. B. / u. a. / d. h. / S. ab – ein Satz endet praktisch
+# nie auf ein alleinstehendes Zeichen).
+_ABK_VOR_PUNKT = re.compile(
+    r"(?:\b(?:gem|Abs|Nr|Buchst|Satz|Art|Tz|Rz|Rn|Anm|Az|vgl|Vgl|bzw|ggf|Ggf|"
+    r"sog|inkl|zzgl|ca|evtl|etc|Co)"
+    r"|(?<![0-9A-Za-zÄÖÜäöüß])[A-Za-zÄÖÜäöü])$"
+)
+# plausibler Satzanfang nach dem Punkt: Whitespace + Großbuchstabe (ggf. nach
+# öffnendem Anführungszeichen/Klammer) – oder Zeilen-/Textende.
+_SATZ_ANFANG_DANACH = re.compile(r"\s+[„\"‚'(]?[A-ZÄÖÜ]")
+
+
+def _ist_satzgrenze(text: str, m: re.Match) -> bool:
+    """Entscheidet, ob ein Satzzeichen-Fund wirklich eine Satzgrenze ist."""
+    if any(c in "!?;:" for c in m.group()):
+        return True  # harte Trenner – wie bisher immer Grenze
+    # nur Punkte: Abkürzung davor ⇒ keine Grenze. Kleines Suchfenster reicht
+    # (längste Kurzform 6 Zeichen); Lookbehind/\b sehen trotz pos das Zeichen davor.
+    if _ABK_VOR_PUNKT.search(text, max(0, m.start() - 8), m.start()):
+        return False
+    rest = text[m.end():]
+    # Zeilen-/Textende oder Whitespace+Großbuchstabe ⇒ Grenze; alles andere
+    # (z. B. „§ 146", „Abs. 1", Kleinbuchstabe) bleibt im Satz (recall-first).
+    return not rest or rest.startswith("\n") or not rest.strip() \
+        or bool(_SATZ_ANFANG_DANACH.match(rest))
+
 
 @dataclass(frozen=True)
 class Satz:
@@ -36,10 +68,16 @@ class Satz:
 
 
 def saetze_mit_offset(text: str) -> list[Satz]:
-    """Zerlegt den Text in Sätze und behält die Originaloffsets."""
+    """Zerlegt den Text in Sätze und behält die Originaloffsets.
+
+    Offset-treu: es wird ausschließlich an Originalpositionen geschnitten,
+    nie Text verändert – ``text[s.start:s.end] == s.text`` gilt immer.
+    """
     out: list[Satz] = []
     pos = 0
     for m in _SATZ_TRENNER.finditer(text):
+        if not _ist_satzgrenze(text, m):
+            continue
         seg = text[pos:m.start()]
         if seg.strip():
             out.append(Satz(seg, pos, m.start()))
@@ -62,6 +100,25 @@ def saetze_mit_offset(text: str) -> list[Satz]:
     return fein
 
 
+def _glied_pattern(glied: str) -> re.Pattern[str] | None:
+    """Kompiliert ein Gruppen-Glied zu einem wiederverwendbaren Suchmuster.
+
+    Auf Tokens splitten und mit \\s+ verbinden: tolerant gegen jede Folge von
+    Leerraum (auch Zeilenumbruch/Doppelspatien) zwischen den Wörtern – PDF-/DOCX-
+    Extrakte haben oft unregelmäßige Abstände. \\b erzwingt Wortanfang.
+
+    WICHTIG: case-insensitiv über re.IGNORECASE auf dem ORIGINAL-Satz suchen,
+    NICHT über satz.lower(). .lower() ist nicht längen-erhaltend (z. B.
+    "İ".lower() → 2 Codepoints) und würde die zurückgemappten Offsets verschieben
+    – Offset-Treue ist aber die load-bearing Integrationsgarantie.
+    """
+    teile = glied.split()
+    if not teile:
+        return None
+    muster = r"\b" + r"\s+".join(re.escape(t) for t in teile)
+    return re.compile(muster, re.IGNORECASE)
+
+
 def _glied_funde(satz: str, glied: str) -> list[tuple[int, int]]:
     """Findet ein Gruppen-Glied im Satz (an Wortanfang, Stamm-/Präfix-tolerant).
 
@@ -69,32 +126,29 @@ def _glied_funde(satz: str, glied: str) -> list[tuple[int, int]]:
     Einzelwort-Glieder als Wortanfang ("fehl" ⇒ fehlt/fehlen/fehlende; "kasse"
     ⇒ Kasse/Kassenführung, aber NICHT Unterstützungs|kasse – kein Wortanfang).
     """
-    # Auf Tokens splitten und mit \s+ verbinden: tolerant gegen jede Folge von
-    # Leerraum (auch Zeilenumbruch/Doppelspatien) zwischen den Wörtern – PDF-/DOCX-
-    # Extrakte haben oft unregelmäßige Abstände. \b erzwingt Wortanfang.
-    #
-    # WICHTIG: case-insensitiv über re.IGNORECASE auf dem ORIGINAL-Satz suchen,
-    # NICHT über satz.lower(). .lower() ist nicht längen-erhaltend (z. B.
-    # "İ".lower() → 2 Codepoints) und würde die zurückgemappten Offsets verschieben
-    # – Offset-Treue ist aber die load-bearing Integrationsgarantie.
-    teile = glied.split()
-    if not teile:
+    rx = _glied_pattern(glied)
+    if rx is None:
         return []
-    muster = r"\b" + r"\s+".join(re.escape(t) for t in teile)
-    return [(m.start(), m.end()) for m in re.finditer(muster, satz, re.IGNORECASE)]
+    return [(m.start(), m.end()) for m in rx.finditer(satz)]
 
 
 class MusterMatcher:
     """Findet Beschreibungs-/Negativbefund-Muster aus dem Katalog (Schicht 1b)."""
 
     def __init__(self, katalog):
-        # (begriff_id, [gruppen]) – nur Begriffe mit ausloeser
-        self._regeln: list[tuple[str, list[list[str]]]] = []
+        # (begriff_id, [gruppen]) – nur Begriffe mit ausloeser. Die Glied-Muster
+        # werden HIER einmal vorkompiliert (statt pro match()-Aufruf neu gebaut
+        # und dem re-Modul-Cache überlassen).
+        self._regeln: list[tuple[str, list[list[re.Pattern[str]]]]] = []
         for b in katalog:
             for spec in getattr(b, "ausloeser", []) or []:
                 gruppen = spec.get("gruppen") if isinstance(spec, dict) else spec
                 if gruppen and all(gruppen):
-                    self._regeln.append((b.id, gruppen))
+                    kompiliert = [
+                        [rx for glied in gruppe if (rx := _glied_pattern(str(glied))) is not None]
+                        for gruppe in gruppen
+                    ]
+                    self._regeln.append((b.id, kompiliert))
 
     def match(self, text: str) -> list["MusterTreffer"]:
         treffer: list[MusterTreffer] = []
@@ -103,7 +157,8 @@ class MusterMatcher:
                 spans: list[tuple[int, int]] = []
                 ok = True
                 for gruppe in gruppen:
-                    funde = [f for glied in gruppe for f in _glied_funde(satz.text, glied)]
+                    funde = [(m.start(), m.end())
+                             for rx in gruppe for m in rx.finditer(satz.text)]
                     if not funde:
                         ok = False
                         break

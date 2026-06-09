@@ -6,8 +6,12 @@ Höchste Priorität, reiner Code: identische Eingabe + identische Katalogversion
 Morphologische Robustheit (/LF50/) ohne spaCy:
   * je Oberflächenvariante (kanonisch + Aliase) wird ein Muster gebaut, das
     deutsche Flexionsendungen am Wortende toleriert,
-  * Trenn-/Zusammenschreibung und Mehrfach-Leerzeichen zwischen den Wörtern
-    werden über einen flexiblen Trenner abgedeckt,
+  * Getrennt- und Bindestrich-Schreibung sowie Mehrfach-Leerzeichen zwischen
+    den Wörtern werden über einen flexiblen Trenner abgedeckt. ECHTE
+    Zusammenschreibung ("Kassennachschau" für "Kassen-Nachschau") ist bewusst
+    NICHT abgedeckt: der Trenner verlangt mindestens ein Trennzeichen –
+    Betriebspunkt des recall/precision-Tradeoffs; solche Varianten gehören als
+    eigene Aliase in den Katalog,
   * Groß-/Kleinschreibung wird ignoriert.
 
 Betriebspunkt recall-first (/LF60/): im Zweifel wird markiert. Ein optionaler
@@ -22,8 +26,10 @@ import re
 from .catalog import Katalog
 from .models import IngestErgebnis, Katalogeintrag, Segment, Treffer
 
-# Wortzeichen für Wortgrenzen (inkl. deutscher Umlaute/ß und Akzente)
-_WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÿ"
+# Wortzeichen für Wortgrenzen (inkl. deutscher Umlaute/ß und Akzente).
+# À-ÿ würde auch × (U+00D7) und ÷ (U+00F7) einschließen – das sind Operatoren,
+# keine Buchstaben; sie werden über die Lücken D7/F7 explizit ausgenommen.
+_WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÖØ-öø-ÿ"
 _WB_OPEN = rf"(?<![{_WB}])"
 _WB_CLOSE = rf"(?![{_WB}])"
 
@@ -124,6 +130,30 @@ class Schicht1Matcher:
         return treffer
 
 
+def entferne_enthaltene_spans(items: list, *, gruppe=None) -> list:
+    """Entfernt echt enthaltene Spans; der maximale Span bleibt erhalten.
+
+    Gemeinsamer Containment-Kern für Schicht 1 (Treffer) und das Unknown-Gate
+    (Risikomarkierungen) – die Elemente brauchen nur ``start``/``end``.
+
+    ``gruppe`` ist eine optionale Schlüsselfunktion: nur Elemente DERSELBEN
+    Gruppe werden gegeneinander verglichen (Schicht 1 vergleicht je Begriffs-ID;
+    ``None`` ⇒ alle Spans konkurrieren). Gleich lange / identische Spans bleiben
+    beide erhalten (nur ECHTES Enthaltensein verwirft).
+    """
+    verwerfen: set[int] = set()
+    for i, a in enumerate(items):
+        for j, b in enumerate(items):
+            if i == j:
+                continue
+            if gruppe is not None and gruppe(a) != gruppe(b):
+                continue
+            # b ist echt in a enthalten ⇒ b verwerfen
+            if a.start <= b.start and b.end <= a.end and (a.end - a.start) > (b.end - b.start):
+                verwerfen.add(j)
+    return [x for k, x in enumerate(items) if k not in verwerfen]
+
+
 def _entferne_enthaltene(treffer: list[Treffer]) -> list[Treffer]:
     """Fasst denselben Begriff am selben Ort zusammen.
 
@@ -134,15 +164,7 @@ def _entferne_enthaltene(treffer: list[Treffer]) -> list[Treffer]:
     redundante Doppelmarkierung entfällt. Treffer verschiedener Begriffe (etwa
     dieselbe Oberfläche unter UStG und KStG) bleiben unberührt.
     """
-    verwerfen: set[int] = set()
-    for i, a in enumerate(treffer):
-        for j, b in enumerate(treffer):
-            if i == j or a.begriff_id != b.begriff_id:
-                continue
-            # b ist echt in a enthalten ⇒ b verwerfen
-            if a.start <= b.start and b.end <= a.end and (a.end - a.start) > (b.end - b.start):
-                verwerfen.add(j)
-    return [t for k, t in enumerate(treffer) if k not in verwerfen]
+    return entferne_enthaltene_spans(treffer, gruppe=lambda t: t.begriff_id)
 
 
 def _segment_fuer(orig_pos: int, segments: list[Segment]) -> int:

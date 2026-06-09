@@ -63,6 +63,38 @@ def test_saetze_zerlegen_ueber_zeilenumbruch():
     assert len(saetze_mit_offset("Erster Teil ohne Punkt\n\nzweiter Teil")) == 2
 
 
+def test_abkuerzungen_zerreissen_satz_nicht():
+    # gem. / Abs. / Nr. sind KEINE Satzenden – der Norm-Zitat-Satz bleibt EIN Satz
+    text = "Die Kassenführung ist gem. § 146 Abs. 1 Nr. 1 AO nicht nachvollziehbar."
+    saetze = saetze_mit_offset(text)
+    assert len(saetze) == 1, [s.text for s in saetze]
+    # Offset-Treue bleibt erhalten (kein Längenverlust)
+    for s in saetze:
+        assert text[s.start:s.end] == s.text
+    # Einzelbuchstaben-Abkürzungen (z. B. / i. S. d.) trennen ebenfalls nicht,
+    # obwohl danach ein Großbuchstabe folgt
+    assert len(saetze_mit_offset("Es fehlen z. B. Belege und Aufzeichnungen.")) == 1
+    assert len(saetze_mit_offset("Unternehmer i. S. d. § 2 UStG ist der Wirt.")) == 1
+
+
+def test_echte_satzgrenzen_trennen_weiterhin():
+    text = "Die Belege fehlen vollständig. Der Bescheid wurde aufgehoben."
+    assert len(saetze_mit_offset(text)) == 2
+    # Punkt am Zeilenende ist ebenfalls Satzgrenze
+    assert len(saetze_mit_offset("Die Belege fehlen.\nder nächste beginnt klein")) == 2
+    # harte Trenner (!?;:) trennen wie bisher immer
+    assert len(saetze_mit_offset("Belege fehlen; die Kasse stimmt nicht")) == 2
+
+
+def test_kassenmangel_feuert_trotz_gem_abkuerzung():
+    # Reproduktion des Befunds: der Satz zerfiel an "gem." / "Abs." in drei
+    # Teile, die Ko-Okkurrenz (Kassenführung + nicht nachvollziehbar) riss ab.
+    mm = MusterMatcher(lade_katalog())
+    ids = {t.begriff_id for t in mm.match(
+        "Die Kassenführung ist gem. § 146 Abs. 1 AO nicht nachvollziehbar.")}
+    assert "ao_buchfuehrungs_kassenmangel" in ids
+
+
 # --- StreitDetektor ----------------------------------------------------------
 
 def test_streit_signale():

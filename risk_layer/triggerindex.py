@@ -62,14 +62,48 @@ CREATE TABLE wort (wort TEXT PRIMARY KEY, df INTEGER, idf REAL);
 """
 
 
+# SQLite begrenzt die Zahl der ?-Platzhalter (Default 999 bei älteren Builds) –
+# IN-Listen werden deshalb in Blöcke zerlegt (sehr große Dokumente!).
+_IN_CHUNK = 500
+
+
+def _chunks(seq: list, n: int = _IN_CHUNK):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
 class TriggerIndex:
-    """Geöffneter Trigger-Index (SQLite)."""
+    """Geöffneter Trigger-Index (SQLite).
+
+    Der Konstruktor ÖFFNET nur (Datei + Schema müssen existieren) – ein
+    Tippfehler-Pfad legt sonst still eine leere DB an und jede Abfrage liefe
+    ins Leere. Neue Indizes entstehen ausschließlich über ``build`` (das die
+    Datei samt Schema selbst anlegt und erst danach hierher zurückkehrt).
+    """
 
     def __init__(self, db_path: str | Path = DEFAULT_DB):
         self.path = Path(db_path)
+        if not self.path.exists():
+            raise FileNotFoundError(
+                f"Trigger-Index nicht gefunden: {self.path} – erst mit "
+                f"TriggerIndex.build(...) erzeugen (oder Pfad prüfen).")
         self.con = sqlite3.connect(str(self.path), check_same_thread=False)
         self.con.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        # Schema-Prüfung: eine fremde/leere SQLite-Datei soll sofort und
+        # aussagekräftig scheitern, nicht erst bei der ersten Abfrage.
+        hat_trigger = self.con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='trigger'"
+        ).fetchone()
+        if hat_trigger is None:
+            self.con.close()
+            raise ValueError(
+                f"{self.path} ist kein Trigger-Index (Tabelle 'trigger' fehlt) – "
+                f"falscher Pfad oder beschädigte Datei?")
+
+    def close(self) -> None:
+        """Schließt die DB-Verbindung (API-Konsistenz mit NormGraph)."""
+        self.con.close()
 
     # -- Bau ------------------------------------------------------------
     @classmethod
@@ -138,31 +172,36 @@ class TriggerIndex:
     # -- Laufzeit -------------------------------------------------------
     def kandidaten(self, text: str, k: int = 8, *, nur_geprueft: bool = False) -> list[dict[str, Any]]:
         """Text → gerankte Kandidaten-Normen über den invertierten Trigger-Index."""
-        woerter = set(_tokens(text, 4))
+        # sortiert: deterministische Parameter-Reihenfolge über die Blöcke
+        woerter = sorted(set(_tokens(text, 4)))
         if not woerter:
             return []
-        platz = ",".join("?" * len(woerter))
-        sql = (f"SELECT wort, norm_id, quelle, geprueft, gewicht FROM trigger "
-               f"WHERE wort IN ({platz})")
-        if nur_geprueft:
-            sql += " AND geprueft=1"
+        rows: list[sqlite3.Row] = []
         with self._lock:
-            rows = self.con.execute(sql, tuple(woerter)).fetchall()
-            meta = {r["id"]: r for r in self.con.execute("SELECT id, zitat, titel FROM norm")}
+            # JOIN statt Komplett-Laden der norm-Tabelle (wie in detektiere);
+            # IN-Liste geblockt gegen das SQLite-Parameterlimit.
+            for block in _chunks(woerter):
+                platz = ",".join("?" * len(block))
+                sql = (f"SELECT t.wort, t.norm_id, t.geprueft, t.gewicht, n.zitat, n.titel "
+                       f"FROM trigger t JOIN norm n ON n.id = t.norm_id "
+                       f"WHERE t.wort IN ({platz})")
+                if nur_geprueft:
+                    sql += " AND t.geprueft = 1"
+                rows.extend(self.con.execute(sql, tuple(block)).fetchall())
         agg: dict[str, dict[str, Any]] = {}
         for r in rows:
-            d = agg.setdefault(r["norm_id"], {"score": 0.0, "trigger": [], "geprueft": False})
+            d = agg.setdefault(r["norm_id"], {
+                "score": 0.0, "trigger": [], "geprueft": False,
+                "zitat": r["zitat"], "titel": r["titel"],
+            })
             d["score"] += r["gewicht"]
             d["trigger"].append(r["wort"])
             if r["geprueft"]:
                 d["geprueft"] = True
         out = []
         for nid, d in agg.items():
-            m = meta.get(nid)
-            if not m:
-                continue
             out.append({
-                "norm_id": nid, "zitat": m["zitat"], "titel": m["titel"],
+                "norm_id": nid, "zitat": d["zitat"], "titel": d["titel"],
                 "score": round(d["score"], 2), "trigger": sorted(set(d["trigger"]))[:6],
                 "geprueft": d["geprueft"], "quelle": "trigger_index",
             })
@@ -183,21 +222,27 @@ class TriggerIndex:
         vork = [(w, s, e) for w, s, e in vork if len(w) >= 4 and w not in _STOPP]
         if not vork:
             return []
-        woerter = {w for w, _, _ in vork}
+        woerter = sorted({w for w, _, _ in vork})
         with self._lock:
-            p1 = ",".join("?" * len(woerter))
-            idf_ok = {r["wort"]: r["idf"] for r in self.con.execute(
-                f"SELECT wort, idf FROM wort WHERE wort IN ({p1}) AND idf >= ?",
-                (*woerter, idf_min)).fetchall()}
+            # beide IN-Listen geblockt (SQLite-Parameterlimit bei großen Dokumenten)
+            idf_ok: dict[str, float] = {}
+            for block in _chunks(woerter):
+                p1 = ",".join("?" * len(block))
+                for r in self.con.execute(
+                        f"SELECT wort, idf FROM wort WHERE wort IN ({p1}) AND idf >= ?",
+                        (*block, idf_min)).fetchall():
+                    idf_ok[r["wort"]] = r["idf"]
             if not idf_ok:
                 return []
-            wl = list(idf_ok)
-            p2 = ",".join("?" * len(wl))
-            sql = (f"SELECT t.wort, t.norm_id, t.quelle, t.geprueft, t.gewicht, n.zitat, n.titel "
-                   f"FROM trigger t JOIN norm n ON n.id = t.norm_id WHERE t.wort IN ({p2})")
-            if nur_geprueft:
-                sql += " AND t.geprueft = 1"
-            trows = self.con.execute(sql, tuple(wl)).fetchall()
+            wl = sorted(idf_ok)
+            trows: list[sqlite3.Row] = []
+            for block in _chunks(wl):
+                p2 = ",".join("?" * len(block))
+                sql = (f"SELECT t.wort, t.norm_id, t.quelle, t.geprueft, t.gewicht, n.zitat, n.titel "
+                       f"FROM trigger t JOIN norm n ON n.id = t.norm_id WHERE t.wort IN ({p2})")
+                if nur_geprueft:
+                    sql += " AND t.geprueft = 1"
+                trows.extend(self.con.execute(sql, tuple(block)).fetchall())
         per_wort: dict[str, list[dict[str, Any]]] = {}
         for r in trows:
             per_wort.setdefault(r["wort"], []).append({

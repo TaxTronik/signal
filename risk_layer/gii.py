@@ -9,6 +9,7 @@ Reiner Lesepfad über die lokale XML – kein Netzaufruf.
 
 from __future__ import annotations
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -16,10 +17,18 @@ from pathlib import Path
 
 from .idschema import Quellentyp
 
+_log = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class NormKnoten:
-    """Ein Norm-Knoten auf §/Absatz/Nummer-Granularität."""
+    """Ein Norm-Knoten auf §/Absatz/Nummer-Granularität.
+
+    ``gueltig_bis`` wird von DIESEM Parser nie gesetzt (die gii-XML liefert nur
+    die geltende Fassung, kein Außerkrafttreten je Norm). Das Feld bleibt für
+    die Fassungslogik /R30/ reserviert; ``graph._gueltig`` behandelt ``None``
+    korrekt als „offen gültig".
+    """
 
     id: str                 # kanonische ID, z. B. norm:UStG:2:abs2:nr1
     law: str
@@ -30,7 +39,7 @@ class NormKnoten:
     nummer: str | None = None
     quellentyp: str = Quellentyp.NORM.value
     gueltig_ab: str | None = None
-    gueltig_bis: str | None = None
+    gueltig_bis: str | None = None   # reserviert für /R30/, hier immer None
 
 
 _WS = re.compile(r"\s+")
@@ -58,6 +67,83 @@ def _law_aus_metadaten(root: ET.Element) -> tuple[str, str | None]:
     return law, ausfertigung
 
 
+def _oberste_dls(el: ET.Element) -> list[ET.Element]:
+    """Liefert die OBERSTE DL-Ebene unterhalb von ``el``.
+
+    Steigt durch Zwischenelemente (LA …) ab, hält aber an jeder gefundenen DL
+    an – verschachtelte DLs (Buchstaben unter Nummern, realer Fall § 4 UStG)
+    werden NICHT mitgeliefert, sondern später mit ihrem nr-Kontext rekursiv
+    verarbeitet. (`.//DL` fand auch die verschachtelten und ließ deren lit-IDs
+    ohne nr-Kontext kollidieren.)
+    """
+    out: list[ET.Element] = []
+    for kind in el:
+        if kind.tag == "DL":
+            out.append(kind)
+        else:
+            out.extend(_oberste_dls(kind))
+    return out
+
+
+def _dt_dd_paare(dl: ET.Element) -> list[tuple[ET.Element, ET.Element]]:
+    """Paart DT/DD über die KIND-REIHENFOLGE statt ``zip`` getrennter Listen.
+
+    Ein DT ohne folgendes DD fällt einzeln weg; ``zip(dts, dds)`` hätte ab dort
+    ALLE weiteren Paarungen still verschoben (Marke n bekäme Text von Marke n+1).
+    """
+    paare: list[tuple[ET.Element, ET.Element]] = []
+    offen: ET.Element | None = None
+    for kind in dl:
+        if kind.tag == "DT":
+            if offen is not None:
+                _log.debug("DT ohne DD übersprungen: %r", _text(offen))
+            offen = kind
+        elif kind.tag == "DD":
+            if offen is not None:
+                paare.append((offen, kind))
+                offen = None
+    if offen is not None:
+        _log.debug("DT ohne DD übersprungen: %r", _text(offen))
+    return paare
+
+
+def _dl_knoten(
+    dl: ET.Element, *, law: str, para: str, absn: str, titel: str,
+    gueltig_ab: str | None, praefix: str, nummer: str | None,
+) -> list[NormKnoten]:
+    """Knoten einer DL (rekursiv): nr-/lit-Marken unterhalb von ``praefix``.
+
+    ``praefix`` trägt den bereits aufgebauten ID-Pfad (idschema-Tiefenlabels),
+    sodass ein Buchst. a unter Nr. 1 die ID ``…:abs1:nr1:lita`` erhält – distinkt
+    zu Buchst. a unter Nr. 2 (sonst überschreibt INSERT OR REPLACE im Graph still).
+    """
+    knoten: list[NormKnoten] = []
+    typ = (dl.get("Type") or "").lower()
+    for dt, dd in _dt_dd_paare(dl):
+        marke = _text(dt).rstrip(".)").strip()
+        if not marke:
+            continue
+        if typ.startswith("alpha"):
+            kid = f"{praefix}:lit{marke}"
+            sub_nummer = nummer
+        elif re.match(r"^\d+[a-z]?$", marke):
+            kid = f"{praefix}:nr{marke}"
+            sub_nummer = marke
+        else:
+            continue
+        knoten.append(NormKnoten(
+            id=kid, law=law, para=para, absatz=absn, nummer=sub_nummer,
+            text=_text(dd), titel=titel, gueltig_ab=gueltig_ab,
+        ))
+        # verschachtelte Listen im DD (z. B. Buchstaben unter dieser Nummer)
+        for sub in _oberste_dls(dd):
+            knoten.extend(_dl_knoten(
+                sub, law=law, para=para, absn=absn, titel=titel,
+                gueltig_ab=gueltig_ab, praefix=kid, nummer=sub_nummer,
+            ))
+    return knoten
+
+
 def parse_datei(pfad: str | Path) -> list[NormKnoten]:
     """Parst eine gii-XML-Datei zu Norm-Knoten."""
     root = ET.parse(pfad).getroot()
@@ -70,7 +156,12 @@ def parse_datei(pfad: str | Path) -> list[NormKnoten]:
             continue
         enbez = md.findtext("enbez")
         if not enbez or not re.match(r"^§\s*\d", enbez):
-            continue  # Rahmen-/Gliederungsnorm überspringen (Struktur bleibt ungenutzt)
+            # Rahmen-/Gliederungsnorm überspringen (Struktur bleibt ungenutzt).
+            # „§§ x bis y"-Einheiten fallen hier ebenfalls durch – das soll
+            # sichtbar sein statt still geschluckt zu werden.
+            if enbez and enbez.startswith("§"):
+                _log.info("enbez ohne Einzel-§ übersprungen (%s): %r", law, enbez)
+            continue
         para = re.sub(r"^§\s*", "", enbez).strip()
         titel = (md.findtext("titel") or "").strip()
         content = norm.find("textdaten/text/Content")
@@ -93,36 +184,36 @@ def parse_datei(pfad: str | Path) -> list[NormKnoten]:
             if not m:
                 continue
             absn = m.group(1)
+            abs_id = f"norm:{law}:{para}:abs{absn}"
             knoten.append(NormKnoten(
-                id=f"norm:{law}:{para}:abs{absn}", law=law, para=para, absatz=absn,
+                id=abs_id, law=law, para=para, absatz=absn,
                 text=ptext, titel=titel, gueltig_ab=gueltig_ab,
             ))
-            for dl in p.findall(".//DL"):
-                typ = (dl.get("Type") or "").lower()
-                dts = dl.findall("DT")
-                dds = dl.findall("DD")
-                for dt, dd in zip(dts, dds):
-                    marke = _text(dt).rstrip(".)").strip()
-                    if not marke:
-                        continue
-                    if typ.startswith("alpha"):
-                        kid = f"norm:{law}:{para}:abs{absn}:lit{marke}"
-                        knoten.append(NormKnoten(
-                            id=kid, law=law, para=para, absatz=absn, nummer=None,
-                            text=_text(dd), titel=titel, gueltig_ab=gueltig_ab,
-                        ))
-                    elif re.match(r"^\d+[a-z]?$", marke):
-                        kid = f"norm:{law}:{para}:abs{absn}:nr{marke}"
-                        knoten.append(NormKnoten(
-                            id=kid, law=law, para=para, absatz=absn, nummer=marke,
-                            text=_text(dd), titel=titel, gueltig_ab=gueltig_ab,
-                        ))
+            for dl in _oberste_dls(p):
+                knoten.extend(_dl_knoten(
+                    dl, law=law, para=para, absn=absn, titel=titel,
+                    gueltig_ab=gueltig_ab, praefix=abs_id, nummer=None,
+                ))
     return knoten
 
 
 def parse_verzeichnis(verzeichnis: str | Path) -> list[NormKnoten]:
-    """Parst alle *.xml eines Korpus-Verzeichnisses."""
+    """Parst alle *.xml eines Korpus-Verzeichnisses.
+
+    Robust gegen einzelne korrupte Dateien: ein Parse-Fehler bricht NICHT den
+    gesamten Korpus-Import ab, sondern wird je Datei geloggt; die übrigen
+    Dateien werden weiterverarbeitet.
+    """
     knoten: list[NormKnoten] = []
-    for pfad in sorted(Path(verzeichnis).glob("*.xml")):
-        knoten.extend(parse_datei(pfad))
+    dateien = sorted(Path(verzeichnis).glob("*.xml"))
+    fehler: list[tuple[str, str]] = []
+    for pfad in dateien:
+        try:
+            knoten.extend(parse_datei(pfad))
+        except (ET.ParseError, OSError) as exc:
+            fehler.append((str(pfad), str(exc)))
+            _log.warning("gii-Datei übersprungen (%s): %s", pfad, exc)
+    if fehler:
+        _log.warning("%d von %d gii-Dateien fehlerhaft übersprungen",
+                     len(fehler), len(dateien))
     return knoten

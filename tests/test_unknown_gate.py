@@ -26,6 +26,26 @@ def test_norm_naehe_erhoeht_score():
     assert erg.angenommen  # Norm-Nähe + Nominalkompositum über Schwelle
 
 
+def test_norm_naehe_allein_eskaliert_nicht():
+    # Norm-Nähe ist stark gewichtet, liegt aber bewusst KNAPP UNTER der
+    # Schwelle: die Signale werden KOMBINIERT – ein §-Zitat im Kontext macht
+    # aus einem Alltagsnomen ohne weiteres Signal keinen Rechtsbegriff.
+    gate = UnknownGate()
+    text = "Nach § 8c KStG steht der Tisch neben dem Fenster im Raum."
+    off = text.index("Tisch")
+    erg = gate.bewerte(text, "Tisch", off)
+    assert erg.signale["norm_naehe"] is True
+    assert not erg.angenommen
+    assert erg.status is Status.VERWORFEN
+
+
+def test_proposer_schlaegt_alltagsnomen_neben_normzitat_nicht_vor():
+    proposer = DefinitorischProposer()
+    text = "Nach § 8c KStG steht der Tisch neben dem Fenster im Raum."
+    titel = {r.titel for r in proposer.vorschlagen(text)}
+    assert not titel & {"Tisch", "Fenster", "Raum"}, titel
+
+
 def test_definitorische_form_erhoeht_score():
     gate = UnknownGate()
     text = "Eine Betriebsaufspaltung setzt voraus, dass eine Verflechtung besteht."

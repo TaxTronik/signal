@@ -11,7 +11,7 @@ nie eine Definition entstehen – jede erkannte Position wird dann zur Lücke.
 
 from __future__ import annotations
 
-from .catalog import Katalog
+from .catalog import Katalog, KatalogFehler
 from .models import Begriffskarte, Status, Treffer
 from .zitate import parse_normzitat
 
@@ -22,8 +22,19 @@ def resolve(treffer: Treffer, katalog: Katalog) -> Begriffskarte:
     """Löst einen Treffer zu einer Begriffskarte auf.
 
     Greift NUR auf den Katalog zu. Bei fehlender Definitionsquelle ⇒ Status.LUECKE.
+
+    Raises:
+        KatalogFehler: wenn die Begriffs-ID des Treffers nicht im Katalog
+            existiert (Treffer aus fremder/abweichender Katalogversion) –
+            statt eines nackten KeyError ohne Kontext.
     """
-    eintrag = katalog.get(treffer.begriff_id)
+    try:
+        eintrag = katalog.get(treffer.begriff_id)
+    except KeyError as exc:
+        raise KatalogFehler(
+            f"Begriffs-ID {treffer.begriff_id!r} nicht im Katalog "
+            f"(Version {katalog.version!r}) – Treffer und Katalog passen nicht zusammen."
+        ) from exc
 
     if eintrag.hat_definitionsquelle:
         return Begriffskarte(

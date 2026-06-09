@@ -13,6 +13,7 @@ Spannung sichtbar („konfrontieren, nicht entscheiden"). Reines lokales Matchin
 from __future__ import annotations
 
 import json
+import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,8 @@ from .rss import RssEintrag, hole_alle
 from .zitate import finde_normzitate, kanonisiere_fundstelle, parse_entscheidung
 
 DEFAULT_STATE = Path("abgleich") / "gesehen.json"
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -108,10 +111,31 @@ def abgleich(eintraege: list[RssEintrag], index: TrackingIndex) -> list[Abgleich
 # --- Persistenz (nur Neues melden) -----------------------------------------
 
 def lade_gesehen(state_pfad: Path = DEFAULT_STATE) -> set[str]:
+    """Lädt die gesehenen GUIDs; eine korrupte State-Datei blockiert NICHT.
+
+    Eine kaputte gesehen.json (abgebrochener Schreibvorgang, Handbearbeitung)
+    würde sonst JEDEN weiteren Lauf unmöglich machen. Stattdessen: Warnung
+    loggen, Original als ``.corrupt`` sichern (Diagnose) und als leer behandeln
+    – die Folge sind schlimmstenfalls Doppelmeldungen, kein Datenverlust.
+    """
     p = Path(state_pfad)
     if not p.exists():
         return set()
-    return set(json.loads(p.read_text(encoding="utf-8")))
+    try:
+        roh = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(roh, list):
+            raise ValueError(f"Liste erwartet, nicht {type(roh).__name__}")
+        return {str(g) for g in roh}
+    except (ValueError, OSError) as exc:  # json.JSONDecodeError ⊂ ValueError
+        sicherung = p.with_suffix(p.suffix + ".corrupt")
+        try:
+            p.replace(sicherung)
+            _log.warning("Korrupte State-Datei %s (%s) – gesichert nach %s, "
+                         "starte mit leerem Status", p, exc, sicherung)
+        except OSError:
+            _log.warning("Korrupte State-Datei %s (%s) – Sicherung fehlgeschlagen, "
+                         "starte mit leerem Status", p, exc)
+        return set()
 
 
 def speichere_gesehen(guids: set[str], state_pfad: Path = DEFAULT_STATE) -> None:
@@ -124,7 +148,18 @@ def laufe(
     katalog: Katalog, *, berater=None, eintraege: list[RssEintrag] | None = None,
     state_pfad: Path = DEFAULT_STATE, nur_neue: bool = True, fetch: bool = True,
 ) -> list[AbgleichTreffer]:
-    """Vollständiger Lauf: (Feeds holen) → nur neue Einträge → Match → Status fortschreiben."""
+    """Vollständiger Lauf: (Feeds holen) → nur neue Einträge → Match → Status fortschreiben.
+
+    Melde-Semantik AT-MOST-ONCE (bewusste Entscheidung): der gesehen-Status wird
+    direkt nach dem Match fortgeschrieben – BEVOR der Aufrufer die Treffer
+    konsumiert hat. Stürzt der Aufrufer danach ab, gelten die Einträge dennoch
+    als gesehen und werden NICHT erneut gemeldet (Verlust möglich, keine
+    Doppelmeldung). Das passt zum Werkzeugcharakter: ein verlorener Hinweis ist
+    beim nächsten fachlichen Anlass wieder auffindbar, wiederholte Meldungen
+    desselben Urteils würden dagegen das Vertrauen in die Liste erodieren.
+    Ausnahme: ist die State-Datei korrupt, startet ``lade_gesehen`` leer – dann
+    sind einmalige Doppelmeldungen möglich (siehe dort).
+    """
     if eintraege is None:
         eintraege = hole_alle() if fetch else []
     index = baue_index(katalog, berater)

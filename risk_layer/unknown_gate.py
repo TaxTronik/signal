@@ -22,6 +22,7 @@ import re
 from dataclasses import dataclass, field
 
 from .lawmap import DEFAULT_LAWMAP
+from .matcher import entferne_enthaltene_spans
 from .models import Risikomarkierung, Status
 from .zitate import finde_normzitate
 
@@ -103,8 +104,11 @@ class UnknownGate:
 
     def __init__(self, schwelle: float = 0.4):
         self.schwelle = schwelle
-        # Gewichte – Norm-Nähe am stärksten (Spez. „stark gewichtet")
-        self.w_norm = 0.40
+        # Gewichte – Norm-Nähe am stärksten (Spez. „stark gewichtet"), aber
+        # bewusst KNAPP UNTER der Schwelle: Norm-Nähe allein darf nie eskalieren
+        # (Signale werden KOMBINIERT, s. Modul-Docstring) – sonst markiert ein
+        # bloßes §-Zitat im Kontext jedes Alltagsnomen ("Tisch neben § 8c KStG").
+        self.w_norm = 0.39
         self.w_definitorisch = 0.35
         self.w_nominal = 0.20
         # LLM ist ein starkes Signal: ein hochsicherer Kandidat überschreitet die
@@ -223,16 +227,6 @@ class DefinitorischProposer:
                 )
             )
         risiken.sort(key=lambda r: (r.start, r.end))
-        return _entferne_enthaltene_risiken(risiken)
-
-
-def _entferne_enthaltene_risiken(risiken: list[Risikomarkierung]) -> list[Risikomarkierung]:
-    """Behält bei Überlappung die längere (maximale) Stelle."""
-    verwerfen: set[int] = set()
-    for i, a in enumerate(risiken):
-        for j, b in enumerate(risiken):
-            if i == j:
-                continue
-            if a.start <= b.start and b.end <= a.end and (a.end - a.start) > (b.end - b.start):
-                verwerfen.add(j)
-    return [r for k, r in enumerate(risiken) if k not in verwerfen]
+        # Containment-Kern liegt EINMAL in matcher.py; hier ohne Gruppen-Schlüssel
+        # (alle Risiko-Spans konkurrieren, der maximale gewinnt).
+        return entferne_enthaltene_spans(risiken)
