@@ -72,3 +72,45 @@ def test_adresse_stiehlt_keine_rechtsbegriffe_oder_betraege():
     typen = {e.typ for e in r.ersetzungen}
     assert "organisatorische Eingliederung" in r.abstrahiert
     assert "betrag" in typen and "adresse" not in typen
+
+
+def test_betrag_ohne_tausendertrenner_wird_ersetzt():
+    # § 203-Gate: „50000 EUR" / „1500 Euro" sind genauso identifizierend wie
+    # getrennte Schreibweisen – der Währungskontext ist Pflicht (kein Zahlenfressen).
+    for text, betrag in [("Es wurden 50000 EUR überwiesen.", "50000 EUR"),
+                         ("Vereinbart waren 1500 Euro.", "1500 Euro"),
+                         ("Es wurden 1.500 EUR gezahlt.", "1.500 EUR"),
+                         ("Kaufpreis: 1 500 000 €.", "1 500 000 €")]:
+        r = anonymisiere(text)
+        assert betrag not in r.abstrahiert, text
+        assert "betrag" in {e.typ for e in r.ersetzungen}, text
+
+
+def test_betrag_frisst_keine_paragraphen_oder_nummern():
+    # Nackte Zahlen OHNE Währungskontext bleiben unangetastet – Norm-Zitate
+    # („§ 146 AO") und Ordnungsnummern („Nr. 21") sind kein Geheimnis.
+    r = anonymisiere("Nach § 146 AO und § 162 Abs. 2 Nr. 21 AO ist zu schätzen.")
+    assert r.abstrahiert == "Nach § 146 AO und § 162 Abs. 2 Nr. 21 AO ist zu schätzen."
+    assert r.ersetzungen == []
+
+
+def test_person_mit_bindestrich_doppelname():
+    r = anonymisiere("Herr Dr. Mueller-Lüdenscheid hat unterschrieben.")
+    assert "Mueller" not in r.abstrahiert and "Lüdenscheid" not in r.abstrahiert
+    assert "[Person A] hat unterschrieben." in r.abstrahiert
+
+
+def test_firma_mit_mehreren_namenswoertern():
+    # Mehrwortige Firmennamen (inkl. „und"/„&") vollständig erfassen – aber den
+    # Satzanfang-Artikel („Die") NICHT mitfressen.
+    r = anonymisiere("Die Mueller und Schulze GmbH zahlt an die Maier & Huber KG.")
+    assert "Mueller" not in r.abstrahiert and "Schulze" not in r.abstrahiert
+    assert "Maier" not in r.abstrahiert and "Huber" not in r.abstrahiert
+    assert r.abstrahiert.startswith("Die [Gesellschaft A]")
+    assert sum(1 for e in r.ersetzungen if e.typ == "firma") == 2
+
+
+def test_generische_rechtsform_saetze_bleiben():
+    # „Eine GmbH ist …" ist Rechtswissen, kein Mandantengeheimnis.
+    r = anonymisiere("Eine GmbH ist eine Kapitalgesellschaft.")
+    assert r.abstrahiert == "Eine GmbH ist eine Kapitalgesellschaft."

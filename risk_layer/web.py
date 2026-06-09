@@ -137,6 +137,12 @@ class Anwendung:
         return antwort_json(report, text)
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # Form-Validierung: ein String statt Liste ("§ 15 EStG") würde von
+        # tuple() zeichenweise zersplittert und STILL in die Festwissens-YAML
+        # geschrieben. (api_v1 prüft vorab → 422; hier Defense-in-depth.)
+        norm_anker = payload.get("norm_anker") or ()
+        if isinstance(norm_anker, str) or not all(isinstance(x, str) for x in norm_anker):
+            raise BeraterFehler("norm_anker muss eine Liste von Strings sein")
         # load–modify–write serialisieren: parallele Defines auf dieselbe Scope-Datei
         # wuerden sich sonst ueberschreiben (Lost-Update der Festwissens-YAML).
         with self._berater_lock:
@@ -149,7 +155,7 @@ class Anwendung:
                 scope=payload.get("scope", "personal"),
                 governance_typ=payload.get("governance_typ", "IN"),
                 schadensintensitaet=payload.get("schadensintensitaet", "mittel"),
-                norm_anker=tuple(payload.get("norm_anker") or ()),
+                norm_anker=tuple(norm_anker),
                 konfidenz=payload.get("konfidenz", "mittel"),
                 katalog_id=payload.get("katalog_id"),
             )
@@ -383,34 +389,69 @@ def make_handler(app: Anwendung):
         # einen Worker-Thread binden (slow-read/slowloris im Netzbetrieb).
         timeout = 30
 
-        def log_message(self, *args):  # ruhiger Konsolen-Output
-            pass
+        def log_message(self, *args):  # ruhiger Konsolen-Output (bewusst);
+            pass                       # fehlgeschlagene Auth loggt _401 separat
 
         # -- Helpers ----------------------------------------------------
-        def _send(self, code: int, body: bytes, content_type: str):
+        def _send(self, code: int, body: bytes, content_type: str,
+                  extra_headers: dict[str, str] | None = None):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for k, v in (extra_headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
 
-        def _json(self, code: int, obj: Any):
+        def _json(self, code: int, obj: Any,
+                  extra_headers: dict[str, str] | None = None):
             self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                       "application/json; charset=utf-8")
+                       "application/json; charset=utf-8", extra_headers)
+
+        def _dispatch_json(self, code: int, obj: Any):
+            """Antwort aus dispatch(); bei 405 wird das ``allow``-Feld als
+            sauberer Allow-Header gespiegelt (RFC 9110)."""
+            extra = None
+            if code == 405 and isinstance(obj, dict) and obj.get("allow"):
+                extra = {"Allow": str(obj["allow"])}
+            self._json(code, obj, extra)
+
+        def _401(self):
+            # Fehlgeschlagene Auth SICHTBAR machen (Betreiber-Log): Quell-IP +
+            # Pfad – NIE Token-Inhalte. Erfolgreiche Requests bleiben bewusst
+            # still (log_message oben).
+            _log.warning("401 unauthorized: %s %s von %s", self.command,
+                         urlparse(self.path).path, self.client_address[0])
+            self._json(401, {"error": "unauthorized"})
 
         def _read_json(self) -> dict[str, Any]:
+            # Chunked wird vom stdlib-Handler nicht dekodiert – ohne harte
+            # Ablehnung würde der Body still falsch (leer) gelesen.
+            te = (self.headers.get("Transfer-Encoding") or "").lower()
+            if "chunked" in te:
+                raise _RequestFehler(411, "Transfer-Encoding: chunked wird nicht "
+                                          "unterstützt – Content-Length erforderlich")
+            cl = self.headers.get("Content-Length")
+            if cl is None:
+                # Fehlende Content-Length hieße still leerer Body → laut: 411.
+                raise _RequestFehler(411, "Content-Length erforderlich")
             try:
-                laenge = int(self.headers.get("Content-Length", 0) or 0)
+                laenge = int(cl)
             except (TypeError, ValueError):
                 raise _RequestFehler(400, "ungültige Content-Length")
             if laenge < 0 or laenge > _MAX_BODY:
                 raise _RequestFehler(413, f"Body zu groß (max {_MAX_BODY} Bytes)")
             roh = self.rfile.read(laenge) if laenge else b"{}"
             try:
-                return json.loads(roh.decode("utf-8") or "{}")
+                obj = json.loads(roh.decode("utf-8") or "{}")
             except (UnicodeDecodeError, json.JSONDecodeError):
                 raise _RequestFehler(400, "ungültiger JSON-Body")
+            # Top-Level MUSS ein Objekt sein: '[1]' oder '"x"' liefe sonst als
+            # AttributeError in die Handler (500 statt klarem Client-Fehler).
+            if not isinstance(obj, dict):
+                raise _RequestFehler(400, "JSON-Body muss ein Objekt sein")
+            return obj
 
         def _auth_ok(self) -> bool:
             """Bearer-Token-Prüfung (Integrationsvertrag), KONSTANT-ZEITIG.
@@ -443,10 +484,10 @@ def make_handler(app: Anwendung):
                     self._send(404, b"not found", "text/plain; charset=utf-8")
                     return
                 if not self._auth_ok():
-                    self._json(401, {"error": "unauthorized"})
+                    self._401()
                     return
                 code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
-                self._json(code, obj)
+                self._dispatch_json(code, obj)
             except Exception as exc:  # noqa: BLE001 – einheitliche Fehlerantwort
                 self._fehler_500(exc)
 
@@ -459,11 +500,11 @@ def make_handler(app: Anwendung):
                 # Auth VOR dem Body-Read: unauthentifizierte Requests werden
                 # abgewiesen, bevor irgendein Body gelesen wird.
                 if not self._auth_ok():
-                    self._json(401, {"error": "unauthorized"})
+                    self._401()
                     return
                 payload = self._read_json()
                 code, obj = dispatch(app, "POST", pfad, payload, {})
-                self._json(code, obj)
+                self._dispatch_json(code, obj)
             except _RequestFehler as exc:
                 self._json(exc.code, {"error": exc.msg})
             except BeraterFehler as exc:
@@ -482,14 +523,27 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
           berater_dir: str = "definitionen", graph_pfad: str | None = None,
           llm_url: str = "http://127.0.0.1:8080",
           llm_model: str | None = None, llm_bin: str | None = None,
-          llm_autostart: bool = False) -> None:
+          llm_autostart: bool = False) -> int:
+    """Startet die /v1-Engine. Rückgabe: Exit-Code (0 = sauberer Lauf/Stop,
+    2 = Startverweigerung) – main() reicht ihn durch, damit Service-Manager
+    (systemd/NSSM) und deploy-Skripte einen Fehlstart als Fehler sehen."""
     # Netz-Bind ohne Token verweigern (§ 203 StGB): die /v1-Engine ist auth-pflichtig,
     # sobald sie das Loopback verlässt. Ohne Token nur lokal (Entwicklung).
     if not _ist_loopback(host) and not os.environ.get("RISK_LAYER_TOKEN", ""):
         print(f"Host {host!r} ist kein Loopback, aber RISK_LAYER_TOKEN ist nicht gesetzt. "
               "Setze ein Token (Bearer-Auth, § 203 StGB) oder binde an 127.0.0.1.",
               file=sys.stderr)
-        return
+        return 2
+
+    if not _ist_loopback(host):
+        # Kein TLS in der Engine selbst (bewusst stdlib-pur): beim Netz-Bind gehen
+        # Bearer-Token UND Mandantentexte sonst im KLARTEXT übers Netz. Betrieb
+        # nur hinter einem TLS-Reverse-Proxy (siehe INTEGRATION_TAXTRONIK.md).
+        warnung = (f"WARNUNG: Netz-Bind auf {host!r} ohne TLS – die Engine spricht "
+                   "reines HTTP. Token und Mandantentexte (§ 203 StGB) NUR hinter "
+                   "einem TLS-Reverse-Proxy betreiben (INTEGRATION_TAXTRONIK.md).")
+        print(warnung, file=sys.stderr)
+        _log.warning("%s", warnung)
 
     app = Anwendung(katalog, berater_dir, graph_pfad, llm_url=llm_url,
                     llm_model=llm_model, llm_bin=llm_bin)
@@ -510,7 +564,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
         httpd = _Server((host, port), make_handler(app))
     except OSError as exc:
         print(f"Port {port} ist belegt – läuft die Engine schon? ({exc})", file=sys.stderr)
-        return
+        return 2
 
     gstat = app.graph.stats() if app.graph else None
     auth = "Bearer-Token (gesetzt)" if os.environ.get("RISK_LAYER_TOKEN") else "KEIN Token (nur Loopback)"
@@ -527,6 +581,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
     finally:
         app.llm_stop()        # einen von UNS gestarteten llama-server mit beenden
         httpd.server_close()
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -550,10 +605,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="Schicht 2 (llama-server) beim Start mit hochfahren – ein-Befehl-Start "
                         "des gesamten Stacks (Modell aus der Registry/--llm-model).")
     args = p.parse_args(argv)
-    serve(host=args.host, port=args.port, katalog=args.katalog,
-          berater_dir=args.berater, graph_pfad=args.graph, llm_url=args.llm_url,
-          llm_model=args.llm_model, llm_bin=args.llm_bin, llm_autostart=args.llm_autostart)
-    return 0
+    # Exit-Code durchreichen: Startverweigerung (Netz-Bind ohne Token, Port belegt)
+    # MUSS als Fehler enden – sonst meldet jeder Service-Manager „erfolgreich".
+    return serve(host=args.host, port=args.port, katalog=args.katalog,
+                 berater_dir=args.berater, graph_pfad=args.graph, llm_url=args.llm_url,
+                 llm_model=args.llm_model, llm_bin=args.llm_bin,
+                 llm_autostart=args.llm_autostart)
 
 
 if __name__ == "__main__":

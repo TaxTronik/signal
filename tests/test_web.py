@@ -2,19 +2,12 @@
 
 import pytest
 
+from risk_layer.berater import BeraterFehler
 from risk_layer.web import Anwendung
 
-
-@pytest.fixture(autouse=True)
-def _kein_embedding(monkeypatch):
-    """Web-Tests prüfen den HTTP-/JSON-Vertrag, nicht das schwere Embedding-Modell.
-
-    Wir deaktivieren den Embedding-Index (sonst lüde jeder Test BGE-M3 ~2,3 GB und
-    das Ergebnis hinge von einem zufällig vorhandenen corpus/embedding/ ab). Der
-    semantische Pfad wird in test_embedding.py mit dem HashEncoder geprüft.
-    """
-    monkeypatch.setattr("risk_layer.embedding.EmbeddingIndex.load",
-                        staticmethod(lambda *a, **k: None))
+# Hinweis: die frühere autouse-Fixture ``_kein_embedding`` (deaktiviert den
+# Embedding-Index, damit kein Test das schwere BGE-M3-Modell lädt) liegt jetzt
+# projektweit in tests/conftest.py.
 
 
 def _text():
@@ -67,3 +60,16 @@ def test_define_on_the_fly_zyklus(tmp_path):
                for r in nach["risiken"])
     assert not any(r["status"] == "unknown_risiko" and "Betriebsaufspaltung" in r["titel"]
                    for r in nach["risiken"])
+
+
+def test_definiere_norm_anker_string_wird_nicht_zersplittert(tmp_path):
+    """Ein String statt Liste ('§ 15 EStG') darf NICHT zeichenweise zersplittert
+    in die Festwissens-YAML geschrieben werden – klarer Fehler statt Datenmüll."""
+    app = Anwendung(None, str(tmp_path))
+    with pytest.raises(BeraterFehler):
+        app.definiere({"begriff": "Betriebsaufspaltung",
+                       "definition_text": "Aufteilung in Besitz- und Betriebsunternehmen.",
+                       "autor": "rey", "scope": "personal",
+                       "norm_anker": "§ 15 EStG"})
+    # nichts wurde persistiert
+    assert list(tmp_path.rglob("*.yaml")) == []

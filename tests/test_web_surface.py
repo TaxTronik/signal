@@ -4,11 +4,13 @@ Echt-Server-Roundtrip auf ephemerem Loopback-Port.
 """
 
 import http.client
+import logging
 import threading
 import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 
+import risk_layer.web as web
 from risk_layer.web import _MAX_BODY, Anwendung, _ist_loopback, make_handler
 
 
@@ -99,6 +101,119 @@ def test_body_groesse_und_form_werden_abgewiesen(tmp_path, monkeypatch):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_nicht_objekt_body_400_statt_500(tmp_path, monkeypatch):
+    # Gültiges JSON, aber kein OBJEKT ('[1]', '"x"') → klarer 400er Client-Fehler,
+    # kein AttributeError/500 in den Handlern.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        for body in (b"[1]", b'"x"', b"42", b"null"):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            c.request("POST", "/v1/analyse", body=body,
+                      headers={"Authorization": "Bearer geheim",
+                               "Content-Type": "application/json"})
+            assert c.getresponse().status == 400, body
+            c.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_post_ohne_content_length_411(tmp_path, monkeypatch):
+    # Fehlende Content-Length hieße still leerer Body → 411 (Length Required);
+    # Transfer-Encoding: chunked wird nicht dekodiert → ebenfalls 411.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        # (1) POST ganz ohne Content-Length
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.putrequest("POST", "/v1/analyse", skip_accept_encoding=True)
+        c.putheader("Authorization", "Bearer geheim")
+        c.endheaders()
+        assert c.getresponse().status == 411
+        c.close()
+        # (2) Transfer-Encoding: chunked
+        c2 = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c2.putrequest("POST", "/v1/analyse", skip_accept_encoding=True)
+        c2.putheader("Authorization", "Bearer geheim")
+        c2.putheader("Transfer-Encoding", "chunked")
+        c2.endheaders()
+        c2.send(b"0\r\n\r\n")
+        assert c2.getresponse().status == 411
+        c2.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_falsche_methode_405_mit_allow_header(tmp_path, monkeypatch):
+    # Bekannter Pfad, falsche Methode → 405 (nicht 404) + Allow-Header.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        status, _ = _get(f"{base}/v1/analyse", token="geheim")     # GET auf POST-Route
+        assert status == 405
+        req = urllib.request.Request(f"{base}/v1/analyse",
+                                     headers={"Authorization": "Bearer geheim"})
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            raise AssertionError("405 erwartet")
+        except urllib.error.HTTPError as e:
+            assert e.code == 405 and e.headers.get("Allow") == "POST"
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_fehlgeschlagene_auth_wird_geloggt(tmp_path, monkeypatch, caplog):
+    # 401er sind sicherheitsrelevant und MÜSSEN im Betreiber-Log sichtbar sein
+    # (Quell-IP + Pfad) – ohne Token-Inhalte. Erfolgreiche Requests bleiben still.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        with caplog.at_level(logging.WARNING, logger="risk_layer.web"):
+            assert _get(f"{base}/v1/health", token="falscher-token-xyz")[0] == 401
+        meldungen = [r.getMessage() for r in caplog.records if "401" in r.getMessage()]
+        assert meldungen, "401 muss geloggt werden"
+        assert any("/v1/health" in m and "127.0.0.1" in m for m in meldungen)
+        assert all("falscher-token-xyz" not in m for m in meldungen)  # kein Token-Leak
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+# -- serve()/main(): Exit-Codes + TLS-Warnung beim Netz-Bind -----------------
+
+def test_serve_netzbind_ohne_token_exit_ungleich_null(monkeypatch, capsys):
+    monkeypatch.delenv("RISK_LAYER_TOKEN", raising=False)
+    rc = web.serve(host="0.0.0.0", port=1)
+    assert rc != 0
+    assert "RISK_LAYER_TOKEN" in capsys.readouterr().err
+
+
+def test_main_gibt_fehlstart_exit_code_durch(monkeypatch, capsys):
+    monkeypatch.delenv("RISK_LAYER_TOKEN", raising=False)
+    assert web.main(["--host", "0.0.0.0", "--port", "1"]) != 0
+
+
+def test_serve_belegter_port_exit_ungleich_null_und_tls_warnung(tmp_path, monkeypatch, capsys):
+    # Bind schlägt fehl (OSError) → Exit-Code != 0; vorher MUSS beim Netz-Bind
+    # die Klartext-/TLS-Warnung auf stderr erscheinen (Reverse-Proxy-Pflicht).
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+
+    class _BindFehlschlag:
+        def __init__(self, *a, **k):
+            raise OSError("Port belegt (Test)")
+
+    monkeypatch.setattr(web, "ThreadingHTTPServer", _BindFehlschlag)
+    rc = web.serve(host="0.0.0.0", port=59999, berater_dir=str(tmp_path))
+    assert rc != 0
+    err = capsys.readouterr().err
+    assert "TLS" in err and "Reverse-Proxy" in err
 
 
 def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch):

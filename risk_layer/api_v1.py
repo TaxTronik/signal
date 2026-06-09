@@ -31,8 +31,13 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     den ersten, synchronen Aufruf; den LLM-Lauf optional asynchron nachholen).
 
     Antwort = das volle Analyse-JSON (spans, karten, risiken, semantik mit
-    Normketten, summary, textHash, katalogVersion) PLUS engineVersion. KEIN
+    Normketten, summary, text_hash, katalog_version) PLUS engineVersion. KEIN
     Persistieren – TaxTronik speichert das Ergebnis in RiskAnalysis/RiskMarking.
+
+    HINWEIS Schreibweise (bewusst EINGEFROREN, Vertrag): /v1/analyse liefert
+    ``text_hash``/``katalog_version`` in snake_case (siehe web.antwort_json),
+    /v1/health dagegen ``katalogVersion`` in camelCase. Inkonsequent, aber die
+    TS-Seite typisiert gegen genau diese Felder – NICHT vereinheitlichen.
     """
     # BEWUSST kein separates Zeichenlimit auf `text`: der Pfad ist auth-pflichtig
     # (vertrauenswuerdige Integration), Sachverhalte/Klausuren sind legitim lang, und
@@ -44,6 +49,10 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     # Antwort ist tragend: die spans referenzieren Offsets in genau diesen Text.
     text = str(payload.get("text", ""))
     opt = payload.get("optionen") or {}
+    # Robustheit: ein truthy Nicht-Objekt ({"optionen": "x"}) würde unten bei
+    # opt.get(...) als AttributeError → 500 enden. Klar klassifizieren: 400.
+    if not isinstance(opt, dict):
+        return 400, {"error": "Feld 'optionen' muss ein JSON-Objekt sein"}
     mit_llm = bool(payload.get("mitLLM", False))
     res = app.analyse(
         text,
@@ -90,6 +99,13 @@ def _katalog_definiere(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     begriff = str(payload.get("begriff", "")).strip()
     if not begriff:
         return 400, {"error": "Feld 'begriff' fehlt"}
+    # Form-Validierung: ein String statt Liste würde sonst zeichenweise
+    # zersplittert STILL in die Festwissens-YAML geschrieben.
+    norm_anker = payload.get("norm_anker")
+    if norm_anker is not None and (
+            isinstance(norm_anker, str) or not isinstance(norm_anker, (list, tuple))
+            or not all(isinstance(x, str) for x in norm_anker)):
+        return 422, {"error": "Feld 'norm_anker' muss eine Liste von Strings sein"}
     # § 203: Dieser Store ist Festwissen und wird an JEDEN Client ausgeliefert
     # (GET /v1/katalog). Ein verbatim-Write darf daher kein Mandantengeheimnis
     # tragen – derselbe Detektor wie beim Recherche-Export prüft begriff + Text.
@@ -125,18 +141,21 @@ def _katalog_kuratierung(app, query: dict[str, list[str]]) -> tuple[int, dict[st
 
 def _normgraph_aufloesen(app, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """GET /v1/normgraph/aufloesen?id=norm:AO:162 – einen Knoten auflösen."""
+    # Parameter-Validierung ZUERST: ein fehlendes 'id' ist auch ohne geladenen
+    # Graph ein Client-Fehler (400), kein 200-„nicht gefunden".
     nid = (query.get("id") or [""])[0]
-    if app.graph is None:
-        return 200, {"gefunden": False, "grund": "kein Normgraph geladen"}
     if not nid:
         return 400, {"error": "Parameter 'id' fehlt"}
-    return 200, app.graph.aufloesen(nid)
+    if app.graph is None:
+        return 200, {"gefunden": False, "grund": "kein Normgraph geladen",
+                     "engineVersion": V1_VERSION}
+    return 200, {**app.graph.aufloesen(nid), "engineVersion": V1_VERSION}
 
 
 def _normgraph_suche(app, query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """GET /v1/normgraph/suche?q=... – Norm-Auswahl (Zitat ODER Titel)."""
     q = (query.get("q") or [""])[0]
-    return 200, app.norm_suche(q)
+    return 200, {**app.norm_suche(q), "engineVersion": V1_VERSION}
 
 
 def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -147,7 +166,8 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
     """
     text = str(payload.get("text", ""))
     if app.embedding is None or app.embedding_encoder is None:
-        return 200, {"treffer": [], "grund": "kein Embedding-Index"}
+        return 200, {"treffer": [], "grund": "kein Embedding-Index",
+                     "engineVersion": V1_VERSION}
     # k aus dem Request-Body robust parsen + clampen: unbegrenztes/negatives k
     # ist ein DoS-Vektor (riesiger Sort+Serialize auf einem Worker-Thread).
     try:
@@ -176,14 +196,36 @@ def _llm_start(app) -> tuple[int, dict[str, Any]]:
     return 200, {**app.llm_start(), "engineVersion": V1_VERSION}
 
 
+def _llm_stop(app) -> tuple[int, dict[str, Any]]:
+    """POST /v1/llm/stop – stoppt einen VON UNS gestarteten llama-server.
+
+    Gegenstück zu /v1/llm/start (sonst könnte der Host VRAM belegen, aber nie
+    freigeben). Kein Request-Input; idempotent – ein extern gestarteter oder
+    gar nicht laufender Server bleibt unberührt (``ok: true``).
+    """
+    return 200, {**app.llm_stop(), "engineVersion": V1_VERSION}
+
+
+# Bekannte Routen je Methode – für 405 (Methode falsch) statt 404 (Pfad unbekannt).
+_GET_PFADE = frozenset({"/v1/health", "/v1/katalog", "/v1/normgraph/aufloesen",
+                        "/v1/normgraph/suche", "/v1/katalog/kuratierung", "/v1/llm/status"})
+_POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
+                         "/v1/embedding/suche", "/v1/llm/start", "/v1/llm/stop"})
+
+
 def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
              query: dict[str, list[str]]) -> tuple[int, dict[str, Any]]:
     """Zentrale /v1-Weiche. Gibt (HTTP-Status, JSON-dict) zurück.
 
-    Unbekannte Pfade → (404, …). Auth/HTTP-Plumbing macht der Aufrufer (web.py).
+    Unbekannte Pfade → (404, …); bekannter Pfad mit falscher Methode → (405, …)
+    mit ``allow``-Feld (web.py setzt daraus den Allow-Header). Auth/HTTP-Plumbing
+    macht der Aufrufer (web.py).
     """
     if method == "GET":
         if pfad == "/v1/health":
+            # ``katalogVersion`` hier in camelCase, /v1/analyse liefert dagegen
+            # ``katalog_version`` (snake_case) – Inkonsistenz bewusst EINGEFROREN,
+            # die TS-Seite typisiert gegen genau diese Felder (kein Bruch).
             return 200, {"ok": True, "engineVersion": V1_VERSION,
                          "katalogVersion": app.katalog.version,
                          "graph": app.graph is not None,
@@ -209,4 +251,12 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _embedding_suche(app, payload)
         if pfad == "/v1/llm/start":
             return _llm_start(app)
+        if pfad == "/v1/llm/stop":
+            return _llm_stop(app)
+    # Bekannter Pfad, falsche Methode → 405 (nicht 404); ``allow`` nennt die
+    # richtige Methode (web.py spiegelt das als Allow-Header).
+    if method == "GET" and pfad in _POST_PFADE:
+        return 405, {"error": f"Methode GET nicht erlaubt für {pfad}", "allow": "POST"}
+    if method == "POST" and pfad in _GET_PFADE:
+        return 405, {"error": f"Methode POST nicht erlaubt für {pfad}", "allow": "GET"}
     return 404, {"error": f"unbekannter /v1-Endpoint: {method} {pfad}"}

@@ -10,6 +10,7 @@ Beispiele:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -50,7 +51,37 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
         from .llm import LlamaServerProvider
         provider = LlamaServerProvider(args.llm_url or "http://127.0.0.1:8080")
 
-    text = _lies_text(args.eingabe)
+    # Schicht 1.7 (Embedding/Reranker) wie in der /v1-Engine (web.Anwendung):
+    # nur wenn ein Index vorab gebaut wurde; Encoder-Fehler degradieren statt
+    # zu crashen; Reranker NUR auf GPU. CLI und /v1/analyse liefern damit für
+    # denselben Text dasselbe Ergebnis (Konsistenz-Zusage in api_v1._analyse).
+    from .embedding import encoder_oeffnen as _enc_open, index_oeffnen as _emb_open
+    embedding = _emb_open()
+    embedding_encoder = None
+    reranker = None
+    _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
+    if embedding is not None:
+        try:
+            embedding_encoder = _enc_open(embedding.encoder_name, device=_emb_dev)
+        except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
+            print(f"Hinweis: Embedding-Encoder nicht ladbar ({exc}) – Lauf ohne Schicht 1.7.",
+                  file=sys.stderr)
+            embedding = embedding_encoder = None
+    if embedding_encoder is not None and "cuda" in (_emb_dev or ""):
+        try:
+            from .reranker import reranker_oeffnen
+            reranker = reranker_oeffnen(device=_emb_dev)
+        except Exception:  # noqa: BLE001 – Rerank ist optional, nie Show-Stopper
+            reranker = None
+
+    try:
+        text = _lies_text(args.eingabe)
+    except OSError as exc:
+        print(f"Eingabefehler: {args.eingabe}: {exc}", file=sys.stderr)
+        return 2
+    except UnicodeDecodeError as exc:
+        print(f"Eingabefehler: {args.eingabe} ist kein UTF-8-Text ({exc})", file=sys.stderr)
+        return 2
     report = Pipeline(katalog).run(
         text,
         erzeugt_am=args.zeitstempel,
@@ -60,6 +91,14 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
         graph=graph,
         provider=provider,
         trigger=trigger,
+        # /v1-Semantik (web.Anwendung.analyse): Trigger-Detektor + Streit-
+        # Verstärker sind dort immer aktiv – die CLI zieht gleich.
+        detektor=True,
+        streit=True,
+        abweichung=args.abweichung,
+        embedding=embedding,
+        embedding_encoder=embedding_encoder,
+        reranker=reranker,
     )
 
     # Konsolen-Zusammenfassung
@@ -106,8 +145,9 @@ def _cmd_korpus(args: argparse.Namespace) -> int:
             print(f"  {g.law:8} -> {g.url}")
         return 0
     # fetch
-    gesetze = corpus.lade_config(args.dir) or corpus.ableiten_aus_katalog(katalog)
-    if not corpus.lade_config(args.dir):
+    config = corpus.lade_config(args.dir)   # nur EINMAL lesen
+    gesetze = config or corpus.ableiten_aus_katalog(katalog)
+    if not config:
         corpus.schreibe_config(gesetze, args.dir)
     print(f"Lade {len(gesetze)} Gesetze von gesetze-im-internet …")
     erg = corpus.hole_alle(gesetze, args.dir)
@@ -120,7 +160,7 @@ def _cmd_korpus(args: argparse.Namespace) -> int:
 def _cmd_graph(args: argparse.Namespace) -> int:
     from . import gii, graph as graphmod
     if args.aktion == "build":
-        knoten = gii.parse_verzeichnis(graphmod.Path(args.dir) / "gii")
+        knoten = gii.parse_verzeichnis(Path(args.dir) / "gii")
         if not knoten:
             print(f"Keine XML in {args.dir}/gii – erst 'korpus fetch' ausführen.", file=sys.stderr)
             return 1
@@ -193,7 +233,11 @@ def _cmd_modell(args: argparse.Namespace) -> int:
         ziel = M.DEFAULT_MODELL_DIR
         print(f"Lade {info.name} ({info.quant}) aus {info.repo} → {ziel}/ …")
         fortschritt = _fortschritt()
-        pfade = M.download_modell(info, ziel, fortschritt=fortschritt)
+        try:
+            pfade = M.download_modell(info, ziel, fortschritt=fortschritt)
+        except Exception as exc:  # noqa: BLE001 – Netzfehler sauber melden, kein Traceback
+            print(f"\nFehler: {exc}", file=sys.stderr)
+            return 1
         print("\nFertig:", ", ".join(str(p) for p in pfade))
         return 0
 
@@ -235,6 +279,18 @@ def _cmd_modell(args: argparse.Namespace) -> int:
 
 def _cmd_definiere(args: argparse.Namespace) -> int:
     from datetime import date
+
+    # § 203-Gate (NICHT optional, kein Override-Flag): die CLI schreibt in
+    # denselben Festwissens-Store, den /v1/katalog/definiere mit 422 schützt –
+    # derselbe Detektor (recherche.pruefe_rest, nur lesend) prüft begriff + Text.
+    from .recherche import pruefe_rest
+    rest = pruefe_rest(f"{args.begriff}\n{args.text}")
+    if rest:
+        print("Abgelehnt: Definition enthält identifizierende Angaben (§ 203 StGB) "
+              "– bitte abstrahieren:", file=sys.stderr)
+        for r in rest:
+            print(f"  - [{r['typ']}] {r['original']}", file=sys.stderr)
+        return 2
 
     try:
         store = BeraterStore(args.berater)
@@ -388,6 +444,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--schicht2", action=argparse.BooleanOptionalAction, default=True,
                    help="LLM-Kandidaten (lokaler llama-server); --no-schicht2 deaktiviert")
     a.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
+    a.add_argument("--abweichung", action="store_true",
+                   help="Abweichungs-Analyse (wie /v1/analyse optionen.abweichung)")
     a.add_argument(
         "--fail-on-luecke",
         action="store_true",

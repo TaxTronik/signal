@@ -12,6 +12,7 @@ ohne Build-Schritt nutzbar (/NF60/).
 
 from __future__ import annotations
 
+import heapq
 import html
 
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status
@@ -68,14 +69,32 @@ def _annotiere(original_text: str, karten: list[Begriffskarte], risiken: list[Ri
     n = len(original_text)
     grenzen = sorted({0, n, *[e["start"] for e in eintraege], *[e["end"] for e in eintraege]})
     teile: list[str] = []
+    # Sweep mit zwei Zeigern statt linearer Suche pro Abschnitt (O((G+E)·log E)
+    # statt O(G·E)): start-sortierte Einträge betreten die aktive Menge, ein
+    # End-Heap entfernt sie. Da die grenzen ALLE Start-/End-Offsets enthalten,
+    # gilt für jeden Abschnitt (a, b): deckend ⇔ start <= a und end > a –
+    # identisches Verhalten wie zuvor (start <= a und end >= b), nur schneller.
+    # ``deckend`` wird über sorted(aktiv) in Eintrags-Reihenfolge gehalten
+    # (Determinismus: titel-Reihenfolge, ziel/cls aus deckend[0] wie bisher).
+    nach_start = sorted(range(len(eintraege)), key=lambda i: eintraege[i]["start"])
+    zeiger = 0
+    end_heap: list[tuple[int, int]] = []
+    aktiv: set[int] = set()
     for a, b in zip(grenzen, grenzen[1:]):
         if a >= b:
             continue
+        while zeiger < len(nach_start) and eintraege[nach_start[zeiger]]["start"] <= a:
+            i = nach_start[zeiger]
+            aktiv.add(i)
+            heapq.heappush(end_heap, (eintraege[i]["end"], i))
+            zeiger += 1
+        while end_heap and end_heap[0][0] <= a:
+            aktiv.discard(heapq.heappop(end_heap)[1])
         chunk = html.escape(original_text[a:b])
-        deckend = [e for e in eintraege if e["start"] <= a and e["end"] >= b]
-        if not deckend:
+        if not aktiv:
             teile.append(chunk)
             continue
+        deckend = [eintraege[i] for i in sorted(aktiv)]
         status = {e["status"] for e in deckend}
         if Status.LUECKE in status:
             cls = "mark luecke"

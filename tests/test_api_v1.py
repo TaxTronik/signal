@@ -44,7 +44,6 @@ def test_analyse_ist_zustandslos_und_typisiert(app, tmp_path):
                 "katalog_version", "engineVersion"):
         assert key in obj, key
     # ZUSTANDSLOS: kein Fall/keine Aufgabe wurde nebenbei persistiert
-    assert not (tmp_path).glob("*.json").__class__ is None  # tmp existiert
     assert list(tmp_path.rglob("*.json")) == []
 
 
@@ -118,6 +117,51 @@ def test_unbekannter_v1_pfad_404(app):
     assert code == 404
 
 
+def test_bekannter_pfad_falsche_methode_405(app):
+    """Bekannter Pfad mit falscher Methode → 405 (nicht 404), mit allow-Feld."""
+    code, obj = dispatch(app, "GET", "/v1/analyse", {}, {})
+    assert code == 405 and obj["allow"] == "POST"
+    code, obj = dispatch(app, "POST", "/v1/health", {}, {})
+    assert code == 405 and obj["allow"] == "GET"
+
+
+def test_analyse_optionen_nicht_objekt_400(app):
+    """{"optionen": "x"} (truthy Nicht-Dict) → klarer 400, kein AttributeError/500."""
+    code, obj = dispatch(app, "POST", "/v1/analyse",
+                         {"text": "x", "optionen": "x"}, {})
+    assert code == 400 and "optionen" in obj["error"]
+
+
+def test_definiere_norm_anker_string_422(app, tmp_path):
+    """norm_anker als String würde zeichenweise zersplittert → 422 statt stillem
+    Datenmüll in der Festwissens-YAML."""
+    code, obj = dispatch(app, "POST", "/v1/katalog/definiere", {
+        "begriff": "Testbegriff", "definition_text": "Arbeitsdefinition.",
+        "norm_anker": "§ 15 EStG",
+    }, {})
+    assert code == 422 and "norm_anker" in obj["error"]
+    assert list(tmp_path.rglob("*.yaml")) == []      # nichts persistiert
+
+
+def test_normgraph_aufloesen_ohne_id_400(app):
+    """Parameter-Validierung VOR der Graph-Prüfung: fehlendes id → 400,
+    auch wenn (gerade weil) kein Graph geladen ist."""
+    code, obj = dispatch(app, "GET", "/v1/normgraph/aufloesen", {}, {})
+    assert code == 400 and "id" in obj["error"]
+
+
+def test_normgraph_und_embedding_tragen_engineVersion(app):
+    """engineVersion ist in allen 200er-Antworten vorhanden (additiv ergänzt)."""
+    code, obj = dispatch(app, "GET", "/v1/normgraph/suche", {}, {"q": ["§ 42 AO"]})
+    assert code == 200 and obj["engineVersion"] == V1_VERSION
+    code, obj = dispatch(app, "GET", "/v1/normgraph/aufloesen", {}, {"id": ["norm:AO:42"]})
+    assert code == 200 and obj["engineVersion"] == V1_VERSION
+    # kein-Index-Zweig von /v1/embedding/suche (Anwendung ohne gebauten Index)
+    if app.embedding is None:
+        code, obj = dispatch(app, "POST", "/v1/embedding/suche", {"text": "x"}, {})
+        assert code == 200 and obj["engineVersion"] == V1_VERSION
+
+
 def test_v1_llm_status_traegt_queue(app, monkeypatch):
     """GET /v1/llm/status liefert Status UND Queue (Slot-/Auslastungszustand)."""
     monkeypatch.setattr(app, "llm_status", lambda: {
@@ -139,6 +183,22 @@ def test_v1_llm_start_route(app, monkeypatch):
     monkeypatch.setattr(app, "llm_start", lambda: {"ok": False, "fehler": "kein Modell (Test)"})
     code, obj = dispatch(app, "POST", "/v1/llm/start", {}, {})
     assert code == 200 and obj["ok"] is False and obj["engineVersion"]
+
+
+def test_v1_llm_stop_route(app, monkeypatch):
+    """POST /v1/llm/stop existiert als Gegenstück zu /v1/llm/start (der Host kann
+    den llama-server nicht nur starten, sondern auch wieder stoppen = VRAM frei)."""
+    aufgerufen = []
+    monkeypatch.setattr(app, "llm_stop", lambda: aufgerufen.append(1) or {"ok": True})
+    code, obj = dispatch(app, "POST", "/v1/llm/stop", {}, {})
+    assert code == 200 and obj["ok"] is True and obj["engineVersion"] == V1_VERSION
+    assert aufgerufen == [1]
+
+
+def test_v1_llm_stop_idempotent_ohne_manager(app):
+    """Ohne von uns gestarteten Server ist stop ein No-Op mit ok:true (idempotent)."""
+    code, obj = dispatch(app, "POST", "/v1/llm/stop", {}, {})
+    assert code == 200 and obj["ok"] is True
 
 
 def test_analyse_karten_tragen_via_provenienz(app):

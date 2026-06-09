@@ -12,6 +12,21 @@ vor Freigabe manuell prüft und anpasst. Die Rückübersetzungstabelle
 
 Zulässiger Fehlermodus wie beim Risiko-Layer: lieber zu viel schwärzen
 (Über-Abstraktion) als ein Geheimnis preisgeben.
+
+Bekannte GRENZEN des Regex-Ansatzes (ehrlich dokumentiert, weil ``pruefe_rest``
+in recherche.py und das 422-Gate von /v1/katalog/definiere als DURCHSETZUNG
+darauf bauen – keine NER, kein Modell):
+  * Personen OHNE Anrede („Mueller kam zur Besprechung") werden NICHT erkannt;
+    nur Anrede-Muster (Herr/Frau/Hr./Fr., optional Dr./Prof.) greifen.
+  * Firmen OHNE Rechtsform-Suffix („die Mustermann-Gruppe") werden NICHT erkannt.
+  * Großgeschriebene Nicht-Namen direkt vor einer Rechtsform werden mitgeschwärzt
+    (Über-Abstraktion, z. B. „Unsere Beta GmbH" → komplett ersetzt) – das ist der
+    zulässige Fehlermodus; nur Satzanfang-Artikel (Die/Eine …) sind ausgenommen.
+  * Beträge brauchen Währungskontext (€/EUR/Euro/TEUR): nackte Zahlen („zahlte
+    50000") bleiben stehen, damit Paragraphen-/Ordnungsnummern („§ 146 AO",
+    „Nr. 21") nicht zerstört werden.
+Die manuelle Prüfung des Entwurfs durch den Berater bleibt deshalb Pflichtteil
+des Verfahrens – der Regex-Filter ist Sicherheitsnetz, kein Ersatz.
 """
 
 from __future__ import annotations
@@ -28,10 +43,22 @@ _RECHTSFORM = (
 _RF = rf"(?:{_RECHTSFORM})"
 # „M-GmbH", „T-GmbH" – Rechtsform per Bindestrich angehängt
 _FIRMA_KOMPAKT = re.compile(rf"\b[A-ZÄÖÜ][\wäöüßÄÖÜ.&]*-{_RF}\b")
-# „Alpha SE", „Beta GmbH", „X GmbH & Co. KG" – Name + Leerzeichen + Rechtsform
-_FIRMA_SPACED = re.compile(rf"\b[A-ZÄÖÜ][\wäöüßÄÖÜ.&]+\s+{_RF}\b")
-_PERSON = re.compile(r"\b(?:Herr|Frau|Hr\.|Fr\.)\s+(?:Dr\.\s+|Prof\.\s+){0,2}[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?")
-_BETRAG = re.compile(r"\b\d{1,3}(?:[.\s]\d{3})*(?:,\d+)?\s*(?:€|EUR|Euro|TEUR|Mio\.?\s*(?:€|EUR|Euro))")
+# „Alpha SE", „Beta GmbH", „Mueller und Schulze GmbH" – ein bis mehrere
+# großgeschriebene Namenswörter (auch per „und"/„&" verbunden) + Rechtsform.
+# Satzanfang-Artikel („Die Mueller … GmbH") zählen NICHT zum Firmennamen.
+_ARTIKEL = r"(?:Die|Der|Das|Den|Dem|Des|Ein|Eine|Einer|Eines|Einem|Einen)"
+_FIRMA_WORT = rf"(?!{_ARTIKEL}\b)[A-ZÄÖÜ][\wäöüßÄÖÜ.&]+"
+_FIRMA_SPACED = re.compile(
+    rf"\b{_FIRMA_WORT}(?:(?:\s+(?:und|&))?\s+{_FIRMA_WORT}){{0,5}}\s+{_RF}\b")
+# Anrede + (Titel) + Name; Bindestrich-Doppelnamen („Mueller-Lüdenscheid")
+# werden vollständig erfasst, nicht nur das erste Glied.
+_NAME = r"[A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)*"
+_PERSON = re.compile(rf"\b(?:Herr|Frau|Hr\.|Fr\.)\s+(?:Dr\.\s+|Prof\.\s+){{0,2}}{_NAME}(?:\s+{_NAME})?")
+# Beträge: mit Tausendertrennern (1.500 EUR, 1 500 000 €) ODER ungetrennt
+# (50000 EUR, 1500 Euro). Der WÄHRUNGSKONTEXT ist Pflicht – nackte Zahlen
+# (Paragraphen „§ 146 AO", Ordnungsnummern „Nr. 21") bleiben unangetastet.
+_WAEHRUNG = r"(?:€|EUR|Euro|TEUR|Mio\.?\s*(?:€|EUR|Euro))"
+_BETRAG = re.compile(rf"\b(?:\d{{1,3}}(?:[.\s]\d{{3}})+|\d+)(?:,\d+)?\s*{_WAEHRUNG}")
 _DATUM = re.compile(
     r"\b(?:\d{1,2}\.\s?(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s?\d{4}"
     r"|\d{1,2}\.\d{1,2}\.\d{2,4})\b"
