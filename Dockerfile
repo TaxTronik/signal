@@ -40,12 +40,15 @@ VOLUME ["/app/corpus"]
 
 EXPOSE 8000
 
-# Healthcheck gegen den Engine-Vertrag (nicht die GUI):
+# Healthcheck gegen den Engine-Vertrag (nicht die GUI). /v1/* ist auth-pflichtig,
+# sobald RISK_LAYER_TOKEN gesetzt ist -> der Probe MUSS den Bearer-Token mitsenden
+# (sonst 401 -> faelschlich unhealthy). Ohne gesetztes Token (Loopback-Dev) entfaellt
+# der Header und der Check laeuft ebenfalls.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/v1/health',timeout=4).status==200 else 1)"
+  CMD python -c "import os,urllib.request,sys; t=os.environ.get('RISK_LAYER_TOKEN',''); h={'Authorization':'Bearer '+t} if t else {}; sys.exit(0 if urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/v1/health',headers=h),timeout=4).status==200 else 1)"
 
 # Bindet auf 0.0.0.0, damit der Compose-Netzzugriff funktioniert – der Dienst
 # wird NICHT nach außen exponiert (nur TaxTronik im selben Netz spricht ihn an,
-# mit RISK_LAYER_TOKEN). --no-browser, da headless.
+# mit RISK_LAYER_TOKEN). risk_layer.web ist headless (kein Browser-Start).
 CMD ["python", "-m", "risk_layer.web", "--host", "0.0.0.0", "--port", "8000", \
-     "--graph", "corpus/graph.sqlite", "--no-browser"]
+     "--graph", "corpus/graph.sqlite"]

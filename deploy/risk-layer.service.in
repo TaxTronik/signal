@@ -17,7 +17,7 @@ WorkingDirectory=@WORKDIR@
 Environment=RISK_LAYER_TOKEN=@TOKEN@
 Environment=RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@
 # --llm-autostart bringt Schicht 2 (llama-server) im selben Aufruf mit hoch.
-ExecStart=@PYTHON@ -m risk_layer.web --host @HOST@ --port @PORT@ --graph corpus/graph.sqlite --llm-autostart --no-browser
+ExecStart=@PYTHON@ -m risk_layer.web --host @HOST@ --port @PORT@ --graph corpus/graph.sqlite --llm-autostart
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

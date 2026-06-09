@@ -22,7 +22,7 @@ services:
       - RISK_LAYER_TOKEN=${RISK_LAYER_TOKEN:?bitte RISK_LAYER_TOKEN setzen (z. B. aus .engine_token)}
       - RISK_LAYER_EMB_DEVICE=cpu          # Embedding im Container CPU; für GPU-Embedding Host-Deploy nutzen
     command: ["python", "-m", "risk_layer.web", "--host", "0.0.0.0", "--port", "8000",
-              "--graph", "corpus/graph.sqlite", "--llm-url", "http://llm:8080", "--no-browser"]
+              "--graph", "corpus/graph.sqlite", "--llm-url", "http://llm:8080"]
     volumes:
       - ./corpus:/app/corpus:ro            # Festwissen (Graph/Trigger/Embedding) — read-only
       - ./catalog:/app/catalog:ro          # Begriffskatalog — read-only

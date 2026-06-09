@@ -25,7 +25,7 @@ $ErrorActionPreference = "Stop"
 Set-Location -LiteralPath $PSScriptRoot
 $Name = "RiskLayer"
 $py   = (Get-Command python).Source
-$args = "-m risk_layer.web --host $BindHost --port $Port --graph corpus/graph.sqlite --llm-autostart --no-browser"
+$args = "-m risk_layer.web --host $BindHost --port $Port --graph corpus/graph.sqlite --llm-autostart"
 $token = if (Test-Path .engine_token) { (Get-Content .engine_token -Raw).Trim() } else { "" }
 $nssmExe = if ($Nssm) { $Nssm } elseif (Get-Command nssm -ErrorAction SilentlyContinue) { (Get-Command nssm).Source } else { "" }
 

@@ -294,6 +294,15 @@ def _lade_und_entpacke(name: str, url: str, ziel_dir: Path,
     download_datei(url, arch, fortschritt=fortschritt)
     if name.lower().endswith(".zip"):
         with zipfile.ZipFile(arch) as zf:
+            # Zip-Slip: ein Member-Pfad darf nicht aus ziel_dir ausbrechen (../ oder
+            # absolut). tar deckt das via filter="data" ab; ZIP kennt das nicht, also
+            # vor dem Entpacken jeden Pfad gegen ziel_dir normalisieren.
+            ziel = ziel_dir.resolve()
+            for m in zf.namelist():
+                try:
+                    (ziel_dir / m).resolve().relative_to(ziel)
+                except ValueError:
+                    raise RuntimeError(f"unsicherer Pfad im ZIP abgewehrt (Zip-Slip): {m!r}") from None
             zf.extractall(ziel_dir)
     else:  # .tar.gz (Linux-Builds)
         with tarfile.open(arch) as tf:

@@ -35,3 +35,6 @@ risk_layer = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Repo-Wurzel auf den Importpfad: so laeuft `pytest -q` direkt aus dem Clone,
+# auch ohne vorheriges `pip install -e .` (sonst ModuleNotFoundError: risk_layer).
+pythonpath = ["."]
