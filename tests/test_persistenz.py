@@ -19,6 +19,15 @@ def test_slugify_transliteriert_und_kappt():
     assert len(slugify("a" * 200, default="x")) <= 60
 
 
+def test_slugify_cap_endet_nicht_auf_separator():
+    # Der 60-Zeichen-Cap darf nicht mitten am Trenner enden ("…abc_") –
+    # Slugs sind persistente IDs, ein Trenner-Schwanz wäre für immer drin.
+    s = slugify("a" * 59 + " bcd", default="x", sep="_")
+    assert not s.endswith("_") and len(s) <= 60
+    s2 = slugify("a" * 59 + " bcd", default="x")
+    assert not s2.endswith("-")
+
+
 def test_als_int_robuste_coercion():
     assert als_int("5") == 5
     assert als_int(7) == 7

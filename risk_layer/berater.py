@@ -28,7 +28,10 @@ from .models import (Definitionsquelle, GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN,
 from .persistenz import atomar_schreiben, slugify
 from .zitate import parse_normzitat
 
-_WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÿ"
+# Wortzeichen für die Wortgrenzen-Lookarounds. À-ÖØ-öø-ÿ = Latin-1-Buchstaben
+# OHNE × (U+00D7) und ÷ (U+00F7) – die Operatoren sind Begriffs-GRENZEN, keine
+# Wortzeichen (matcher.py analog).
+_WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÖØ-öø-ÿ"
 
 REVIEW_REIHENFOLGE = ("entwurf", "geprüft", "freigegeben")
 
@@ -145,7 +148,16 @@ class NormKuratierung:
 
 
 class BeraterStore:
-    """Lädt/persistiert Berater-Definitionen (je Scope eine YAML-Datei)."""
+    """Lädt/persistiert Berater-Definitionen (je Scope eine YAML-Datei).
+
+    Lost-Update-Schutz: jede mutierende Operation lädt VOR dem Schreiben den
+    frischen Datei-Stand neu und wendet die eigene Mutation darauf an – zwei
+    parallele Store-Instanzen (z. B. zwei Prozesse) überschreiben sich so nicht
+    mehr gegenseitig. Restrisiko: ohne File-Locking (bewusst weggelassen,
+    Windows/Unix-Portabilität) bleibt ein schmales Fenster zwischen Neu-Laden
+    und atomarem Schreiben, in dem ein exakt gleichzeitiger fremder Write
+    verloren gehen kann; In-Prozess serialisiert der Host (web._berater_lock).
+    """
 
     def __init__(self, verzeichnis: str | Path):
         self.dir = Path(verzeichnis)
@@ -165,13 +177,38 @@ class BeraterStore:
             if not pfad.exists():
                 continue
             data = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
-            for raw in data:
-                self._eintraege.append(self._aus_dict(raw, scope))
+            if not isinstance(data, list):
+                raise BeraterFehler(
+                    f"{pfad}: Root muss eine LISTE von Einträgen sein, "
+                    f"nicht {type(data).__name__}")
+            for i, raw in enumerate(data):
+                if not isinstance(raw, dict):
+                    raise BeraterFehler(f"{pfad}: Eintrag #{i} muss ein Mapping sein: {raw!r}")
+                try:
+                    self._eintraege.append(self._aus_dict(raw, scope))
+                except BeraterFehler as exc:
+                    raise BeraterFehler(f"{pfad}: Eintrag #{i}: {exc}") from exc
+                except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                    # rohe Parse-Fehler (fehlender Schlüssel, falscher Typ) mit
+                    # Datei- und Eintrags-Kontext melden statt KeyError & Co.
+                    raise BeraterFehler(
+                        f"{pfad}: Eintrag #{i} ({raw.get('id', '?')}) strukturell "
+                        f"ungültig: {exc!r}") from exc
         # Norm-Kuratierung (eine Datei, Scope je Record).
         self._kuratierungen = []
         kpfad = self.dir / "norm_kuratierung.yaml"
         if kpfad.exists():
-            for raw in (yaml.safe_load(kpfad.read_text(encoding="utf-8")) or []):
+            kdata = yaml.safe_load(kpfad.read_text(encoding="utf-8")) or []
+            if not isinstance(kdata, list):
+                raise BeraterFehler(
+                    f"{kpfad}: Root muss eine LISTE von Records sein, "
+                    f"nicht {type(kdata).__name__}")
+            for i, raw in enumerate(kdata):
+                if not isinstance(raw, dict) or not all(
+                        s in raw for s in ("katalog_id", "norm_id", "aktion")):
+                    raise BeraterFehler(
+                        f"{kpfad}: Record #{i} braucht 'katalog_id', 'norm_id' "
+                        f"und 'aktion': {raw!r}")
                 self._kuratierungen.append(NormKuratierung(
                     katalog_id=str(raw["katalog_id"]), norm_zitat=str(raw.get("norm_zitat", "")),
                     norm_id=str(raw["norm_id"]), aktion=str(raw["aktion"]),
@@ -205,6 +242,7 @@ class BeraterStore:
         norm_id = next((a.norm_id.to_id() for a in parse_normzitat(norm) if a.norm_id), "")
         if not norm_id:
             raise BeraterFehler(f"Norm-Zitat nicht auflösbar: {norm!r}")
+        self._laden()   # frischen Datei-Stand mergen (Lost-Update-Schutz)
         # gleichen Schlüssel entfernen (idempotent / Undo), dann ggf. neu anlegen
         self._kuratierungen = [k for k in self._kuratierungen
                                if not (k.katalog_id == katalog_id and k.norm_id == norm_id
@@ -244,6 +282,13 @@ class BeraterStore:
 
     @staticmethod
     def _aus_dict(raw: dict[str, Any], scope: str) -> BeraterDefinition:
+        if "id" not in raw or "begriff" not in raw:
+            raise BeraterFehler(f"Eintrag braucht 'id' und 'begriff': {raw!r}")
+        for q in (raw.get("definitionsquelle") or []):
+            if not isinstance(q, dict):
+                raise BeraterFehler(
+                    f"[{raw['id']}] definitionsquelle-Eintrag muss ein Mapping mit "
+                    f"'typ'/'fundstelle' sein: {q!r}")
         quellen = tuple(
             Definitionsquelle(typ=str(q.get("typ", "")), fundstelle=str(q.get("fundstelle", "")))
             for q in (raw.get("definitionsquelle") or [])
@@ -295,7 +340,16 @@ class BeraterStore:
 
         Mit ``katalog_id`` wird ein BESTEHENDER Katalogbegriff annotiert statt ein
         neuer Begriff definiert.
+
+        Ersetzungsregeln: ein personal-Eintrag ersetzt nur den EIGENEN (gleicher
+        Autor) – gleichnamige personal-Einträge anderer Autoren koexistieren.
+        Ein geteilter Eintrag darf nur im Status ``entwurf`` ersetzt werden;
+        ist er bereits geprüft/freigegeben, wirft ``definiere`` BeraterFehler.
         """
+        # frischen Datei-Stand mergen: parallele Store-Instanzen (z. B. zweiter
+        # Prozess) haben evtl. seit dem Konstruktor geschrieben (Lost-Update-Schutz,
+        # s. Klassen-Docstring).
+        self._laden()
         slug = _slug(f"{katalog_id}_{begriff}" if katalog_id else begriff)
         d = BeraterDefinition(
             id=slug,
@@ -313,8 +367,25 @@ class BeraterStore:
             katalog_id=katalog_id,
         )
         _validiere(d)
-        # vorhandenen gleichen Eintrag (id+scope) ersetzen
-        self._eintraege = [e for e in self._eintraege if not (e.id == d.id and e.scope == d.scope)]
+        if scope == "geteilt":
+            # Review-Invariante (/LF320/): ein geprüfter/freigegebener geteilter
+            # Eintrag darf nicht still durch einen neuen Entwurf ersetzt werden –
+            # das hebelte die Nur-vorwärts-Regel von setze_review_status aus.
+            bestehend = next(
+                (e for e in self._eintraege if e.id == d.id and e.scope == "geteilt"), None)
+            if bestehend is not None and bestehend.review_status != "entwurf":
+                raise BeraterFehler(
+                    f"[{d.id}] geteilter Eintrag ist bereits {bestehend.review_status!r} – "
+                    "Lebenszyklus nutzen (entwurf → geprüft → freigegeben); eine neue "
+                    "Version per definiere() ist bewusst nicht vorgesehen")
+        # vorhandenen gleichen Eintrag ersetzen: geteilt je (id, scope); personal
+        # nur den EIGENEN (id, scope, autor) – sonst löschte Nutzer B still die
+        # gleichnamige personal-Definition von Nutzer A (eine Datei für alle).
+        self._eintraege = [
+            e for e in self._eintraege
+            if not (e.id == d.id and e.scope == d.scope
+                    and (e.scope != "personal" or e.autor == d.autor))
+        ]
         self._eintraege.append(d)
         self._speichern(scope)
         return d
@@ -324,6 +395,7 @@ class BeraterStore:
 
         Erlaubt nur Vorwärts-Schritte entwurf → geprüft → freigegeben.
         """
+        self._laden()   # frischen Datei-Stand mergen (Lost-Update-Schutz)
         d = next((e for e in self._eintraege if e.id == eintrag_id and e.scope == "geteilt"), None)
         if d is None:
             raise BeraterFehler(f"kein geteilter Eintrag {eintrag_id!r}")
@@ -340,9 +412,15 @@ class BeraterStore:
         self._speichern("geteilt")
 
     def _sichtbare(self, nutzer: str | None) -> list[BeraterDefinition]:
+        """Sichtbar = EIGENE personal-Einträge + kanonische (freigegebene) geteilte.
+
+        ``nutzer=None`` heißt: KEIN Nutzerkontext → nur kanonisches Wissen,
+        personal-Einträge bleiben ausgeblendet (niemandem fremde, ungeprüfte
+        Privat-Definitionen zeigen).
+        """
         out: list[BeraterDefinition] = []
         for d in self._eintraege:
-            if d.scope == "personal" and (nutzer is None or d.autor == nutzer):
+            if d.scope == "personal" and nutzer is not None and d.autor == nutzer:
                 out.append(d)
             elif d.scope == "geteilt" and d.ist_kanonisch:
                 out.append(d)
@@ -358,11 +436,16 @@ class BeraterStore:
         """Erkennt sichtbare Berater-Begriffe im Text (Katalog wächst durch Nutzung).
 
         Stellen, die bereits durch Schicht 1 / andere Markierungen belegt sind,
-        werden ausgelassen.
+        werden ausgelassen; jede neue Marke belegt ihren Span ebenfalls (keine
+        doppelten/überlappenden Marken bei zwei sichtbaren Definitionen desselben
+        Begriffs). Präzedenz dabei EXPLIZIT: personal vor geteilt – dieselbe
+        Rangfolge, die ``finde()`` über die Ladereihenfolge implizit anwendet.
+        ``nutzer=None`` = kein Nutzerkontext → nur kanonische geteilte Einträge.
         """
-        belegt = belegte_spans or []
+        belegt = list(belegte_spans or [])   # Kopie: Caller-Liste nicht mutieren
         out: list[Risikomarkierung] = []
-        for d in self._sichtbare(nutzer):
+        sichtbare = sorted(self._sichtbare(nutzer), key=lambda d: d.scope != "personal")
+        for d in sichtbare:
             if d.katalog_id or not d.begriff.strip():   # Annotationen + leere Begriffe: keine Marken
                 continue
             pat = re.compile(
@@ -372,6 +455,7 @@ class BeraterStore:
                 s, e = m.start(), m.end()
                 if any(not (e <= bs or s >= be) for bs, be in belegt):
                     continue
+                belegt.append((s, e))   # fortschreiben: Span ist jetzt belegt
                 out.append(
                     Risikomarkierung(
                         start=s,
@@ -403,14 +487,17 @@ class BeraterStore:
     def finde(self, span_text: str, *, nutzer: str | None = None) -> BeraterDefinition | None:
         """Findet eine zur Stelle passende, sichtbare Definition.
 
-        Sichtbar = eigene personal-Einträge ODER kanonische (freigegebene) geteilte.
+        Sichtbar = EIGENE personal-Einträge ODER kanonische (freigegebene)
+        geteilte. ``nutzer=None`` = kein Nutzerkontext → nur kanonisches Wissen,
+        personal-Einträge werden ausgeblendet. Präzedenz personal vor geteilt
+        (Ladereihenfolge: personal.yaml zuerst).
         """
         norm = " ".join(span_text.lower().split())
         for d in self._eintraege:
             if " ".join(d.begriff.lower().split()) != norm:
                 continue
             if d.scope == "personal":
-                if nutzer is None or d.autor == nutzer:
+                if nutzer is not None and d.autor == nutzer:
                     return d
             elif d.ist_kanonisch:
                 return d

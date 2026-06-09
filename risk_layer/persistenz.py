@@ -3,9 +3,14 @@
 Zuvor lag beides dreifach (fall/berater/aufgabe) leicht abweichend implementiert:
 unterschiedliche Umlaut-Behandlung und Separatoren ließen denselben Namen je
 Store anders verschlüsseln, und ``write_text`` schrieb nicht-atomar (paralleler
-Leser sah halb-geschriebene JSON, gleichzeitige Schreiber verloren Updates).
-Beide Primitive leben jetzt EINMAL hier; die Stores reichen nur Separator/Default
-durch.
+Leser sah halb-geschriebene JSON). Beide Primitive leben jetzt EINMAL hier; die
+Stores reichen nur Separator/Default durch.
+
+Grenze ehrlich benannt: ``atomar_schreiben`` verhindert torn reads/halbe
+Dateien, NICHT verlorene Updates konkurrierender Read-Modify-Write-Zyklen.
+Dagegen müssen die Stores selbst vorgehen (frischen Datei-Stand vor dem
+Schreiben neu laden, s. BeraterStore); ohne File-Locking (bewusst weggelassen –
+Windows/Unix-Portabilität) bleibt ein schmales Cross-Prozess-Restrisiko.
 """
 
 from __future__ import annotations
@@ -42,7 +47,10 @@ def slugify(text: str, *, default: str, sep: str = "-", maxlen: int = 60) -> str
     """
     umgewandelt = "".join(_UML.get(c, c) for c in str(text).lower())
     roh = "".join(c if (c.isalnum() and c.isascii()) else sep for c in umgewandelt)
-    teil = sep.join(p for p in roh.split(sep) if p)[:maxlen]
+    # Der Längen-Cap kann mitten am Separator schneiden ("…abc_") – Rest-``sep``
+    # abstreifen. Slugs sind persistente IDs: das ändert nur KÜNFTIG gebildete
+    # Slugs, bereits persistierte Daten bleiben unberührt.
+    teil = sep.join(p for p in roh.split(sep) if p)[:maxlen].rstrip(sep)
     return teil or default
 
 

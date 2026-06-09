@@ -31,7 +31,13 @@ class Katalog:
         self.version = version
         self.quelle = quelle
         self.eintraege = eintraege
-        self._by_id = {e.id: e for e in eintraege}
+        # Duplikatprüfung auch bei DIREKTER Konstruktion (nicht nur in lade_katalog):
+        # sonst verlöre _by_id still Einträge.
+        self._by_id: dict[str, Katalogeintrag] = {}
+        for e in eintraege:
+            if e.id in self._by_id:
+                raise KatalogFehler(f"Doppelte Begriffs-ID im Katalog: {e.id!r}")
+            self._by_id[e.id] = e
 
     def __len__(self) -> int:
         return len(self.eintraege)
@@ -58,12 +64,24 @@ def _parse_ausloeser(raw: Any, *, begriff_id: str) -> tuple[dict[str, Any], ...]
     """Normalisiert die Beschreibungs-Muster (Schicht 1b) zu {'gruppen': [[...]]}."""
     if not raw:
         return ()
+    if isinstance(raw, str) or not isinstance(raw, (list, tuple)):
+        raise KatalogFehler(
+            f"[{begriff_id}] ausloeser muss eine Liste von Specs sein: {raw!r}")
     specs: list[dict[str, Any]] = []
     for spec in raw:
         gruppen = spec.get("gruppen") if isinstance(spec, dict) else spec
-        if not gruppen or not all(gruppen):
+        if isinstance(gruppen, str) or not isinstance(gruppen, (list, tuple)) or not gruppen:
             raise KatalogFehler(
-                f"[{begriff_id}] ausloeser-Spec braucht nicht-leere 'gruppen': {spec!r}")
+                f"[{begriff_id}] ausloeser-Spec braucht nicht-leere 'gruppen' "
+                f"(Liste von Listen): {spec!r}")
+        for gruppe in gruppen:
+            # jede Gruppe MUSS eine Liste von Strings sein – ein blanker String
+            # würde sonst zeichenweise zerlegt und das Muster matchte jeden Satz.
+            if isinstance(gruppe, str) or not isinstance(gruppe, (list, tuple)) \
+                    or not gruppe or not all(gruppe):
+                raise KatalogFehler(
+                    f"[{begriff_id}] jede ausloeser-Gruppe muss eine nicht-leere "
+                    f"LISTE von Strings sein (kein blanker String): {gruppe!r}")
         specs.append({"gruppen": [[str(g) for g in gruppe] for gruppe in gruppen]})
     return tuple(specs)
 
@@ -109,6 +127,10 @@ def _parse_quellen(raw: Any, *, begriff_id: str) -> tuple[Definitionsquelle, ...
 
 
 def _parse_eintrag(raw: dict[str, Any]) -> Katalogeintrag:
+    # Typ ZUERST prüfen: bei einem String wäre `"id" not in raw` nur ein
+    # Substring-Check und raw["id"] ein TypeError statt einer klaren Meldung.
+    if not isinstance(raw, dict):
+        raise KatalogFehler(f"Katalog-Eintrag muss ein Mapping sein: {raw!r}")
     if "id" not in raw or "begriff_kanonisch" not in raw:
         raise KatalogFehler(f"Eintrag braucht 'id' und 'begriff_kanonisch': {raw!r}")
     begriff_id = str(raw["id"])
@@ -146,8 +168,10 @@ def _parse_eintrag(raw: dict[str, Any]) -> Katalogeintrag:
         kaskadenreichweite=kaskade,
         trigger_ereignisse=_as_tuple(raw.get("trigger_ereignisse")),
         gefaehrdungsnotiz=str(raw.get("gefaehrdungsnotiz", "")),
-        gueltig_ab=raw.get("gueltig_ab"),
-        gueltig_bis=raw.get("gueltig_bis"),
+        # str()-Coercion wie bei den anderen Feldern: ein unquotiertes
+        # YAML-Datum käme sonst als datetime.date statt Optional[str] an.
+        gueltig_ab=str(raw["gueltig_ab"]) if raw.get("gueltig_ab") is not None else None,
+        gueltig_bis=str(raw["gueltig_bis"]) if raw.get("gueltig_bis") is not None else None,
         ausloeser=_parse_ausloeser(raw.get("ausloeser"), begriff_id=begriff_id),
         paraphrasen=_as_tuple(raw.get("paraphrasen")),
         normketten=_parse_normketten(raw.get("normketten"), begriff_id=begriff_id),
@@ -169,13 +193,17 @@ def lade_katalog(pfad: str | Path | None = None) -> Katalog:
 
     if not isinstance(data, dict) or "begriffe" not in data:
         raise KatalogFehler("Katalog braucht ein Top-Level-Feld 'begriffe'.")
+    begriffe = data["begriffe"]
+    if not isinstance(begriffe, list):
+        raise KatalogFehler(
+            f"'begriffe' muss eine Liste sein, nicht {type(begriffe).__name__}.")
 
     version = str(data.get("version", "0.0.0"))
     quelle = str(data.get("quelle", ""))
 
     eintraege: list[Katalogeintrag] = []
     gesehen: set[str] = set()
-    for raw in data["begriffe"]:
+    for raw in begriffe:
         eintrag = _parse_eintrag(raw)
         if eintrag.id in gesehen:
             raise KatalogFehler(f"Doppelte Begriffs-ID im Katalog: {eintrag.id!r}")

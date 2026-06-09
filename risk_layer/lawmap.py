@@ -63,8 +63,13 @@ class LawMap:
         self._sortiert = sorted(self._aliase, key=len, reverse=True)
 
     def merge_harvest(self, geharvestet: dict[str, str]) -> "LawMap":
-        """Spielt eine aus dem Korpus geharvestete Alias-Map additiv ein."""
-        return LawMap({**self._aliase, **geharvestet})
+        """Spielt eine aus dem Korpus geharvestete Alias-Map ADDITIV ein.
+
+        Additiv heißt: geharvestete Aliase ergänzen nur – bei Schlüssel-Kollision
+        gewinnen die kuratierten Seeds/bestehenden Aliase, der Harvest
+        überschreibt sie nicht.
+        """
+        return LawMap({**geharvestet, **self._aliase})
 
     def alle_aliase(self) -> list[str]:
         return list(self._sortiert)

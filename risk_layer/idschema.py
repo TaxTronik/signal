@@ -57,8 +57,18 @@ class NormID:
     offener_bereich: bool = False    # ff. → offener Bereich (Spez. 2.2)
 
     def __post_init__(self) -> None:
+        if not str(self.law):
+            raise ValueError("NormID braucht ein nicht-leeres law (unbekannt: '?')")
         if not (self.para or self.artikel):
             raise ValueError("NormID braucht para oder artikel")
+        if self.para and self.artikel:
+            raise ValueError(
+                f"NormID: para ({self.para!r}) und artikel ({self.artikel!r}) schließen "
+                "sich aus – to_id() würde para sonst still ignorieren")
+        for label, _wert in self.tiefe:
+            if label not in TIEFE_LABELS:
+                raise ValueError(
+                    f"NormID: unbekanntes Tiefen-Label {label!r} (erlaubt: {TIEFE_LABELS})")
 
     def to_id(self) -> str:
         kopf = f"art{self.artikel}" if self.artikel else self.para

@@ -6,6 +6,7 @@ reproduzierbar und prüfungsfest bleibt (/NF20/, /NF30/).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any, Optional
@@ -84,7 +85,11 @@ class Normkette:
 
 @dataclass(frozen=True)
 class Katalogeintrag:
-    """Ein kuratierter Schlüsselbegriff (Single Source of Truth, Schicht 1)."""
+    """Ein kuratierter Schlüsselbegriff (Single Source of Truth, Schicht 1).
+
+    Hinweis: trotz ``frozen=True`` NICHT hashbar – ``ausloeser`` trägt mutable
+    dicts (von muster.py so konsumiert), ``hash()`` wirft daher TypeError.
+    """
 
     id: str
     begriff_kanonisch: str
@@ -106,7 +111,7 @@ class Katalogeintrag:
     # Schicht 1b – Beschreibungs-/Negativbefund-Muster (Ko-Okkurrenz je Satz).
     # Jede Spec: {"gruppen": [[glied, ...], ...]}; trifft, wenn aus JEDER Gruppe
     # mindestens ein Glied im selben Satz vorkommt. Rein deterministisch.
-    ausloeser: tuple[Any, ...] = ()
+    ausloeser: tuple[Mapping[str, Any], ...] = ()
     # Schicht 1.7 – kuratierte LAIEN-Umschreibungen für den Embedding-Index. Werden
     # MIT den Norm-Ankern eingebettet, damit alltagssprachliche Sachverhalte den
     # passenden § im selben Register treffen (hebt echte Treffer, ohne den
