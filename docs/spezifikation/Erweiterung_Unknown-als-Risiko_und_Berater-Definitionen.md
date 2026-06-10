@@ -1,5 +1,10 @@
 # Erweiterung: „Unknown als Risiko" & Berater-Definitionen
 
+> **Eingefroren (Stand 31.05.2026):** Historisches Anforderungsdokument. Der Code
+> referenziert die hier definierten IDs (/LF270/–/LF370/) und das Zustandsmodell.
+> Inhaltliche Änderungen nur über ein neues ADR — der gelebte Stand steht in
+> README/FEATURES/INTEGRATION.
+
 **Companion zum Lastenheft „Schlüsselbegriff-Assistenz"**
 **Stand:** 31.05.2026
 **Zweck:** Vollständigkeit als Voraussetzung fallen lassen. Abdeckung wird vom *Eingangskriterium* zum *Ausgabewert*: Das System muss nicht alles kennen, sondern zuverlässig erkennen, was es nicht auflösen kann — und das eskalieren. Der Katalog wächst durch Nutzung, nicht durch Vordefinition.

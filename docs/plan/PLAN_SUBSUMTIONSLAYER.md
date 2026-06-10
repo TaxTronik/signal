@@ -106,7 +106,8 @@ SUBSUMTIONSLAYER  (UI-Heimat = §6, noch offen)
   verwerfen/eigene setzen). Jede entschiedene Stelle → `RiskMarking` mit voller
   Governance (die Matrix, die ich in der Python-GUI gebaut habe — fachlich
   validiert von dir).
-- **Provenienz mappen** wie in INTEGRATION_TAXTRONIK.md §4b (karten.via /
+- **Provenienz mappen** wie in
+  [INTEGRATION_TAXTRONIK.md](../../INTEGRATION_TAXTRONIK.md) §4b (karten.via /
   risiken.quelle → RiskHerkunft; STREIT als eigener Wert; kein EMBEDDING-Marking).
 - `rawResult` immer mitspeichern → Re-Analyse/Audit ohne erneute Inferenz.
 
@@ -165,7 +166,8 @@ Dokument je Mandant, das fortgeschrieben wird? Prägt das Datenmodell.
 ## 7. Vorgeschlagene Bau-Reihenfolge (nach UI-Entscheidung)
 
 1. (Engine, fertig) `/v1` steht. Ggf. Klein-Anpassung je nach §6.3.
-2. (TaxTronik) Persistenz-Schicht A–F aus INTEGRATION_TAXTRONIK.md — **mit
+2. (TaxTronik) Persistenz-Schicht A–F aus
+   [INTEGRATION_TAXTRONIK.md](../../INTEGRATION_TAXTRONIK.md) — **mit
    Korrektur Delegation→ClientReminder** statt Request.
 3. (TaxTronik) Dokument→Text-Extraktion (§6.3), wenn Import gewünscht.
 4. (TaxTronik) Subsumtionslayer-UI (§6.1-Entscheidung).

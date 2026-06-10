@@ -110,10 +110,11 @@ for karte in report.luecken:
     print("Lücke:", karte.rechercheauftrag)
 ```
 
-### `/v1`-Endpunkte (der Integrationsvertrag)
+### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.2.0`)
 
-`GET /v1/health` · `POST /v1/analyse` · `GET /v1/katalog` ·
-`POST /v1/katalog/definiere` · `GET /v1/normgraph/{aufloesen,suche}` ·
+`GET /v1/health` · `GET /v1/status` · `POST /v1/analyse` · `GET /v1/katalog` ·
+`POST /v1/katalog/definiere` · `POST /v1/katalog/review` · `GET /v1/radar` ·
+`GET /v1/normgraph/{aufloesen,suche}` ·
 `POST /v1/embedding/suche` · `GET /v1/llm/status` · `POST /v1/llm/start`. Details + Beispiel-Antworten:
 **[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)** und
 [fixtures/](fixtures/).
@@ -130,10 +131,20 @@ ist **deterministisch** — gleicher Text → gleiche Spans. Darüber rendert da
 Host-Overlay. **Auth:** Bearer-Token (`RISK_LAYER_TOKEN`), konstant-zeitig geprüft;
 ein Nicht-Loopback-Bind ohne Token wird abgelehnt.
 
+**Degradations-Transparenz (`engine_status`, seit `1.2.0`):** `GET /v1/status`
+liefert den beim Start erhobenen Engine-Zustand (Schichten aktiv/`grund`,
+Katalogversion, Graph-/Index-Fingerprint, `index_aktuell`, NER-Verfügbarkeit,
+LLM-`host:port`); **jede** `/v1/analyse`-Antwort trägt denselben Block plus die
+effektiven Optionen des Laufs. Der Host legt ihn mit dem Ergebnis in seiner
+Audit-Chain ab — der Degradations-Nachweis je Analyse (deterministisch, keine
+Zeitstempel — bricht keine Hash-Ketten).
+
 **Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth bei Netz-Bind),
 `RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook, SSRF),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
-`RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER).
+`RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER),
+`RISK_LAYER_RERANK_SCHWELLE` (Abstention-Schwelle des Rerankers, Default `0.10`),
+`RISK_LAYER_LLM_TIMEOUT` (Timeout der Schicht-2-Generierung in Sekunden, Default `300`).
 
 ---
 
@@ -173,7 +184,7 @@ Schichten sind additiv (keine überschreibt die vorige).
 | `risk_layer/embedding.py` | Schicht 1.7: BGE-M3-Semantik-Index, Paraphrasen-Anker, Vorschlags-Modus | Erweiterung |
 | `risk_layer/schicht2.py` | LLM-Kandidaten, Schema/GBNF, **Span-Gate** | /LF90/–/LF140/ |
 | `risk_layer/resolver.py` | Definitionsauflösung / Lücken | /LF150/–/LF160/ |
-| `risk_layer/pipeline.py` | Orchestrierung aller Schichten → `RunReport` | — |
+| `risk_layer/pipeline.py` | Orchestrierung aller Schichten → `RunReport`; `AnalyseOptionen` = Single Source of Truth der Lauf-Optionen (CLI/Web/API-Parität) | — |
 | `risk_layer/idschema.py` | kanonisches Knoten-ID-Schema (norm/verw/urteil) | Parser-Spez. 1 |
 | `risk_layer/lawmap.py` | Law-Alias-Map (Longest-Match) + Harvest-Hook | Parser-Spez. 2.4 |
 | `risk_layer/zitate.py` | Norm-/Entscheidungszitat-Parser, Kanonisierung | Parser-Spez. 2/3 |
@@ -187,6 +198,7 @@ Schichten sind additiv (keine überschreibt die vorige).
 | `risk_layer/anonymize.py` | lokale Abstraktion/Anonymisierung (§ 203) | Geheimnisschutz |
 | `risk_layer/recherche.py` | Rechercheauftrag-Export (n8n → Cloud-LLM), §203-Re-Check | Geheimnisschutz |
 | `risk_layer/rss.py` + `abgleich.py` | BFH/BMF-RSS + Abgleich-Schleife | Erw. §5 /LF340–370/ |
+| `risk_layer/radar.py` | Norm-Änderungs-Radar (Manifest-Diff → betroffene Festwissens-Anker) | Re-Review |
 | `risk_layer/llm.py` | Schicht-2-Provider (llama-server / llama-cpp) | Stufe 1 /LF110–140/ |
 | `risk_layer/corpus.py` | gii-Fetcher + Korpus-Config (aus Katalog) | Stufe 2 |
 | `risk_layer/gii.py` | gii-XML → Norm-Knoten | Parser-Spez. 4 |
@@ -240,6 +252,11 @@ sind Host-Workflow, Beraterauswahl oder später ein lokaler Klassifikator.
 risk-layer embedding build               # baut den Index (+ Katalog-Paraphrasen-Anker)
 risk-layer embedding suche "Der Chef hat die Lohnsteuer trotz Geld nicht abgeführt"
 ```
+
+Der Index trägt den Korpus-Stand seines Builds (`graph_fingerprint` in
+`meta.json`). Wird der Normgraph danach neu gebaut, deckt `pruefe_aktualitaet`
+den **veralteten Index** beim Start auf (Warnung im Log; maschinell sichtbar
+als `index_aktuell` im `engine_status`) — Abhilfe: `embedding build` erneut.
 
 > Der Index führt die **Paragraph-Ebene**; **tatbestand-/absatznahe Cards** für breite
 > Schema-Normen rollen per `para_level` auf ihre §-Zielnorm hoch (📌 s.
@@ -352,8 +369,15 @@ python -m risk_layer.cli definiere "Betriebsaufspaltung" \
 **Berater-Definitionen** trennen zwei Ebenen hart (Haftung): `scope=personal`
 (nur Autor, frei) und `scope=geteilt` (für andere; erst nach Freigabe kanonisch,
 Lebenszyklus `entwurf → geprüft → freigegeben`). Über `/v1/katalog/definiere`
-(die **einzige** schreibende Operation der Engine) wird vor dem Schreiben gegen
-identifizierende Angaben geprüft (§ 203) — der geteilte Katalog trägt kein Geheimnis.
+wird vor dem Schreiben gegen identifizierende Angaben geprüft (§ 203) — der
+geteilte Katalog trägt kein Geheimnis.
+
+**Review-Lebenszyklus über `/v1`:** Statuswechsel geteilter Einträge laufen über
+`POST /v1/katalog/review` (nur Vorwärts-Übergänge; die Antwort nennt
+`alter_status`/`neuer_status`/`pruefer`), damit das Host-System die Freigabe in
+**seiner** Audit-Chain protokolliert — die Engine auditiert nicht. Das
+CLI-Kommando `definiere` ist als **Nicht-Audit-Pfad** gekennzeichnet (lauter
+stderr-Hinweis): Operator-Werkzeug, in Produktion gehört der Write durch `/v1`.
 
 ## Stufe 2 — Normgraph aus gesetze-im-internet
 
@@ -363,15 +387,31 @@ gegriffen. Das Befüllen ist ein getrennter Build-Schritt:
 ```bash
 risk-layer korpus init --voll  # breiter Steuer-Korpus (~21 Gesetze; ohne --voll nur Katalog-Gesetze)
 risk-layer korpus fetch        # lädt die xml.zip von gesetze-im-internet.de (einmalig, online)
-risk-layer graph build         # baut den SQLite-Normgraph (Knoten + verweist_auf-Kanten)
+risk-layer graph build         # baut den SQLite-Normgraph (+ rotiert das Norm-Manifest fürs Radar)
 risk-layer graph aufloesen "norm:UStG:2:abs2:nr2"
 risk-layer graph dangling      # Verweise auf fehlende Knoten (/T50/, sichtbares Negativwissen)
+risk-layer radar               # geänderte/entfallene Normen + betroffene Festwissens-Anker
+                               #   (--json maschinenlesbar, --fail-bei-befund für Skripte/CI)
 ```
 
 Liegt ein Graph unter `corpus/graph.sqlite`, hängt die Analyse jedem Treffer den
 **Gesetzeswortlaut aus dem Korpus** an die Karte (`/LF170/`) — Quelle ist die XML,
 **niemals** das Modell. Granularität §/Absatz/Nummer; Fassungslogik über
 `gueltig_ab`/`gueltig_bis` (/R30/).
+
+### Norm-Änderungs-Radar — Re-Review nach Korpus-Rebuild
+
+Freigegebene Berater-Definitionen veralten sonst **still**, wenn der Gesetzgeber
+einen verankerten Paragraphen ändert — der Review-Lebenszyklus kennt nur
+Vorwärts-Schritte. Jeder `graph build` rotiert deshalb das Norm-Manifest
+(`norm_manifest.json` → `norm_manifest.vorher.json`); `risk-layer radar` bzw.
+`GET /v1/radar` vergleichen die Stände und benennen **dringlichkeitssortiert**
+die betroffenen Festwissens-Anker (freigegebene geteilte Definitionen zuerst,
+dann Kuratierungen und Katalog-Anker). Die Engine **berichtet nur** — die
+Review-Aufgaben erzeugt das Host-System und protokolliert sie in **seiner**
+Audit-Chain. Eine automatische Status-Rücksetzung gibt es bewusst nicht
+(Nur-vorwärts-Invariante): ob die Gesetzesänderung die Definition überhaupt
+berührt, entscheidet der Berufsträger (§§ 33, 57 StBerG).
 
 ## Stufe 1 — lokales LLM (Schicht 2)
 
@@ -453,10 +493,12 @@ Einträge werden gemerkt.
 ```bash
 pip install -r requirements-lock.txt numpy   # Kern+dev exakt gepinnt (Lock, wie CI)
 pip install --no-deps -e .
-python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
-                             #   Surface/Auth, Engine-Analysevertrag, Graph, LLM-Mock +
-                             #   Norm-Vorschlag, Muster/Streit, Trigger, Embedding/Paraphrasen-Anker,
-                             #   Anonymisierung, Rechercheauftrag (SSRF-Allowlist), RSS/Abgleich, AO
+python -m pytest -q          # 478 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
+                             #   Surface/Auth + engine_status, Engine-Analysevertrag,
+                             #   AnalyseOptionen, Graph, LLM-Mock + Norm-Vorschlag,
+                             #   Muster/Streit, Trigger, Embedding/Paraphrasen-Anker +
+                             #   Staleness, Anonymisierung (inkl. NER), Rechercheauftrag
+                             #   (SSRF-Allowlist), RSS/Abgleich, Radar, Review, AO
 ```
 
 ---
@@ -477,7 +519,9 @@ python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/,
   Bearer-Auth, **headless** (kein GUI/Persist/Audit in der Engine — das übernimmt
   das Host-System). Siehe [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
 - **Unknown-als-Risiko + Berater-Definitionen — ✅ umgesetzt** (Zustandsmodell,
-  offline-Gate, Lebenszyklus, define-on-the-fly) inkl. **Abgleich-Schleife** (BFH/BMF).
+  offline-Gate, Lebenszyklus inkl. `POST /v1/katalog/review`, define-on-the-fly)
+  inkl. **Abgleich-Schleife** (BFH/BMF) und **Norm-Änderungs-Radar**
+  (Re-Review-Trigger nach Korpus-Rebuild, CLI + `GET /v1/radar`).
 - **Semantik (Schicht 1.7/1.7b) — 🟡 umgesetzt mit gemessener Architekturgrenze:**
   BGE-M3 + Cards + Reranker liefern Norm-Vorschläge. Der globale Flat-Index ist
   nicht der finale Produktivpfad; Zielarchitektur ist **Scope+Rerank**.
@@ -503,3 +547,14 @@ werden keine Mandantendaten an externe Dienste gesendet (§ 203 StGB, AVV). Die
 `/v1`-Engine ist **zustandslos** — sie persistiert keine Mandantendaten; Speicherung
 und Audit liegen beim Host-System. CLI-Ausgaben (`out/`, `*.report.html`) und
 Secrets (`.engine_token`, `.env`) sind in `.gitignore` ausgenommen.
+
+---
+
+## Weitere Dokumentation
+
+Lebende Dokumente liegen im Repo-Root (dieses README,
+[FEATURES.md](FEATURES.md), [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md));
+eingefrorene Anforderungs- und Entscheidungsdokumente (Lastenheft,
+Spezifikationen, ADRs) sowie Planungsdokumente liegen unter `docs/`. Der
+vollständige Index aller Dokumente mit Zweck und Stand:
+**[docs/README.md](docs/README.md)**.

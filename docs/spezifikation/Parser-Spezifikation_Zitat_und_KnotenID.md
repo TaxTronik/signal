@@ -1,5 +1,10 @@
 # Parser- und Knoten-ID-Spezifikation
 
+> **Eingefroren (Stand 31.05.2026):** Historisches Anforderungsdokument. Der Code
+> referenziert die hier definierten IDs (/T…/) und Abschnitte („Parser-Spez. 1–4").
+> Inhaltliche Änderungen nur über ein neues ADR — der gelebte Stand steht in
+> README/FEATURES/INTEGRATION.
+
 **Companion zum Lastenheft „Schlüsselbegriff-Assistenz"**
 **Zielformat der Gesetze:** gii (gesetze-im-internet), DTD-basiert
 **Stand:** 31.05.2026

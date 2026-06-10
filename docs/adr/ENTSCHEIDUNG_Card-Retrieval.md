@@ -1,5 +1,9 @@
 # Entscheidung: Card-Anker-Retrieval = breit einsammeln → Reranker, kein harter Router
 
+> **Eingefroren:** ADR mit FREEZE-Stand 06.06.2026 (s. den FREEZE-Vermerk direkt
+> darunter). Inhaltliche Änderungen nur über ein neues ADR — der gelebte Stand
+> steht in README/FEATURES/INTEGRATION.
+
 ## FREEZE-STAND (eingefroren, 2026-06-06): Scope+Rerank mit Normpaket-Reranking
 > Normpaket-Reranking wird als Freeze-Stand übernommen. Der Modus erfüllt alle vorab fixierten
 > PASS-Kriterien: KStG-Dev erholt sich über die Baseline, v2-oracle_rr und v2-flat regredieren nicht,

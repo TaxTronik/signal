@@ -1,5 +1,10 @@
 # Lastenheft: Schlüsselbegriff-Assistenz für die steuerliche Risikosteuerung
 
+> **Eingefroren (Stand 31.05.2026):** Historisches Anforderungsdokument. Der Code
+> referenziert die hier definierten IDs (/Z…/, /LF…/, /NF…/, /AB…/, /R…/).
+> Inhaltliche Änderungen nur über ein neues ADR — der gelebte Stand steht in
+> README/FEATURES/INTEGRATION.
+
 **Arbeitstitel:** Risk-Layer / „Schlüsselbegriff-Detektor"
 **Auftraggeber / fachliche Leitung:** Rey Koxha, Hirschmann & Koxha GbR
 **Stand:** 31.05.2026

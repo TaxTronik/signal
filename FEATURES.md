@@ -113,6 +113,14 @@ Encoder-Head-to-Head (BGE-M3 vs. Granite-R2 vs. Jina-v5 vs. Qwen3-0.6B/4B,
 `benchmarks/*.json`): **BGE-M3 bleibt** — der Hebel sind **Anker + Reranker**, nicht
 das Modell. (Qwen3-4B ~2× bei un-verankerter Abdeckung, aber 8 GB VRAM — Reserve.)
 
+**Staleness-Erkennung (Index ↔ Korpus) ✅:** Der Embedding-Index ist ein
+abgeleitetes Artefakt des Normgraphen — nach einem `graph build` ohne
+anschließendes `embedding build` würde er sonst **still** veralten. Beim Build
+wird der `graph_fingerprint` des Korpus-Stands in die `meta.json` des Index
+eingebrannt; `pruefe_aktualitaet` vergleicht ihn beim Start mit dem aktuellen
+Graphen und **warnt** den Betreiber. Der Befund ist auch maschinell sichtbar
+(`engine_status.schichten.embedding.index_aktuell`, s. § 4).
+
 ---
 
 ## 4. Headless — keine GUI, kein eigenes Audit ✅
@@ -123,6 +131,20 @@ revisionssichere Audit übernimmt das **Host-System** (z. B. TaxTronik) über de
 `/v1`-Vertrag. Die Engine liefert ausschließlich die Analyse — **zustandslos**.
 Jede Markierung trägt ihre `herkunft` (Schicht, Methode, ob Interpretation), damit
 der Host Provenienz, Layer-Filter und Begriffskarten selbst rendern kann.
+
+**Degradations-Transparenz — der `engine_status`-Block (seit `1.2.0`) ✅:** Die
+Engine degradiert bewusst an vielen Stellen (Trigger-Index nicht gebaut,
+Embedding-Index fehlt/veraltet, Reranker ohne GPU, NER ohne Modell, LLM aus) —
+bisher stand das nur im Betreiber-Log. `GET /v1/status` macht den **beim Start
+erhobenen** Zustand abfragbar, und **jede** `/v1/analyse`-Antwort trägt den
+Block zusätzlich, ergänzt um die **effektiven Optionen dieses Laufs**: je
+Schicht `aktiv` + `grund` bei Degradation, Katalogversion, Graph- und
+Index-Fingerprint, `index_aktuell`, NER-Verfügbarkeit, LLM-`host:port` (kein
+Token). Der Block ist deterministisch (keine Zeitstempel/Zufallswerte) — er
+bricht weder Replay-Vergleiche noch Hash-Ketten. **Pflicht für den Host:**
+`engine_status` mit dem Ergebnis in der Audit-Chain ablegen — der
+Degradations-Nachweis je Analyse (ohne ihn ist einem archivierten Ergebnis
+nicht anzusehen, ob z. B. der Embedding-Index veraltet war).
 
 ---
 
@@ -138,6 +160,14 @@ der Host Provenienz, Layer-Filter und Begriffskarten selbst rendern kann.
   (`entwurf → geprüft → freigegeben`), Autor/Review/Konfidenz sichtbar.
 - **Berater-Annotationen** an bestehenden Katalogkarten (`/v1/katalog/definiere`
   mit `katalog_id` bzw. CLI `definiere`).
+- **Review-Lebenszyklus durch die Host-Audit-Chain** (`POST /v1/katalog/review`,
+  seit `1.1.0`): setzt den Status eines **geteilten** Eintrags — nur
+  Vorwärts-Übergänge (`entwurf → geprüft → freigegeben`). Die Antwort nennt den
+  vollständigen Übergang (`alter_status`/`neuer_status`/`pruefer`) für den
+  Chain-Eintrag des Hosts; die Engine auditiert nicht. Das CLI-Kommando
+  `definiere` ist als **Nicht-Audit-Pfad** gekennzeichnet (lauter
+  stderr-Hinweis): es schreibt direkt in die Festwissens-YAML, am Host-Audit
+  vorbei — in Produktionsumgebungen läuft der Write über `/v1/katalog/*`.
 
 ---
 
@@ -160,6 +190,15 @@ der Host Provenienz, Layer-Filter und Begriffskarten selbst rendern kann.
 
 - **Lokale Abstraktion** (`anonymize.py`): Firmen/Personen/Beträge/Daten/Nummern →
   stabile Platzhalter; Rechtsbegriffe bleiben. Rückübersetzungstabelle bleibt lokal.
+- **NER-Schicht der Abstraktion (optional, degradierend):** spaCy-NER
+  (`de_core_news_lg`, Fallback `de_core_news_sm`) läuft **nach** den führenden,
+  deterministischen Regexen und ersetzt verbliebene PER/ORG/LOC-Entitäten mit
+  denselben Platzhalter-Konventionen — fängt Personen ohne Anrede und Firmen
+  ohne Rechtsform-Suffix. Fehlt spaCy/das Modell, bleibt exakt der Regex-Pfad
+  aktiv; `RISK_LAYER_NER=aus` erzwingt ihn (Determinismus-kritische Läufe).
+  Das Deploy-Skript provisioniert die Schicht automatisch (Opt-out: `--ohne-ner`
+  bzw. `-OhneNer`). NER ist statistisch (kein Recall-Versprechen) — die
+  manuelle Prüfung durch den Berufsträger bleibt Pflicht.
 - **Pflicht-Mensch-Prüfung** (durch den Berufsträger) + **Re-Check-Gate**: findet die
   Abstraktion noch Identifizierendes, wird der Export **verweigert**.
 - **Rechercheauftrag** an ein Cloud-LLM nur abstrahiert (n8n-Webhook/Download, als
@@ -184,24 +223,59 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 
 ---
 
-## 9. Schnittstellen ✅
+## 9. Norm-Änderungs-Radar — Re-Review-Trigger (seit `1.2.0`) ✅
 
-- **Maschinen-API** (`/v1/*`, `web.py` + `api_v1.py`): der **einzige** Server-Zugang —
+Ändert der Gesetzgeber einen verankerten Paragraphen, veralten freigegebene
+Berater-Definitionen sonst **still** — der Review-Lebenszyklus (§ 5) kennt nur
+Vorwärts-Schritte und keinen Re-Review-Trigger. Das Radar (`radar.py`) schließt
+die Lücke datenseitig:
+
+- **Manifest-Rotation bei `graph build`:** jeder Build persistiert ein Manifest
+  der Knoten-Inhalts-Hashes (`norm_manifest.json`) und rotiert den bisherigen
+  Stand nach `norm_manifest.vorher.json` — der Vergleichsstand entsteht als
+  Nebenprodukt des normalen Korpus-Rebuilds.
+- **Bericht:** CLI `risk-layer radar` (`--json` für maschinenlesbare,
+  deterministisch diffbare Berichte; `--fail-bei-befund` → Exit-Code 1 für
+  Skripte/CI) bzw. `GET /v1/radar` benennen, **welche** Normen sich geändert
+  haben / entfallen sind und welche **Festwissens-Anker** betroffen sind
+  (Berater-Definitionen über `geankert_an`, Norm-Kuratierungen, Katalog-Anker) —
+  **dringlichkeitssortiert**: freigegebene geteilte Definitionen zuerst (der
+  haftungsrelevanteste Fall). Neue Normen lösen bewusst keinen Befund aus.
+- **Die Engine berichtet nur — Aufgaben erzeugt der Host:** je
+  `betroffen[]`-Eintrag legt das Host-System eine Review-Aufgabe in seinem
+  Workflow an und protokolliert sie in **seiner** Audit-Chain. Bewusst keine
+  automatische Status-Rücksetzung (`freigegeben → entwurf`): das bräche die
+  **Nur-vorwärts-Invariante** des Lebenszyklus — ob die Gesetzesänderung die
+  Definition überhaupt berührt, entscheidet der Berufsträger (§§ 33, 57 StBerG).
+
+---
+
+## 10. Schnittstellen ✅
+
+- **Maschinen-API** (`/v1/*`, `web.py` + `api_v1.py`, Engine-Version `1.2.0`):
+  der **einzige** Server-Zugang —
   stabil, **zustandslos**, Bearer-Auth, zum Einbetten in ein Host-System (TaxTronik).
-  `health` · `analyse` · `katalog` · `katalog/definiere` · `normgraph/{aufloesen,suche}` ·
+  `health` · `status` · `analyse` · `katalog` · `katalog/definiere` ·
+  `katalog/review` · `radar` · `normgraph/{aufloesen,suche}` ·
   `embedding/suche` · `llm/status` · `llm/start`. Stabile Zeichen-Offsets + `text_hash`,
   deterministische schnelle Phase (`mitLLM:false`). **LLM-Steuerung:** `POST /v1/llm/start`
   (idempotent) + `GET /v1/llm/status` mit **Queue** (Slot-/Auslastungszustand des
   llama-server). Ein Nicht-Loopback-Bind erfordert `RISK_LAYER_TOKEN`.
-  Details: [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md).
+  Details: [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md) § 4.
 - **CLI**: `analyse` (+ `--html`-Report), `katalog`, `zitat`, `definiere`, `korpus`,
-  `graph`, `modell`, `abgleich`, **`trigger`** (build/stats/lookup), **`embedding`**
-  (build/stats/suche).
+  `graph`, `modell`, `abgleich`, **`radar`** (--json/--fail-bei-befund),
+  **`trigger`** (build/stats/lookup), **`embedding`** (build/stats/suche).
 - **Bibliothek**: `from risk_layer import analyse`.
+- **CLI/Web/API-Parität — `AnalyseOptionen`:** alle Zugänge konstruieren **ein**
+  `AnalyseOptionen`-Dataclass (`pipeline.py`) und reichen es durch — die
+  **Single Source of Truth** der Lauf-Optionen und ihrer Default-Werte. Vorher
+  mussten CLI und Web ~17 `run()`-Defaults per Konvention synchron halten;
+  CLI- und `/v1`-Ergebnisse konnten still divergieren. Wer einen Default
+  ändert, ändert ihn an genau einer Stelle.
 
 ---
 
-## 10. Sicherheits- & Reproduzierbarkeitsgarantien ✅
+## 11. Sicherheits- & Reproduzierbarkeitsgarantien ✅
 
 | Garantie | Mechanismus |
 |---|---|
@@ -217,12 +291,15 @@ Definitionen). Dockt Neues an denselben Norm-Anker an → zur Prüfung vorlegen.
 | kein Pre-Auth-/Body-DoS | Auth **vor** Body-Read + Body-Cap (8 MiB) + Socket-Timeout |
 | kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects |
 | Katalog-Schreibvorgang torn-read-frei | Berater-Store schreibt atomar (temp + `os.replace`) |
+| reproduzierbare Builds | `requirements-lock.txt` (exakt gepinnter Kern+dev, `==`-Pins) + per **Digest** gepinntes Basis-Image im Dockerfile — CI, Docker und Deploy-Skripte installieren denselben Stand |
 
-**Tests:** `python -m pytest -q` → **221 grün** (deterministischer Kern,
-Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth**, Engine-Analysevertrag + Persistenz,
-Graph, LLM-Mock + Norm-Vorschlag + **konzept-bewusster Dedup**, Muster/Streit, Trigger,
-Embedding/Paraphrasen-Anker, **Reranker**, **Smart-Windowing**, Anonymisierung,
-**Rechercheauftrag inkl. SSRF-Allowlist**, RSS/Abgleich, AO-Fälle).
+**Tests:** `python -m pytest -q` → **478 grün** (deterministischer Kern,
+Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth** inkl. `engine_status`/`/v1/status`,
+Engine-Analysevertrag + Persistenz, **`AnalyseOptionen`**, Graph, LLM-Mock +
+Norm-Vorschlag + **konzept-bewusster Dedup**, Muster/Streit, Trigger,
+Embedding/Paraphrasen-Anker + Staleness, **Reranker**, **Smart-Windowing**,
+Anonymisierung inkl. NER-Schicht, **Rechercheauftrag inkl. SSRF-Allowlist**,
+RSS/Abgleich, **Radar/Manifest-Rotation**, Review-Lebenszyklus, AO-Fälle).
 
 ---
 

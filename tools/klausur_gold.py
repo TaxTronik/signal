@@ -1,6 +1,6 @@
 """Gold v2 aus StB-Examens-Musterklausuren (BLINDES Test-Set).
 
-Disziplin (vgl. ENTSCHEIDUNG_Card-Retrieval.md, [[card-discovery-pass2]]):
+Disziplin (vgl. docs/adr/ENTSCHEIDUNG_Card-Retrieval.md, [[card-discovery-pass2]]):
   Query   = der Sachverhalt / die Aufgabe (NIE die Musterlösung) — unabhängig vom
             Card-Design, also blind gegenüber unseren Ankern.
   Ziele   = die §§, die die MUSTERLÖSUNG anführt — autoritatives Label, nicht

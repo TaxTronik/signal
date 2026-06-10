@@ -1,5 +1,10 @@
 # Erweiterung: Drei-Stufen-Vertrauensmodell & Trigger als ungeprüfter Vor-Katalog
 
+> **Eingefroren (Stand 31.05.2026):** Historisches Anforderungsdokument. Der Code
+> referenziert das hier definierte Vertrauensmodell (geprüft/ungeprüft/ki_vermutung).
+> Inhaltliche Änderungen nur über ein neues ADR — der gelebte Stand steht in
+> README/FEATURES/INTEGRATION.
+
 **Companion zum Lastenheft „Schlüsselbegriff-Assistenz" / Deterministik-Katalog**
 **Stand:** 31.05.2026
 **Zweck:** Den Henne-Ei-Start lösen (leerer Katalog = Layer 1 hat nichts zu tun), ohne ungeprüftes Wissen als gesichert auszugeben. Eine vordefinierte Triggerliste liefert Grundabdeckung, trägt aber sichtbar den Status „ungeprüft" und ist die Pipeline, durch die der geprüfte Katalog durch Nutzung wächst.
