@@ -1,6 +1,29 @@
 """Anonymisierung/Abstraktion (§ 203 StGB)."""
 
+import logging
+import sys
+
+import pytest
+
+from risk_layer import anonymize
 from risk_layer.anonymize import anonymisiere
+
+# Referenz auf den ECHTEN Loader, bevor die autouse-Fixture ihn wegpatcht –
+# der Warning-Test (unten) prüft das einmalige Logging am Original.
+_ECHTER_LOADER = anonymize._lade_nlp
+
+
+@pytest.fixture(autouse=True)
+def _kein_spacy(monkeypatch):
+    """Kein Test lädt implizit das echte spaCy-Modell.
+
+    Auf Entwickler-Maschinen MIT installiertem spaCy würde sonst jeder
+    anonymisiere()-Aufruf das Modell laden (langsam, umgebungsabhängiges
+    Testverhalten). NER-Tests injizieren ihren Fake über denselben Seam –
+    test-lokale monkeypatches überschreiben diese Fixture.
+    """
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: None)
+    monkeypatch.delenv("RISK_LAYER_NER", raising=False)
 
 
 def test_firmen_kompakt_und_spaced_werden_ersetzt():
@@ -114,3 +137,122 @@ def test_generische_rechtsform_saetze_bleiben():
     # „Eine GmbH ist …" ist Rechtswissen, kein Mandantengeheimnis.
     r = anonymisiere("Eine GmbH ist eine Kapitalgesellschaft.")
     assert r.abstrahiert == "Eine GmbH ist eine Kapitalgesellschaft."
+
+
+# --- Optionale NER-Schicht (Fake-NLP über den Lade-Seam, KEIN Modell-Download) -
+
+class _FakeSpan:
+    """Span-ähnliches Objekt mit der spaCy-Schnittstelle, die _ner_pass nutzt."""
+
+    def __init__(self, text: str, start_char: int, end_char: int, label_: str):
+        self.text = text
+        self.start_char = start_char
+        self.end_char = end_char
+        self.label_ = label_
+
+
+class _FakeDoc:
+    def __init__(self, ents):
+        self.ents = ents
+
+
+class _FakeNlp:
+    """Deterministischer NER-Ersatz: findet konfigurierte Namen per str.find."""
+
+    def __init__(self, namen: list[tuple[str, str]]):
+        self._namen = namen    # [(Wortlaut, spaCy-Label), …]
+
+    def __call__(self, text: str) -> _FakeDoc:
+        ents = []
+        for name, label in self._namen:
+            pos = text.find(name)
+            while pos != -1:
+                ents.append(_FakeSpan(text[pos:pos + len(name)], pos, pos + len(name), label))
+                pos = text.find(name, pos + len(name))
+        ents.sort(key=lambda e: e.start_char)
+        return _FakeDoc(ents)
+
+
+def _mit_fake_ner(monkeypatch, namen: list[tuple[str, str]]) -> None:
+    fake = _FakeNlp(namen)
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: fake)
+
+
+def test_ner_person_ohne_anrede_wird_ersetzt(monkeypatch):
+    # (a) Die dokumentierte Regex-Grenze: ohne Anrede greift nur die NER-Schicht.
+    _mit_fake_ner(monkeypatch, [("Max Mustermann", "PER")])
+    r = anonymisiere("Max Mustermann verkaufte das Grundstück.")
+    assert r.abstrahiert == "[Person A] verkaufte das Grundstück."
+    assert any(e.typ == "person" and e.original == "Max Mustermann" for e in r.ersetzungen)
+
+
+def test_ner_gleiche_person_gleicher_platzhalter(monkeypatch):
+    # (b) Stabile Nummerierung pro Dokument: gleiche Entität → gleicher Platzhalter.
+    _mit_fake_ner(monkeypatch, [("Max Mustermann", "PER")])
+    r = anonymisiere("Max Mustermann kam. Danach ging Max Mustermann wieder.")
+    assert r.abstrahiert.count("[Person A]") == 2
+    assert sum(1 for e in r.ersetzungen if e.typ == "person") == 1
+
+
+def test_ner_fasst_regex_platzhalter_nicht_an(monkeypatch):
+    # (c) Der Regex-Pass bleibt führend: ein NER-Treffer AUF einem bereits
+    # vergebenen Platzhalter („[Person A]") ist tabu und wird übersprungen.
+    _mit_fake_ner(monkeypatch, [("[Person A]", "PER"), ("Max Mustermann", "PER")])
+    r = anonymisiere("Herr Mueller traf Max Mustermann.")
+    assert r.abstrahiert == "[Person A] traf [Person B]."
+    assert {e.original for e in r.ersetzungen} == {"Herr Mueller", "Max Mustermann"}
+
+
+def test_ner_org_loc_und_fortlaufende_nummerierung(monkeypatch):
+    # ORG → [Gesellschaft …], LOC → [Ort …]; der gemeinsame Zähler führt die
+    # Regex-Nummerierung fort (Beta GmbH = A, NER-Fund = B).
+    _mit_fake_ner(monkeypatch, [("Mustermann-Gruppe", "ORG"), ("Hintertupfingen", "LOC")])
+    r = anonymisiere("Die Beta GmbH kooperiert mit der Mustermann-Gruppe in Hintertupfingen.")
+    assert "[Gesellschaft A]" in r.abstrahiert     # Regex: Beta GmbH
+    assert "[Gesellschaft B]" in r.abstrahiert     # NER:   Mustermann-Gruppe
+    assert "[Ort A]" in r.abstrahiert              # NER:   LOC
+    assert "Mustermann" not in r.abstrahiert and "Hintertupfingen" not in r.abstrahiert
+
+
+def test_ner_misc_wird_nicht_ersetzt(monkeypatch):
+    # MISC ist zu unscharf (Gesetzesnamen, Produkte) – bewusst kein Ersatz.
+    _mit_fake_ner(monkeypatch, [("Umsatzsteuergesetz", "MISC")])
+    r = anonymisiere("Das Umsatzsteuergesetz gilt.")
+    assert r.abstrahiert == "Das Umsatzsteuergesetz gilt."
+    assert r.ersetzungen == []
+
+
+def test_ohne_spacy_exakt_bisheriges_verhalten():
+    # (d) Loader liefert None (autouse-Fixture) → reiner Regex-Pfad, unverändert.
+    text = "Max Mustermann verkaufte das Grundstück."
+    r = anonymisiere(text)
+    assert r.abstrahiert == text
+    assert r.ersetzungen == []
+
+
+def test_env_schalter_deaktiviert_ner(monkeypatch):
+    # (e) RISK_LAYER_NER=aus: Schicht aus, Loader darf NICHT einmal aufgerufen
+    # werden (Determinismus-kritische Läufe sollen das Modell nie laden).
+    monkeypatch.setenv("RISK_LAYER_NER", "aus")
+
+    def _nicht_laden():
+        raise AssertionError("RISK_LAYER_NER=aus darf den Loader nicht aufrufen")
+
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", _nicht_laden)
+    text = "Max Mustermann verkaufte das Grundstück."
+    r = anonymisiere(text)
+    assert r.abstrahiert == text
+    assert r.ersetzungen == []
+
+
+def test_loader_warnt_einmalig_ohne_spacy(monkeypatch, caplog):
+    # Degradations-Philosophie: fehlendes spaCy → sichtbares Warning mit
+    # Install-Hinweis, aber dank Modul-Cache nur EINMAL pro Prozess.
+    monkeypatch.setitem(sys.modules, "spacy", None)              # Import schlägt fehl
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)  # Cache zurücksetzen
+    with caplog.at_level(logging.WARNING, logger="risk_layer.anonymize"):
+        assert _ECHTER_LOADER() is None
+        assert _ECHTER_LOADER() is None    # zweiter Aufruf: still, aus dem Cache
+    warnungen = [r for r in caplog.records if "NER-Schicht inaktiv" in r.getMessage()]
+    assert len(warnungen) == 1
+    assert "pip install '.[nlp]'" in warnungen[0].getMessage()

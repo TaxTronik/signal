@@ -1,7 +1,21 @@
 """Rechercheauftrag-Export mit Geheimnis-Re-Check (§ 203 StGB)."""
 
+import pytest
+
 from risk_layer.recherche import (
-    _webhook_ziel_ok, baue_entwurf, export_payload, exportiere)
+    _webhook_ziel_ok, baue_entwurf, export_payload, exportiere, pruefe_rest)
+
+
+@pytest.fixture(autouse=True)
+def _kein_spacy(monkeypatch):
+    """Kein Test lädt implizit das echte spaCy-Modell (s. test_anonymize.py).
+
+    pruefe_rest/exportiere laufen über anonymisiere – auf Maschinen MIT
+    installiertem spaCy würde sonst das echte Modell geladen. NER-Tests
+    injizieren ihren Fake test-lokal über denselben Seam.
+    """
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: None)
+    monkeypatch.delenv("RISK_LAYER_NER", raising=False)
 
 BEGRIFFE = [{"begriff": "organisatorische Eingliederung", "herkunft": "① wörtlich",
              "norm_anker": ["§ 2 Abs. 2 Nr. 2 UStG"]}]
@@ -75,3 +89,56 @@ def test_export_force_plus_webhook_blockiert_netzversand():
                    webhook_url="http://n8n.kanzlei.local/hook")
     assert r["ok"] is False and r["grund"] == "force_kein_webhook"
     assert r["rest"]
+
+
+# --- Optionale NER-Schicht macht das Gate fail-closed (Fake-NLP, kein Modell) -
+
+class _FakeSpan:
+    """Span-ähnliches Objekt mit der spaCy-Schnittstelle von _ner_pass."""
+
+    def __init__(self, text: str, start_char: int, end_char: int, label_: str):
+        self.text = text
+        self.start_char = start_char
+        self.end_char = end_char
+        self.label_ = label_
+
+
+class _FakeDoc:
+    def __init__(self, ents):
+        self.ents = ents
+
+
+class _FakeNlp:
+    """Deterministischer NER-Ersatz: findet konfigurierte Namen per str.find."""
+
+    def __init__(self, namen: list[tuple[str, str]]):
+        self._namen = namen
+
+    def __call__(self, text: str) -> _FakeDoc:
+        ents = []
+        for name, label in self._namen:
+            pos = text.find(name)
+            while pos != -1:
+                ents.append(_FakeSpan(text[pos:pos + len(name)], pos, pos + len(name), label))
+                pos = text.find(name, pos + len(name))
+        ents.sort(key=lambda e: e.start_char)
+        return _FakeDoc(ents)
+
+
+def test_pruefe_rest_meldet_ner_person(monkeypatch):
+    # (f) Person OHNE Anrede – für die Regexe unsichtbar, der NER-Fund landet
+    # aber als Ersetzung im Re-Check ⇒ das 422-Gate (api_v1) schlägt an.
+    fake = _FakeNlp([("Max Mustermann", "PER")])
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: fake)
+    rest = pruefe_rest("Max Mustermann hat das Grundstück verkauft.")
+    assert any(r["typ"] == "person" and r["original"] == "Max Mustermann" for r in rest)
+
+
+def test_export_verweigert_bei_ner_person_fund(monkeypatch):
+    # Fail-closed über die ganze Kette: NER-Fund ⇒ Export wird verweigert,
+    # genau wie bei einem Regex-Fund (geheimnis_verdacht).
+    fake = _FakeNlp([("Max Mustermann", "PER")])
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: fake)
+    r = exportiere("Max Mustermann hat das Grundstück verkauft.", BEGRIFFE, "Frage?")
+    assert r["ok"] is False and r["grund"] == "geheimnis_verdacht"
+    assert any(x["typ"] == "person" for x in r["rest"])

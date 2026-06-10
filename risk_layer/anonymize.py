@@ -6,19 +6,41 @@ Daten, Steuer-/Konto-Nummern) werden durch stabile Platzhalter ersetzt. Die
 juristische Struktur bleibt erhalten – die Rechtsbegriffe selbst sind kein
 Geheimnis.
 
-Reiner Code, vollständig lokal. Das Ergebnis ist ein ENTWURF, den der Berater
-vor Freigabe manuell prüft und anpasst. Die Rückübersetzungstabelle
-(``ersetzungen``) bleibt lokal und wird NIEMALS mitexportiert.
+Vollständig lokal. Das Ergebnis ist ein ENTWURF, den der Berater vor Freigabe
+manuell prüft und anpasst. Die Rückübersetzungstabelle (``ersetzungen``)
+bleibt lokal und wird NIEMALS mitexportiert.
 
 Zulässiger Fehlermodus wie beim Risiko-Layer: lieber zu viel schwärzen
 (Über-Abstraktion) als ein Geheimnis preisgeben.
 
-Bekannte GRENZEN des Regex-Ansatzes (ehrlich dokumentiert, weil ``pruefe_rest``
-in recherche.py und das 422-Gate von /v1/katalog/definiere als DURCHSETZUNG
-darauf bauen – keine NER, kein Modell):
-  * Personen OHNE Anrede („Mueller kam zur Besprechung") werden NICHT erkannt;
-    nur Anrede-Muster (Herr/Frau/Hr./Fr., optional Dr./Prof.) greifen.
-  * Firmen OHNE Rechtsform-Suffix („die Mustermann-Gruppe") werden NICHT erkannt.
+ZWEISCHICHTIGES Modell:
+  1. Deterministische Regexe (FÜHREND, immer aktiv): Anrede+Name, Firmen mit
+     Rechtsform, Beträge mit Währungskontext, Daten, Steuer-/Kontonummern,
+     IBAN, E-Mail, Telefon, Anschrift. Gleiche Eingabe ⇒ gleiches Ergebnis.
+  2. Optionale NER-Schicht (spaCy ``de_core_news_lg``, Fallback ``_sm``;
+     Extra ``nlp``, /LF50/): läuft NACH den Regexen und ersetzt verbliebene
+     PER/ORG/LOC-Entitäten mit denselben Platzhalter-Konventionen
+     ([Person X]/[Gesellschaft X]/[Ort X]); die Nummerierung läuft über den
+     gemeinsamen Zähler pro Dokument weiter (gleiche Entität → gleicher
+     Platzhalter). Bereits vergebene Platzhalter sind für NER tabu – der
+     Regex-Pass bleibt führend. Fehlen spaCy oder das Modell, bleibt exakt
+     der bisherige Regex-Pfad aktiv (einmaliges Warning pro Prozess).
+     Abschaltbar per Umgebungsvariable RISK_LAYER_NER=aus (auch off/none/0)
+     für Determinismus-kritische Läufe – dann wird das Modell nicht einmal
+     geladen.
+
+Bekannte GRENZEN (ehrlich dokumentiert, weil ``pruefe_rest`` in recherche.py
+und das 422-Gate von /v1/katalog/definiere als DURCHSETZUNG darauf bauen):
+  * Personen OHNE Anrede („Mueller kam zur Besprechung") und Firmen OHNE
+    Rechtsform-Suffix („die Mustermann-Gruppe") erkennen NUR die OPTIONALE
+    NER-Schicht – ohne installiertes spaCy-Modell weiterhin gar nicht.
+  * NER ist statistisch: kein Recall-Versprechen. Seltene Namen, Tippfehler,
+    Kleinschreibung oder ungewöhnliche Kontexte können durchrutschen; ein
+    Modellwechsel kann Ergebnisse verändern (deshalb bleibt der Regex-Pass
+    führend und die Schicht per RISK_LAYER_NER=aus abschaltbar).
+  * Keine Koreferenz-Auflösung: „Herr Mueller" (Regex) und „Mueller" (NER)
+    erhalten ZWEI verschiedene Platzhalter.
+  * MISC-Entitäten (Produkte, Projekte, Nationalitäten) werden nicht ersetzt.
   * Großgeschriebene Nicht-Namen direkt vor einer Rechtsform werden mitgeschwärzt
     (Über-Abstraktion, z. B. „Unsere Beta GmbH" → komplett ersetzt) – das ist der
     zulässige Fehlermodus; nur Satzanfang-Artikel (Die/Eine …) sind ausgenommen.
@@ -26,13 +48,18 @@ darauf bauen – keine NER, kein Modell):
     50000") bleiben stehen, damit Paragraphen-/Ordnungsnummern („§ 146 AO",
     „Nr. 21") nicht zerstört werden.
 Die manuelle Prüfung des Entwurfs durch den Berater bleibt deshalb Pflichtteil
-des Verfahrens – der Regex-Filter ist Sicherheitsnetz, kein Ersatz.
+des Verfahrens – Regex+NER sind Sicherheitsnetz, kein Ersatz.
 """
 
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass, field
+from typing import Any
+
+_log = logging.getLogger("risk_layer.anonymize")
 
 # Rechtsformen – „X GmbH", „M-GmbH & Co. KG", „Alpha SE" → eine Gesellschaft
 _RECHTSFORM = (
@@ -115,7 +142,8 @@ class _Zaehler:
 
     _LABEL = {"firma": "Gesellschaft", "person": "Person", "betrag": "Betrag",
               "datum": "Datum", "steuernr": "Steuernummer", "iban": "Konto",
-              "email": "E-Mail", "telefon": "Telefon", "adresse": "Adresse"}
+              "email": "E-Mail", "telefon": "Telefon", "adresse": "Adresse",
+              "ort": "Ort"}    # „ort" liefert nur die NER-Schicht (LOC)
     _BUCHST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
     def __init__(self) -> None:
@@ -154,12 +182,153 @@ _REGELN: list[tuple[str, re.Pattern]] = [
 ]
 
 
+# --- Optionale NER-Schicht (spaCy, Extra ``nlp``) ----------------------------
+# Zweite Verteidigungslinie HINTER den Regexen: erkennt Personen ohne Anrede,
+# Firmen ohne Rechtsform und Orte. Fehlen spaCy oder das Modell, bleibt der
+# deterministische Regex-Pfad allein aktiv (Degradations-Philosophie wie bei
+# llm.py/embedding.py: funktional bleiben, aber SICHTBAR loggen).
+
+_UNGELADEN = object()    # Sentinel: Laden wurde noch nie versucht
+_NLP: Any = _UNGELADEN   # prozessweiter Modul-Cache (None = nicht verfügbar)
+
+# Reihenfolge = Präferenz: lg (beste NER-Güte, /LF50/) vor sm (Notbehelf).
+_NER_MODELLE = ("de_core_news_lg", "de_core_news_sm")
+_NER_INSTALL_HINWEIS = ("NER-Schicht inaktiv — pip install '.[nlp]' + "
+                        "python -m spacy download de_core_news_lg")
+# spaCy-Label → Platzhalter-Typ des _Zaehler. MISC wird bewusst NICHT ersetzt:
+# das Label ist zu unscharf (Produkte, Nationalitäten, Gesetzesnamen) – zerstörte
+# Rechtsbegriffe wären teurer als die ohnehin verpflichtende manuelle Prüfung.
+_NER_TYP = {"PER": "person", "ORG": "firma", "LOC": "ort"}
+
+
+def _ner_deaktiviert() -> bool:
+    """RISK_LAYER_NER=aus erzwingt den rein deterministischen Regex-Pfad.
+
+    Warum: NER ist statistisch und modellabhängig – Determinismus-kritische
+    Läufe (Reproduzierbarkeit /NF20/, Golden-File-Vergleiche) müssen die
+    Schicht hart abschalten können, OHNE dass das Modell überhaupt geladen
+    wird. Akzeptierte Werte wie beim Reranker: aus/off/none/0.
+    """
+    return os.environ.get("RISK_LAYER_NER", "").strip().lower() in ("aus", "off", "none", "0")
+
+
+def _lade_nlp() -> Any:
+    """Lazy-Load des deutschen spaCy-Modells mit prozessweitem Modul-Cache.
+
+    Vorbild ist der Lazy-Load in embedding.py – das dortige double-checked
+    Locking braucht es hier NICHT: spaCy lädt CPU-seitig und idempotent (kein
+    GPU-Forward, kein doppelter VRAM-Load möglich). Schlimmster Fall bei
+    parallelen Erst-Aufrufen: zwei Threads laden einmal doppelt, ein Ergebnis
+    wird verworfen – harmlos.
+
+    Rückgabe: nlp-Objekt oder None (= NER inaktiv, Regex-Pfad allein). Dank
+    Cache wird der Install-Hinweis nur EINMAL pro Prozess geloggt, nicht pro
+    Dokument. Tests injizieren über genau diesen Seam ein Fake-NLP.
+    """
+    global _NLP
+    if _NLP is not _UNGELADEN:
+        return _NLP
+    try:
+        import spacy  # lazy: optionales Extra ``nlp``
+    except ImportError:
+        _log.warning(_NER_INSTALL_HINWEIS)
+        _NLP = None
+        return None
+    for modell in _NER_MODELLE:
+        try:
+            nlp = spacy.load(modell)
+        except OSError:
+            continue    # Modell nicht installiert → nächste Stufe probieren
+        except Exception as exc:  # noqa: BLE001
+            # Defensiv: eine defekte Installation darf das § 203-Gate nicht
+            # crashen – der Regex-Pfad bleibt als Mindestschutz bestehen.
+            _log.warning("spaCy-Modell %s nicht ladbar (%s: %s) — versuche Fallback",
+                         modell, type(exc).__name__, exc)
+            continue
+        if modell != _NER_MODELLE[0]:
+            _log.warning("de_core_news_lg fehlt — nutze %s (geringere NER-Güte). "
+                         "Abhilfe: python -m spacy download de_core_news_lg", modell)
+        _NLP = nlp
+        return nlp
+    _log.warning(_NER_INSTALL_HINWEIS)
+    _NLP = None
+    return None
+
+
+def _ner_pass(text: str, z: _Zaehler) -> str:
+    """NER-Nachlauf über den bereits regex-ersetzten Text.
+
+    Der Regex-Pass bleibt FÜHREND: Spans, die einen bereits vergebenen
+    Platzhalter überlappen, sind tabu – NER ergänzt nur, was die Regexe nicht
+    fanden. Der gemeinsame ``_Zaehler`` führt die Nummerierung pro Dokument
+    fort und hält sie stabil (gleicher Wortlaut + Typ → gleicher Platzhalter,
+    auch über die Regex-/NER-Grenze hinweg).
+    """
+    # Env-Check VOR dem Loader: RISK_LAYER_NER=aus darf das Modell gar nicht
+    # erst laden (Determinismus + Startzeit).
+    if _ner_deaktiviert():
+        return text
+    nlp = _lade_nlp()
+    if nlp is None:
+        return text
+    try:
+        doc = nlp(text)
+    except Exception as exc:  # noqa: BLE001
+        # Fail-degraded statt Crash: das Gate bleibt mindestens so stark wie
+        # der Regex-Pfad; ein kaputtes Modell darf den Export-Pfad nicht legen.
+        _log.warning("NER-Pass fehlgeschlagen (%s: %s) — nur Regex-Ergebnis",
+                     type(exc).__name__, exc)
+        return text
+    # Tabu-Spans: alle Vorkommen der von UNS vergebenen Platzhalter. Warum kein
+    # generisches „[…]"-Regex: eckige Klammern können legitim im Sachverhalt
+    # stehen – nur echte Platzhalter dürfen vor NER geschützt sein.
+    tabu: list[tuple[int, int]] = []
+    for ph in {e.platzhalter for e in z.ersetzungen}:
+        pos = text.find(ph)
+        while pos != -1:
+            tabu.append((pos, pos + len(ph)))
+            pos = text.find(ph, pos + len(ph))
+
+    def _ueberlappt(start: int, ende: int) -> bool:
+        return any(start < t_ende and ende > t_start for t_start, t_ende in tabu)
+
+    # Von hinten nach vorn ersetzen, damit die Offsets der weiter links
+    # liegenden, noch ausstehenden Entitäten gültig bleiben.
+    grenze = len(text)
+    for ent in sorted(doc.ents, key=lambda e: e.start_char, reverse=True):
+        typ = _NER_TYP.get(ent.label_)
+        if typ is None:
+            continue    # MISC u. Ä. bewusst ignorieren (s. _NER_TYP)
+        start, ende = ent.start_char, ent.end_char
+        original = ent.text
+        # Defensiv: inkonsistente Offsets (Modell-/Fake-Fehler) NICHT ersetzen –
+        # ein falsch getroffener Span zerstörte die juristische Struktur UND
+        # ließe das eigentliche Geheimnis stehen.
+        if not original or text[start:ende] != original:
+            continue
+        if ende > grenze:    # Überlappung mit bereits ersetztem NER-Span
+            continue
+        if _ueberlappt(start, ende):    # Platzhalter aus dem Regex-Pass: tabu
+            continue
+        text = text[:start] + z.platzhalter(original, typ) + text[ende:]
+        grenze = start
+    return text
+
+
 def anonymisiere(text: str) -> AnonymisierungsErgebnis:
-    """Erzeugt eine abstrahierte Fassung + Rückübersetzungstabelle (lokal)."""
+    """Erzeugt eine abstrahierte Fassung + Rückübersetzungstabelle (lokal).
+
+    Schicht 1: deterministische Regexe (immer, führend). Schicht 2: optionaler
+    NER-Nachlauf – nur was die Regexe nicht fanden (s. Moduldocstring;
+    abschaltbar per RISK_LAYER_NER=aus).
+    """
     z = _Zaehler()
     ergebnis = text
     for typ, regex in _REGELN:
         def _ersetze(m: re.Match, _typ: str = typ) -> str:
             return z.platzhalter(m.group(0), _typ)
         ergebnis = regex.sub(_ersetze, ergebnis)
+    # NER ergänzt NACH den Regexen; ohne spaCy/Modell oder mit
+    # RISK_LAYER_NER=aus ist das ein No-Op (exakt bisheriges Verhalten).
+    ergebnis = _ner_pass(ergebnis, z)
     return AnonymisierungsErgebnis(abstrahiert=ergebnis, ersetzungen=z.ersetzungen)

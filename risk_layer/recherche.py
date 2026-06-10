@@ -113,7 +113,15 @@ def export_payload(sachverhalt: str, begriffe: list[dict[str, Any]], frage: str)
 
 
 def pruefe_rest(sachverhalt: str) -> list[dict[str, str]]:
-    """Re-Check: welche identifizierenden Angaben stecken NOCH im Text?"""
+    """Re-Check: welche identifizierenden Angaben stecken NOCH im Text?
+
+    Baut vollständig auf ``anonymisiere`` auf und erbt damit BEIDE Schichten:
+    die deterministischen Regexe und – falls installiert – die optionale
+    spaCy-NER-Schicht. Jeder NER-Fund (Person ohne Anrede, Firma ohne
+    Rechtsform, Ort) erscheint als Ersetzung ⇒ das Gate schlägt fail-closed
+    an (422 in api_v1, Export-Verweigerung in ``exportiere``). Eigene
+    Regex-Checks gibt es hier bewusst NICHT – eine Quelle der Wahrheit.
+    """
     return anonymisiere(sachverhalt).as_dict()["ersetzungen"]
 
 
