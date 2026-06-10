@@ -25,7 +25,12 @@ from .berater import REVIEW_REIHENFOLGE
 # 1.1.0: additiv – neue Route POST /v1/katalog/review (Review-Lebenszyklus des
 # geteilten Festwissens läuft jetzt durch /v1, damit der Host die Freigabe in
 # seiner Audit-Chain protokollieren kann). Keine bestehende Antwort geändert.
-V1_VERSION = "1.1.0"
+# 1.2.0: additiv – neue Route GET /v1/status + engine_status-Block in der
+# /v1/analyse-Antwort (Degradations-Transparenz: mit welchem Engine-Zustand
+# wurde diese Analyse erstellt? Der Host legt den Block mit dem Ergebnis in
+# seiner Audit-Chain ab). Ein paralleles Feature ergänzt in DERSELBEN Version
+# zusätzlich GET /v1/radar. Keine bestehende Antwort geändert.
+V1_VERSION = "1.2.0"
 
 
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -212,6 +217,22 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
     return 200, {"treffer": hits, "engineVersion": V1_VERSION}
 
 
+def _status(app) -> tuple[int, dict[str, Any]]:
+    """GET /v1/status – Engine-Zustand (Degradations-Transparenz, seit 1.2.0).
+
+    Welche Schichten KONNTEN beim Start geladen werden (Trigger/Graph/
+    Embedding/Reranker/NER), inkl. Degradations-GRUND und deterministischer
+    Fingerprints – die Engine degradiert bewusst an vielen Stellen, und für
+    die Haftungsakte des Hosts muss dieser Zustand abfragbar sein, nicht nur
+    im Betreiber-Log stehen. Bewusst KEINE Live-Prüfung (das LLM bleibt lazy;
+    Erreichbarkeit liefert GET /v1/llm/status) und KEINE Zeitstempel.
+    Derselbe Block hängt als ``engine_status`` an jeder /v1/analyse-Antwort
+    (dort zusätzlich mit den effektiven Lauf-``optionen``).
+    """
+    return 200, {"ok": True, "engineVersion": V1_VERSION,
+                 "engine_status": app.engine_status()}
+
+
 def _llm_status(app) -> tuple[int, dict[str, Any]]:
     """GET /v1/llm/status – Erreichbarkeit + Modell/Engine + **Queue** (Slot-/
     Auslastungszustand) des llama-server. Damit kann das Host-System entscheiden,
@@ -240,7 +261,7 @@ def _llm_stop(app) -> tuple[int, dict[str, Any]]:
 
 
 # Bekannte Routen je Methode – für 405 (Methode falsch) statt 404 (Pfad unbekannt).
-_GET_PFADE = frozenset({"/v1/health", "/v1/katalog", "/v1/normgraph/aufloesen",
+_GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/katalog", "/v1/normgraph/aufloesen",
                         "/v1/normgraph/suche", "/v1/katalog/kuratierung", "/v1/llm/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
                          "/v1/katalog/review", "/v1/embedding/suche",
@@ -264,6 +285,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
                          "katalogVersion": app.katalog.version,
                          "graph": app.graph is not None,
                          "embedding": app.embedding is not None}
+        if pfad == "/v1/status":
+            return _status(app)
         if pfad == "/v1/katalog":
             return _katalog_lesen(app)
         if pfad == "/v1/normgraph/aufloesen":

@@ -290,3 +290,70 @@ def test_embedding_encoder_fehler_degradiert(tmp_path, monkeypatch):
     monkeypatch.setattr(emb, "encoder_oeffnen", boom)
     app = Anwendung(None, str(tmp_path))
     assert app.embedding is None and app.embedding_encoder is None
+
+
+# -- Engine-Status (GET /v1/status + Degradationsgrund-Abgriff) ---------------
+
+def test_v1_status_braucht_token(tmp_path, monkeypatch):
+    # /v1/status ist auth-pflichtig wie ALLE /v1-Routen (der Engine-Zustand
+    # verrät Deployment-Details) – mit Token kommt der Schichten-Block.
+    import json as _json
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        assert _get(f"{base}/v1/status")[0] == 401                 # ohne Token
+        assert _get(f"{base}/v1/status", token="falsch")[0] == 401
+        status, body = _get(f"{base}/v1/status", token="geheim")
+        assert status == 200
+        obj = _json.loads(body.decode("utf-8"))
+        assert obj["ok"] is True and "schichten" in obj["engine_status"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_engine_status_traegt_encoder_degradationsgrund(tmp_path, monkeypatch):
+    # Der GRUND der Degradation wird am bestehenden try/except ABGEGRIFFEN
+    # (Muster test_embedding_encoder_fehler_degradiert): Encoder-Ladefehler
+    # → embedding.aktiv False + grund im Status, nicht nur im Log.
+    import risk_layer.embedding as emb
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        graph_fingerprint = "fp-test"
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+
+    def boom(*a, **k):
+        raise RuntimeError("kein torch")
+    monkeypatch.setattr(emb, "encoder_oeffnen", boom)
+    app = Anwendung(None, str(tmp_path))
+    st = app.engine_status()["schichten"]
+    assert st["embedding"]["aktiv"] is False
+    assert "kein torch" in st["embedding"]["grund"]
+    # Index-Metadaten bleiben trotz Encoder-Ausfall erhalten: der Status belegt,
+    # WELCHER Index benutzt worden wäre (Haftungsakte).
+    assert st["embedding"]["index_fingerprint"] == "fp-test"
+    assert st["embedding"]["encoder"] == "hash512"
+    # Folge-Degradation: ohne Encoder auch kein Reranker – ebenfalls begründet.
+    assert st["reranker"]["aktiv"] is False and st["reranker"]["grund"]
+
+
+def test_engine_status_reranker_grund_ohne_gpu(tmp_path, monkeypatch):
+    # Reranker läuft NUR auf GPU: ohne cuda-Device wird er gar nicht erst
+    # versucht – der Status nennt das ehrlich (statt still aktiv:false).
+    import risk_layer.embedding as emb
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        graph_fingerprint = "fp-test"
+
+    class FakeEncoder:
+        name = "hash512"
+    monkeypatch.setenv("RISK_LAYER_EMB_DEVICE", "cpu")
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+    monkeypatch.setattr(emb, "encoder_oeffnen", lambda *a, **k: FakeEncoder())
+    app = Anwendung(None, str(tmp_path))
+    st = app.engine_status()["schichten"]
+    assert st["embedding"]["aktiv"] is True
+    assert st["reranker"]["aktiv"] is False
+    assert "GPU" in st["reranker"]["grund"]

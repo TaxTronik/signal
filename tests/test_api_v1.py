@@ -330,6 +330,80 @@ def test_v1_schnelle_phase_ist_deterministisch(app):
     assert spans_a == spans_b
 
 
+# --- GET /v1/status + engine_status-Block (Degradations-Transparenz, 1.2.0) --
+# Die Engine degradiert bewusst (Trigger/Graph/Embedding/Reranker/NER/LLM
+# optional). Für die Haftungsakte muss der Engine-Zustand IN der Antwort
+# stehen – der Host legt ihn mit dem Analyseergebnis in seiner Audit-Chain ab.
+
+_SCHICHTEN = ("matcher", "muster", "trigger", "graph", "embedding",
+              "reranker", "ner", "llm")
+
+
+def test_v1_status_vertrag(app):
+    code, obj = dispatch(app, "GET", "/v1/status", {}, {})
+    assert code == 200 and obj["ok"] is True
+    assert obj["engineVersion"] == V1_VERSION
+    st = obj["engine_status"]
+    assert st["katalog_version"] == app.katalog.version
+    for schicht in _SCHICHTEN:
+        assert schicht in st["schichten"], schicht
+    # Kern-Schichten sind nie degradiert; conftest patcht index_oeffnen→None,
+    # die Embedding-Schicht ist hier also nachweislich inaktiv UND begründet.
+    assert st["schichten"]["matcher"]["aktiv"] is True
+    assert st["schichten"]["muster"]["aktiv"] is True
+    emb = st["schichten"]["embedding"]
+    assert emb["aktiv"] is False
+    assert emb["index_aktuell"] is None        # kein Index ⇒ nichts zu prüfen
+    assert emb["grund"]                        # Degradation IMMER begründet
+    # NER hat die ner_status()-Form ("verfuegbar" statt "aktiv" – Könnte-Aussage)
+    assert set(st["schichten"]["ner"]) == {"verfuegbar", "modell", "grund"}
+    # LLM: nur Konfiguration (KEINE Live-Prüfung beim Status); url nur host:port
+    llm = st["schichten"]["llm"]
+    assert llm["konfiguriert"] is True and llm["url"] == "127.0.0.1:8080"
+
+
+def test_v1_status_post_405(app):
+    """POST auf die neue GET-Route → 405 mit allow-Feld (Muster aller Routen)."""
+    code, obj = dispatch(app, "POST", "/v1/status", {}, {})
+    assert code == 405 and obj["allow"] == "GET"
+
+
+def test_v1_status_liefert_kopie(app):
+    """Mutationen am Antwort-Objekt dürfen den eingefrorenen Startup-Status
+    nicht verändern (engine_status() liefert eine Kopie)."""
+    a = dispatch(app, "GET", "/v1/status", {}, {})[1]["engine_status"]
+    a["schichten"]["matcher"]["aktiv"] = False
+    b = dispatch(app, "GET", "/v1/status", {}, {})[1]["engine_status"]
+    assert b["schichten"]["matcher"]["aktiv"] is True
+
+
+def test_v1_analyse_traegt_engine_status_mit_optionen(app):
+    """/v1/analyse = Startup-Status (welche Schichten KONNTEN laufen) PLUS die
+    effektiven Lauf-Optionen dieses Aufrufs (was WAR angefordert) – jedes
+    archivierte Ergebnis ist damit selbsterklärend."""
+    code, obj = dispatch(app, "POST", "/v1/analyse",
+                         {"text": "Eine Schätzung droht.", "mitLLM": False,
+                          "optionen": {"unknown": True}}, {})
+    assert code == 200
+    st = obj["engine_status"]
+    assert st["katalog_version"] == obj["katalog_version"]
+    for schicht in _SCHICHTEN:
+        assert schicht in st["schichten"], schicht
+    # berater ist in /v1 immer False (zustandslos), mit_llm spiegelt mitLLM
+    assert st["optionen"] == {"unknown": True, "berater": False,
+                              "abweichung": False, "mit_llm": False}
+
+
+def test_v1_analyse_engine_status_bleibt_deterministisch(app):
+    """Der Block enthält keine Zeitstempel/Zufallswerte: zwei Läufe liefern
+    BYTE-identische engine_status-Blöcke (der Host darf sie hashen/chainen)."""
+    import json
+    a = dispatch(app, "POST", "/v1/analyse", {"text": _ARTEFAKT_TEXT}, {})[1]
+    b = dispatch(app, "POST", "/v1/analyse", {"text": _ARTEFAKT_TEXT}, {})[1]
+    assert json.dumps(a["engine_status"], ensure_ascii=False, sort_keys=True) == \
+        json.dumps(b["engine_status"], ensure_ascii=False, sort_keys=True)
+
+
 def test_v1_mitLLM_false_erzeugt_keine_llm_oder_embedding_spans(app):
     """Die schnelle Phase liefert nur deterministische Layer (kein llm/embedding-Span)."""
     code, obj = dispatch(app, "POST", "/v1/analyse",

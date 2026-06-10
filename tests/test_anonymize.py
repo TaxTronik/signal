@@ -245,6 +245,88 @@ def test_env_schalter_deaktiviert_ner(monkeypatch):
     assert r.ersetzungen == []
 
 
+# --- ner_status(): Engine-Status der NER-Schicht (OHNE Modell-Laden) ---------
+# Semantik: "verfuegbar" ist bewusst eine KÖNNTE-Aussage (Env/Cache/find_spec),
+# kein Aktiv-Beweis – das Laden beim ersten anonymisiere() kann trotzdem
+# scheitern. Alle Zweige werden hier ohne echtes spaCy geprüft.
+
+def test_ner_status_env_aus(monkeypatch):
+    # Determinismus-Schalter gewinnt vor allem anderen – und nennt sich selbst.
+    monkeypatch.setenv("RISK_LAYER_NER", "aus")
+    assert anonymize.ner_status() == {
+        "verfuegbar": False, "modell": None, "grund": "deaktiviert (RISK_LAYER_NER)"}
+
+
+def test_ner_status_laedt_nie_das_modell(monkeypatch):
+    # ner_status ist eine reine Status-Abfrage: der Lade-Seam darf NIE
+    # angefasst werden (weder Ladezeit noch Seiteneffekte auf den Cache).
+    def _nicht_laden():
+        raise AssertionError("ner_status darf _lade_nlp nicht aufrufen")
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", _nicht_laden)
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)
+    anonymize.ner_status()    # darf nicht werfen
+
+
+def test_ner_status_cache_geladen_nennt_tatsaechliches_modell(monkeypatch):
+    # Modul-Cache befüllt → härteste Evidenz: True + TATSÄCHLICHER Modellname
+    # (aus nlp.meta, wie ihn spacy.load liefert), kein find_spec-Raten.
+    class _Nlp:
+        meta = {"lang": "de", "name": "core_news_lg"}
+    monkeypatch.setattr(anonymize, "_NLP", _Nlp())
+    assert anonymize.ner_status() == {
+        "verfuegbar": True, "modell": "de_core_news_lg", "grund": None}
+
+
+def test_ner_status_cache_fehlgeschlagen(monkeypatch):
+    # Laden wurde versucht und scheiterte (Cache = None): ehrlich False mit
+    # Install-Hinweis – auch wenn find_spec etwas anderes prognostizieren würde.
+    monkeypatch.setattr(anonymize, "_NLP", None)
+    st = anonymize.ner_status()
+    assert st["verfuegbar"] is False and st["modell"] is None
+    assert "pip install" in st["grund"]
+
+
+def test_ner_status_prognose_ueber_find_spec(monkeypatch):
+    # Noch nie geladen: Prognose über die Installations-Metadaten, in der
+    # Modellpräferenz lg → sm (hier: nur sm installiert).
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)
+    vorhanden = {"spacy", "de_core_news_sm"}
+    monkeypatch.setattr(anonymize, "_find_spec",
+                        lambda name: object() if name in vorhanden else None)
+    assert anonymize.ner_status() == {
+        "verfuegbar": True, "modell": "de_core_news_sm", "grund": None}
+
+
+def test_ner_status_nichts_installiert(monkeypatch):
+    # Weder spaCy noch Modelle: False + Abhilfe (derselbe Hinweis wie im Log).
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)
+    monkeypatch.setattr(anonymize, "_find_spec", lambda name: None)
+    st = anonymize.ner_status()
+    assert st == {"verfuegbar": False, "modell": None,
+                  "grund": anonymize._NER_INSTALL_HINWEIS}
+
+
+def test_ner_status_spacy_ohne_modelle(monkeypatch):
+    # spaCy installiert, aber kein deutsches Modell → ebenfalls False + Abhilfe.
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)
+    monkeypatch.setattr(anonymize, "_find_spec",
+                        lambda name: object() if name == "spacy" else None)
+    st = anonymize.ner_status()
+    assert st["verfuegbar"] is False and "spacy download" in st["grund"]
+
+
+def test_ner_status_kaputter_import_zaehlt_als_nicht_verfuegbar(monkeypatch):
+    # find_spec wirft ValueError, wenn ein Paket in sys.modules auf None steht
+    # (kaputter Import) – der Status darf daran nicht crashen.
+    monkeypatch.setattr(anonymize, "_NLP", anonymize._UNGELADEN)
+
+    def _kaputt(name):
+        raise ValueError(f"{name}.__spec__ is None")
+    monkeypatch.setattr(anonymize, "_find_spec", _kaputt)
+    st = anonymize.ner_status()
+    assert st["verfuegbar"] is False
+
+
 def test_loader_warnt_einmalig_ohne_spacy(monkeypatch, caplog):
     # Degradations-Philosophie: fehlendes spaCy → sichtbares Warning mit
     # Install-Hinweis, aber dank Modul-Cache nur EINMAL pro Prozess.

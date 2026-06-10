@@ -15,6 +15,7 @@ abgelehnt. Bewusst NUR stdlib – kein FastAPI/Node/Build-Schritt.
 from __future__ import annotations
 
 import argparse
+import copy
 import hmac
 import json
 import logging
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from .anonymize import ner_status
 from .api_v1 import dispatch
 from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
@@ -50,6 +52,21 @@ def _ist_loopback(host: str) -> bool:
     return h in _LOOPBACK_HOSTS or h.startswith("127.")
 
 
+def _llm_url_anzeige(url: str | None) -> str | None:
+    """Nur ``host:port`` für den Engine-Status (Secret-Hygiene).
+
+    Warum gekürzt: der Status wandert in /v1-Antworten, die der Host in seiner
+    Audit-Chain ARCHIVIERT. Eine konfigurierte LLM-URL kann aber Userinfo-,
+    Pfad- oder Query-Bestandteile mit Tokens tragen – die gehören nicht in
+    dauerhaft abgelegte Dokumente. host:port reicht als Deployment-Nachweis."""
+    if not url:
+        return None
+    u = urlparse(url)
+    if not u.hostname:
+        return None
+    return f"{u.hostname}:{u.port}" if u.port else u.hostname
+
+
 # ---------------------------------------------------------------------------
 # Serverzustand
 # ---------------------------------------------------------------------------
@@ -70,10 +87,36 @@ class Anwendung:
         from .embedding import (index_oeffnen as _emb_open, encoder_oeffnen as _enc_open,
                                 pruefe_aktualitaet as _emb_aktuell)
         self.embedding = _emb_open()
+        # Graph-Fingerprint EINMAL berechnen und am Objekt memoisieren: der
+        # direkt folgende Staleness-Check (pruefe_aktualitaet) ruft
+        # graph.fingerprint() intern erneut auf – ohne Memo liefe der Korpus-
+        # Voll-Scan doppelt. Der Graph ist während der Server-Laufzeit
+        # UNVERÄNDERLICH (Rebuilds laufen als separate CLI-Prozesse), der
+        # eingefrorene Wert ist also gefahrlos; er wandert zusätzlich in den
+        # Engine-Status (Degradations-Nachweis, s. unten).
+        graph_fp: str | None = None
+        if self.graph is not None:
+            try:
+                graph_fp = self.graph.fingerprint()
+                self.graph.fingerprint = lambda _fp=graph_fp: _fp  # type: ignore[method-assign]
+            except Exception:  # noqa: BLE001 – Status nie Show-Stopper; bewusst
+                pass           # KEIN Log: pruefe_aktualitaet meldet den Fall gleich selbst.
         # Staleness-Check EINMALIG beim Start (nie pro Request): warnt laut im
         # Log, wenn der Embedding-Index nicht mehr zum aktuellen Normgraphen
-        # passt (Fingerprint-Abweichung). Degradierend – wirft nie.
-        _emb_aktuell(self.embedding, self.graph)
+        # passt (Fingerprint-Abweichung). Degradierend – wirft nie. Das Ergebnis
+        # wird für den Engine-Status abgegriffen (index_aktuell; None = kein
+        # Index geladen, also nichts zu prüfen).
+        index_aktuell: bool | None = (
+            _emb_aktuell(self.embedding, self.graph) if self.embedding is not None else None)
+        # Index-Metadaten VOR dem Encoder-Versuch sichern: schlägt der Encoder
+        # fehl, wird self.embedding auf None degradiert – der Status soll aber
+        # weiter belegen, WELCHER Index benutzt worden wäre.
+        emb_index_fp = getattr(self.embedding, "graph_fingerprint", None)
+        emb_encoder_name = getattr(self.embedding, "encoder_name", None)
+        # Degradations-GRÜNDE zusätzlich zum Log in den Engine-Status schreiben
+        # (Log-Verhalten unverändert): der Host legt den Status mit jedem
+        # Analyseergebnis in seiner Audit-Chain ab (Haftungsakte).
+        emb_grund: str | None = None if self.embedding is not None else "kein Embedding-Index gebaut"
         # Query-Encoder: GPU bevorzugt, fällt intern auf CPU zurück. Per
         # RISK_LAYER_EMB_DEVICE setzbar.
         _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
@@ -82,23 +125,78 @@ class Anwendung:
                 _enc_open(self.embedding.encoder_name, device=_emb_dev) if self.embedding else None)
         except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
             _log.warning("Embedding-Encoder nicht ladbar (%s) — Engine laeuft ohne Schicht 1.7.", exc)
+            emb_grund = f"Embedding-Encoder nicht ladbar: {exc}"
             self.embedding = self.embedding_encoder = None
         # Schicht-1.7b-Reranker (Cross-Encoder): NUR auf GPU – fp16 macht ihn ~25x
         # schneller (~1 s/Dok), auf CPU waere fp32 die 12-s-Falle. Lazy (Modell laedt
         # beim ersten Reranking). Hebt held-out-Recall ~2x; optional/degradierend.
         self.reranker = None
+        reranker_grund: str | None = None
         if self.embedding_encoder is not None and "cuda" in (_emb_dev or ""):
             try:
                 from .reranker import reranker_oeffnen
                 self.reranker = reranker_oeffnen(device=_emb_dev)
+                if self.reranker is None:
+                    # reranker_oeffnen("auto") degradiert ohne sentence-transformers
+                    # STILL zu None – für die Haftungsakte trotzdem benennen.
+                    reranker_grund = "Cross-Encoder nicht verfügbar (sentence-transformers fehlt)"
             except Exception as exc:  # noqa: BLE001 – Rerank ist optional, nie Show-Stopper
                 _log.warning("Reranker nicht ladbar (%s) — Schicht 1.7 ohne Rerank.", exc)
+                reranker_grund = f"Reranker nicht ladbar: {exc}"
+        elif self.embedding_encoder is None:
+            reranker_grund = "ohne Embedding-Encoder kein Reranking (Schicht 1.7 inaktiv)"
+        else:
+            reranker_grund = f"nur auf GPU (RISK_LAYER_EMB_DEVICE={_emb_dev!r} ist kein cuda-Device)"
         self.llm_url = llm_url        # Schicht 2 (mitLLM:true) verbindet sich hierher
         self.llm_model = llm_model    # expliziter GGUF-Pfad (sonst Registry-Default)
         self.llm_bin = llm_bin        # llama-server-Binary
         self.manager = None           # LlamaServerManager, falls VON UNS gestartet
         self._llm_lock = threading.Lock()  # serialisiert llm_start/llm_stop (Concurrency)
         self._berater_lock = threading.Lock()  # serialisiert define-on-the-fly-Writes
+        # --- Engine-Status: Degradations-Transparenz für die Host-Audit-Chain ---
+        # EINMALIG beim Start erhoben, danach UNVERÄNDERLICH (die geladenen
+        # Ressourcen ändern sich zur Laufzeit nicht). Antwortet auf die
+        # Haftungsakte-Frage „mit welchem Engine-Zustand wurde diese Analyse
+        # erstellt?" – bisher stand das nur im Betreiber-Log. Bewusst KEINE
+        # Zeitstempel/Zufallswerte (Fingerprints sind deterministisch): der
+        # Determinismus-Vertrag von /v1/analyse bleibt unangetastet.
+        self._engine_status: dict[str, Any] = {
+            "katalog_version": self.katalog.version,
+            "schichten": {
+                # Matcher (Schicht 1) und Beschreibungsmuster (1b) sind der
+                # nicht-degradierende Kern: ohne Katalog startet __init__ gar
+                # nicht erst – läuft der Server, laufen sie.
+                "matcher": {"aktiv": True},
+                "muster": {"aktiv": True},
+                "trigger": {"aktiv": self.trigger is not None,
+                            "grund": None if self.trigger is not None
+                            else "kein Trigger-Index gebaut"},
+                "graph": {"aktiv": self.graph is not None, "fingerprint": graph_fp},
+                "embedding": {
+                    "aktiv": self.embedding is not None and self.embedding_encoder is not None,
+                    "encoder": emb_encoder_name,
+                    "index_fingerprint": emb_index_fp,
+                    "index_aktuell": index_aktuell,
+                    "grund": emb_grund,
+                },
+                "reranker": {"aktiv": self.reranker is not None, "grund": reranker_grund},
+                "ner": ner_status(),
+                # Bewusst KEINE Live-Erreichbarkeitsprüfung beim Start (das LLM
+                # ist lazy; Erreichbarkeit liefert GET /v1/llm/status). url nur
+                # host:port – kein Token o. Ä. in archivierte Antworten.
+                "llm": {"konfiguriert": bool(self.llm_url),
+                        "url": _llm_url_anzeige(self.llm_url)},
+            },
+        }
+
+    def engine_status(self) -> dict[str, Any]:
+        """Beim Start erhobener Engine-Zustand (Degradations-Transparenz).
+
+        Liefert eine KOPIE (deepcopy): Aufrufer reichern den Block an (z. B.
+        mischt ``analyse`` die Lauf-Optionen dazu) – der eingefrorene
+        Startup-Status darf dadurch nie mutiert werden.
+        """
+        return copy.deepcopy(self._engine_status)
 
     def norm_suche(self, q: str, limit: int = 8) -> dict[str, Any]:
         """Norm-Auswahl: erst Zitat parsen + im Graph bestätigen, sonst Titel-Suche."""
@@ -145,7 +243,18 @@ class Anwendung:
             embedding=self.embedding,
             embedding_encoder=self.embedding_encoder,
             reranker=self.reranker)
-        return antwort_json(report, text)
+        res = antwort_json(report, text)
+        # Degradations-Nachweis JE Analyse (Haftungsakte): der Startup-Status
+        # (welche Schichten KONNTEN laufen) plus die effektiven Lauf-Optionen
+        # dieses Aufrufs (was WAR angefordert) machen jedes vom Host
+        # archivierte Ergebnis selbsterklärend (INTEGRATION_TAXTRONIK.md §4).
+        # Additiv und ohne Zeitstempel/Zufall – Determinismus-Vertrag bleibt.
+        res["engine_status"] = {
+            **self.engine_status(),
+            "optionen": {"unknown": unknown, "berater": berater,
+                         "abweichung": abweichung, "mit_llm": schicht2},
+        }
+        return res
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:
         # Form-Validierung: ein String statt Liste ("§ 15 EStG") würde von

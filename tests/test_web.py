@@ -62,6 +62,50 @@ def test_define_on_the_fly_zyklus(tmp_path):
                    for r in nach["risiken"])
 
 
+def test_analyse_antwort_traegt_engine_status(tmp_path):
+    """Jede Analyse-Antwort trägt den Degradations-Nachweis: Startup-Status
+    + effektive Lauf-Optionen (Haftungsakte, INTEGRATION_TAXTRONIK.md §4)."""
+    app = Anwendung(None, str(tmp_path))
+    res = app.analyse(_text(), unknown=True, berater=True, nutzer="rey")
+    st = res["engine_status"]
+    assert st["katalog_version"] == res["katalog_version"]
+    # conftest patcht embedding.index_oeffnen→None: Schicht 1.7 ist hier
+    # nachweislich degradiert UND begründet (kein stilles Fehlen im Status).
+    emb = st["schichten"]["embedding"]
+    assert emb["aktiv"] is False
+    assert emb["grund"] == "kein Embedding-Index gebaut"
+    assert emb["index_aktuell"] is None and emb["index_fingerprint"] is None
+    # effektive Lauf-Optionen genau DIESES Aufrufs
+    assert st["optionen"] == {"unknown": True, "berater": True,
+                              "abweichung": False, "mit_llm": False}
+
+
+def test_engine_status_liefert_unveraenderliche_kopie(tmp_path):
+    """engine_status() gibt eine Kopie heraus – der beim Start eingefrorene
+    Status darf von Aufrufern (api_v1 mischt optionen dazu) nie mutierbar sein."""
+    app = Anwendung(None, str(tmp_path))
+    st = app.engine_status()
+    st["schichten"]["ner"]["verfuegbar"] = "manipuliert"
+    st["katalog_version"] = "manipuliert"
+    frisch = app.engine_status()
+    assert frisch["schichten"]["ner"]["verfuegbar"] != "manipuliert"
+    assert frisch["katalog_version"] != "manipuliert"
+
+
+def test_engine_status_ner_aus_dem_modul_cache(tmp_path, monkeypatch):
+    """Der NER-Status kommt aus anonymize.ner_status(): ein bereits geladenes
+    Modell (Modul-Cache) wird mit dem TATSÄCHLICHEN Modellnamen gemeldet –
+    ohne dass die Anwendung das Modell selbst lädt."""
+    import risk_layer.anonymize as anon
+
+    class _Nlp:
+        meta = {"lang": "de", "name": "core_news_sm"}
+    monkeypatch.setattr(anon, "_NLP", _Nlp())
+    app = Anwendung(None, str(tmp_path))
+    ner = app.engine_status()["schichten"]["ner"]
+    assert ner == {"verfuegbar": True, "modell": "de_core_news_sm", "grund": None}
+
+
 def test_definiere_norm_anker_string_wird_nicht_zersplittert(tmp_path):
     """Ein String statt Liste ('§ 15 EStG') darf NICHT zeichenweise zersplittert
     in die Festwissens-YAML geschrieben werden – klarer Fehler statt Datenmüll."""

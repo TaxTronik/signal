@@ -57,6 +57,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass, field
+from importlib.util import find_spec as _find_spec
 from typing import Any
 
 _log = logging.getLogger("risk_layer.anonymize")
@@ -253,6 +254,54 @@ def _lade_nlp() -> Any:
     _log.warning(_NER_INSTALL_HINWEIS)
     _NLP = None
     return None
+
+
+def _paket_installiert(name: str) -> bool:
+    """``find_spec`` ohne Import: prüft nur die Installations-Metadaten.
+
+    ValueError fängt den Sonderfall ab, dass ein Paket in ``sys.modules`` auf
+    None steht (kaputter/abgebrochener Import) – ``find_spec`` wirft dann,
+    statt None zu liefern. Für den Status zählt beides schlicht als „nicht
+    verfügbar" (der Regex-Pfad bleibt ohnehin der Mindestschutz)."""
+    try:
+        return _find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def ner_status() -> dict[str, Any]:
+    """Zustand der NER-Schicht für den Engine-Status – OHNE das Modell zu laden.
+
+    Form: ``{"verfuegbar": bool, "modell": str | None, "grund": str | None}``.
+
+    Feldname bewusst ``verfuegbar`` statt „aktiv": gemeldet wird, ob die
+    Schicht laufen KÖNNTE. Vor dem ersten ``anonymisiere()``-Aufruf ist das
+    nur eine Installations-Prognose (``find_spec``) – das tatsächliche Laden
+    kann trotzdem scheitern (defekte Installation; ``_lade_nlp`` degradiert
+    dann laut). Erst der Modul-Cache ``_NLP`` macht die Aussage hart: ist er
+    befüllt, wird der TATSÄCHLICH geladene Modellname gemeldet. Bewusst KEIN
+    ``_lade_nlp()``-Aufruf: eine Status-Abfrage darf weder Ladezeit kosten
+    noch den Determinismus-Schalter (RISK_LAYER_NER) unterlaufen.
+    """
+    if _ner_deaktiviert():
+        return {"verfuegbar": False, "modell": None,
+                "grund": "deaktiviert (RISK_LAYER_NER)"}
+    if _NLP is not _UNGELADEN:
+        # Laden wurde bereits versucht – der Cache ist die härteste Evidenz
+        # (genauer als jede find_spec-Prognose, in beide Richtungen).
+        if _NLP is None:
+            return {"verfuegbar": False, "modell": None, "grund": _NER_INSTALL_HINWEIS}
+        meta = getattr(_NLP, "meta", None) or {}
+        modell = f"{meta.get('lang', '')}_{meta['name']}" if meta.get("name") else None
+        return {"verfuegbar": True, "modell": modell, "grund": None}
+    # Noch nie geladen: Prognose über die Installations-Metadaten, in derselben
+    # Präferenz-Reihenfolge wie _lade_nlp (lg → sm).
+    if not _paket_installiert("spacy"):
+        return {"verfuegbar": False, "modell": None, "grund": _NER_INSTALL_HINWEIS}
+    for modell in _NER_MODELLE:
+        if _paket_installiert(modell):
+            return {"verfuegbar": True, "modell": modell, "grund": None}
+    return {"verfuegbar": False, "modell": None, "grund": _NER_INSTALL_HINWEIS}
 
 
 def _ner_pass(text: str, z: _Zaehler) -> str:

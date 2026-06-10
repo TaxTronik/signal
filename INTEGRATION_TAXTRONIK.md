@@ -135,11 +135,51 @@ zwar netzintern, aber mandantendatenführend angefragt wird. Kein offener Port.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.1.0`
-(additiv zu `1.0.0`: neue Route `POST /v1/katalog/review`).
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.2.0`
+(additiv zu `1.1.0` = `POST /v1/katalog/review`; `1.2.0` ergänzt
+`GET /v1/status` + den `engine_status`-Block in `/v1/analyse` sowie — parallel
+entwickelt — `GET /v1/radar`).
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
+(Unverändert seit `1.0.0` — darauf probt der Docker-`HEALTHCHECK`.)
+
+### `GET /v1/status`  (seit `1.2.0` — Engine-Zustand / Degradations-Transparenz)
+→ `{ok: true, engineVersion, engine_status: {…}}`. Die Engine **degradiert
+bewusst** an vielen Stellen (Trigger-Index nicht gebaut, Embedding-Index
+fehlt/veraltet, Encoder/Reranker nicht ladbar, NER ohne Modell, LLM aus) —
+bisher stand das nur im Betreiber-Log. `engine_status` macht den Zustand
+abfragbar: **einmalig beim Start erhoben**, danach unveränderlich; **keine**
+Live-Prüfung (LLM-Erreichbarkeit liefert weiterhin `GET /v1/llm/status`),
+**keine** Zeitstempel/Zufallswerte (Fingerprints sind deterministisch).
+
+```jsonc
+{
+  "ok": true, "engineVersion": "1.2.0",
+  "engine_status": {
+    "katalog_version": "0.3.0",
+    "schichten": {
+      "matcher":  { "aktiv": true },                  // Schicht 1 (Kern, nie degradiert)
+      "muster":   { "aktiv": true },                  // Schicht 1b (Kern, nie degradiert)
+      "trigger":  { "aktiv": true,  "grund": null },  // grund z. B. "kein Trigger-Index gebaut"
+      "graph":    { "aktiv": true,  "fingerprint": "3f9c…" },   // sha256 des Korpus-Inhalts
+      "embedding": { "aktiv": true, "encoder": "bge-m3",
+                     "index_fingerprint": "3f9c…",    // Graph-Stand zum Index-Build
+                     "index_aktuell": true,           // false = veraltet/nicht prüfbar; null = kein Index
+                     "grund": null },                 // z. B. "Embedding-Encoder nicht ladbar: …"
+      "reranker": { "aktiv": false,
+                    "grund": "nur auf GPU (RISK_LAYER_EMB_DEVICE='cpu' ist kein cuda-Device)" },
+      "ner":      { "verfuegbar": true, "modell": "de_core_news_lg", "grund": null },
+      "llm":      { "konfiguriert": true, "url": "127.0.0.1:8080" }   // nur host:port, kein Token
+    }
+  }
+}
+```
+
+Feld-Semantik: `ner.verfuegbar` ist bewusst eine **Könnte**-Aussage (Env-Schalter
+`RISK_LAYER_NER`, Modul-Cache oder Installations-Prognose) — das lazy Laden beim
+ersten Einsatz kann trotzdem scheitern. `grund` ist bei jeder Degradation
+gesetzt (derselbe Wortlaut, der auch im Betreiber-Log steht).
 
 ### `POST /v1/analyse`  (zustandslos, KEIN Persist)
 Body: `{text: string, mitLLM?: bool, optionen?: {unknown?, abweichung?, llm_url?}}`
@@ -173,6 +213,29 @@ Body: `{text: string, mitLLM?: bool, optionen?: {unknown?, abweichung?, llm_url?
 ```
 `mitLLM:false` (Default) = schnell/deterministisch (kein Risiko mit `quelle:"llm"`).
 `mitLLM:true` → zusätzlich LLM-Kandidaten (15–30s; async aufrufen).
+
+**`engine_status` in der Analyse-Antwort (seit `1.2.0`, additiv):** jede
+`/v1/analyse`-Antwort trägt zusätzlich den Block aus `GET /v1/status`, ergänzt
+um die **effektiven Lauf-Parameter dieses Aufrufs**:
+
+```jsonc
+"engine_status": {
+  "katalog_version": "0.3.0",
+  "schichten": { /* wie GET /v1/status, s. o. */ },
+  "optionen": { "unknown": false, "berater": false,
+                "abweichung": false, "mit_llm": false }   // was DIESER Lauf angefordert hat
+}
+```
+
+> **Pflicht für die Host-Seite (Haftungsakte):** `engine_status` **mit dem
+> Analyseergebnis in der Audit-Chain ablegen** (z. B. als Teil von
+> `RiskAnalysis.rawResult`). Er ist der **Degradations-Nachweis je Analyse**:
+> welche Schichten *konnten* laufen (`schichten`, inkl. `grund` bei
+> Degradation) und welche *waren angefordert* (`optionen`). Ohne ihn ist einem
+> archivierten Ergebnis nicht anzusehen, ob z. B. NER inaktiv oder der
+> Embedding-Index veraltet war, als es erstellt wurde. Der Block ist
+> deterministisch (keine Zeitstempel) — er bricht weder Replay-Vergleiche noch
+> Hash-Ketten über `rawResult`.
 
 **Vertragsgarantie (gemessen):** Ist `mitLLM:true`, aber **kein llama-server**
 erreichbar, **blockiert die Engine NICHT** — sie kommt in ~1s mit dem
