@@ -1,0 +1,3009 @@
+# UNGEPRÜFT — Entwurf, von der Leitung zu reviewen; NICHT in Evals einbeziehen
+# Automatisch erzeugte Gold-KANDIDATEN (tools/gold_vorschlag.py).
+# Review-Anleitung: je Satz die fachlich korrekten Ziel-Normen in
+# 'ziele: []' eintragen (Kandidaten sind nur Vorschläge — auch andere
+# Normen sind zulässig), Status-Zeilen entfernen und als eingefrorenes
+# Gold nach fixtures/gold/ verschieben. 'sim' ist je Quelle skaliert:
+# embedding = Kosinus (0..1), trigger = TF-IDF-Score (offene Skala).
+status: UNGEPRÜFT — Entwurf, von der Leitung zu reviewen; NICHT in Evals einbeziehen
+erstellt_am: '2026-06-10T17:34:19'
+encoder: bge-m3
+corpus: C:\dev\taxtronikexctract\corpus
+quellen:
+- examples/beispiel_ao.txt
+- examples/beispiel_ao_edge.txt
+- examples/beispiel_beschreibung.txt
+- examples/beispiel_organschaft.txt
+n_saetze: 46
+saetze:
+- datei: examples/beispiel_ao.txt
+  query: Betriebsprüfung bei der M-GmbH
+  kandidaten:
+  - norm_id: norm:StBerG:22
+    zitat: § 22 StBerG
+    titel: Geschäftsprüfung
+    sim: 0.531
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:HGB:316
+    zitat: § 316 HGB
+    titel: Pflicht zur Prüfung
+    sim: 0.519
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:48
+    zitat: § 48 UmwG
+    titel: Prüfung der Verschmelzung
+    sim: 0.517
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:293b
+    zitat: § 293b AktG
+    titel: Prüfung des Unternehmensvertrags
+    sim: 0.51
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UmwStG:24
+    zitat: § 24 UmwStG
+    titel: Einbringung von Betriebsvermögen in eine Personengesellschaft
+    sim: 0.506
+    rang: 5
+    quelle: embedding
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Im Rahmen einer Außenprüfung stellt das Finanzamt fest, dass Betriebseinnahmen
+
+    nicht vollständig erfasst wurden'
+  kandidaten:
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.629
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.619
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:EStG:42f
+    zitat: § 42f EStG
+    titel: Lohnsteuer-Außenprüfung
+    sim: 0.591
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 0.591
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:202
+    zitat: § 202 AO
+    titel: Inhalt und Bekanntgabe des Prüfungsberichts
+    sim: 0.565
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:193
+    zitat: § 193 AO
+    titel: Zulässigkeit einer Außenprüfung
+    sim: 15.66
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 15.66
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:198
+    zitat: § 198 AO
+    titel: Ausweispflicht, Beginn der Außenprüfung
+    sim: 15.66
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:203
+    zitat: § 203 AO
+    titel: Abgekürzte Außenprüfung
+    sim: 15.66
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:203a
+    zitat: § 203a AO
+    titel: Außenprüfung bei Datenübermittlung durch Dritte
+    sim: 15.66
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Da die Buchführung erhebliche Mängel aufweist,
+
+    beruft sich das Finanzamt auf seine Schätzungsbefugnis und nimmt eine Schätzung
+
+    der Besteuerungsgrundlagen nach § 162 AO vor'
+  kandidaten:
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.664
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:InvStG:5
+    zitat: § 5 InvStG
+    titel: Prüfung der steuerlichen Verhältnisse
+    sim: 0.602
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:88
+    zitat: § 88 AO
+    titel: Untersuchungsgrundsatz
+    sim: 0.601
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:GrEStG:17
+    zitat: § 17 GrEStG
+    titel: Örtliche Zuständigkeit, Feststellung von Besteuerungsgrundlagen
+    sim: 0.597
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:EStG:50b
+    zitat: § 50b EStG
+    titel: Prüfungsrecht
+    sim: 0.593
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 26.61
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GrEStG:17
+    zitat: § 17 GrEStG
+    titel: Örtliche Zuständigkeit, Feststellung von Besteuerungsgrundlagen
+    sim: 17.5
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:145
+    zitat: § 145 AO
+    titel: Allgemeine Anforderungen an die Buchführung und Aufzeichnungen
+    sim: 15.66
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 15.66
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:158
+    zitat: § 158 AO
+    titel: Beweiskraft der Buchführung
+    sim: 15.66
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: Die bereits bestandskräftigen Bescheide sollen geändert werden
+  kandidaten:
+  - norm_id: norm:BewG:225
+    zitat: § 225 BewG
+    titel: Änderung von Feststellungsbescheiden
+    sim: 0.625
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:GrStG:21
+    zitat: § 21 GrStG
+    titel: Änderung von Steuermeßbescheiden
+    sim: 0.599
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:175
+    zitat: § 175 AO
+    titel: Änderung von Steuerbescheiden auf Grund von Grundlagenbescheiden und bei rückwirkenden Ereignissen
+    sim: 0.56
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:174
+    zitat: § 174 AO
+    titel: Widerstreitende Steuerfestsetzungen
+    sim: 0.56
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.539
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:225
+    zitat: § 225 BewG
+    titel: Änderung von Feststellungsbescheiden
+    sim: 5.71
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GrStG:21
+    zitat: § 21 GrStG
+    titel: Änderung von Steuermeßbescheiden
+    sim: 5.71
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:61
+    zitat: § 61 AO
+    titel: Satzungsmäßige Vermögensbindung
+    sim: 3.23
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:21
+    zitat: § 21 HGB
+    titel: ''
+    sim: 3.23
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:KStG:32a
+    zitat: § 32a KStG
+    titel: 'Erlass, Aufhebung oder Änderung von Steuerbescheiden bei verdeckter
+
+      Gewinnausschüttung oder verdeckter Einlage'
+    sim: 3.23
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Fraglich ist, ob
+
+    neue Tatsachen oder Beweismittel im Sinne des § 173 Abs. 1 AO vorliegen und ob
+
+    den Steuerpflichtigen ein grobes Verschulden trifft, das einer Änderung zu
+
+    seinen Gunsten entgegensteht'
+  kandidaten:
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.727
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:174
+    zitat: § 174 AO
+    titel: Widerstreitende Steuerfestsetzungen
+    sim: 0.654
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:177
+    zitat: § 177 AO
+    titel: Berichtigung von materiellen Fehlern
+    sim: 0.653
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.643
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:179
+    zitat: § 179 AO
+    titel: Feststellung von Besteuerungsgrundlagen
+    sim: 0.643
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 50.33
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:92
+    zitat: § 92 AO
+    titel: Beweismittel
+    sim: 17.13
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:HGB:589
+    zitat: § 589 HGB
+    titel: Verschulden eines Beteiligten oder eines Dritten
+    sim: 15.66
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:81
+    zitat: § 81 AktG
+    titel: Änderung des Vorstands und der Vertretungsbefugnis seiner Mitglieder
+    sim: 10.34
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:295
+    zitat: § 295 AktG
+    titel: Änderung
+    sim: 10.34
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Daneben prüft das Finanzamt, ob die Zwischenschaltung einer Auslandsgesellschaft
+
+    einen Missbrauch von rechtlichen Gestaltungsmöglichkeiten nach § 42 AO darstellt'
+  kandidaten:
+  - norm_id: norm:BewG:156
+    zitat: § 156 BewG
+    titel: Außenprüfung
+    sim: 0.598
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:117
+    zitat: § 117 AO
+    titel: Zwischenstaatliche Rechts- und Amtshilfe in Steuersachen
+    sim: 0.588
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 0.58
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.579
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AStG:9
+    zitat: § 9 AStG
+    titel: Freigrenze bei gemischten Einkünften
+    sim: 0.575
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 59.39
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:StBerG:5
+    zitat: § 5 StBerG
+    titel: Verbot der unbefugten Hilfeleistung in Steuersachen, Missbrauch von Berufsbezeichnungen
+    sim: 16.82
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UStG:22d
+    zitat: § 22d UStG
+    titel: Steuernummer und zuständiges Finanzamt
+    sim: 10.5
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:StBerG:59
+    zitat: § 59 StBerG
+    titel: 'Steuerberater oder Steuerbevollmächtigte im öffentlich-rechtlichen
+
+      Dienst- oder Amtsverhältnis'
+    sim: 9.88
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:FGO:102
+    zitat: § 102 FGO
+    titel: ''
+    sim: 6.17
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Die auf diese Gesellschaft übertragenen Wirtschaftsgüter könnten zudem weiterhin
+
+    der inländischen Gesellschaft als wirtschaftliches Eigentum zuzurechnen sein
+
+    (§ 39 Abs. 2 Nr. 1 AO)'
+  kandidaten:
+  - norm_id: norm:BewG:121
+    zitat: § 121 BewG
+    titel: Inlandsvermögen
+    sim: 0.647
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.616
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:17
+    zitat: § 17 KStG
+    titel: Andere Kapitalgesellschaften als Organgesellschaft
+    sim: 0.607
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:BewG:97
+    zitat: § 97 BewG
+    titel: Betriebsvermögen von Körperschaften, Personenvereinigungen und Vermögensmassen
+    sim: 0.597
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UmwG:321
+    zitat: § 321 UmwG
+    titel: Spaltungsfähige Gesellschaften
+    sim: 0.595
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:216
+    zitat: § 216 AO
+    titel: Überführung in das Eigentum des Bundes
+    sim: 16.86
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GrEStG:7
+    zitat: § 7 GrEStG
+    titel: Umwandlung von gemeinschaftlichem Eigentum in Flächeneigentum
+    sim: 12.04
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:EStDV:81
+    zitat: § 81 EStDV
+    titel: Bewertungsfreiheit für bestimmte Wirtschaftsgüter des Anlagevermögens im Kohlen- und Erzbergbau
+    sim: 9.42
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:UmwStG:3
+    zitat: § 3 UmwStG
+    titel: Wertansätze in der steuerlichen Schlussbilanz der übertragenden Körperschaft
+    sim: 8.75
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:InvStG:27
+    zitat: § 27 InvStG
+    titel: Rechtsformen von inländischen Spezial-Investmentfonds
+    sim: 8.55
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Schließlich erwägt das Finanzamt eine Vertreterhaftung des Geschäftsführers nach
+
+    § 69 AO wegen grob fahrlässiger Pflichtverletzung'
+  kandidaten:
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.599
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:22e
+    zitat: § 22e UStG
+    titel: Untersagung der Fiskalvertretung
+    sim: 0.559
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AktG:309
+    zitat: § 309 AktG
+    titel: 'Verantwortlichkeit der gesetzlichen Vertreter des
+
+      herrschenden Unternehmens'
+    sim: 0.552
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:StBerG:89
+    zitat: § 89 StBerG
+    titel: Ahndung einer Pflichtverletzung
+    sim: 0.549
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.546
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:HGB:567
+    zitat: § 567 HGB
+    titel: Pflichtverletzung
+    sim: 17.57
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:StBerG:89
+    zitat: § 89 StBerG
+    titel: Ahndung einer Pflichtverletzung
+    sim: 17.57
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:StBerG:163
+    zitat: § 163 StBerG
+    titel: Pflichtverletzung von Personen, deren sich der Verein bei der Hilfeleistung in Steuersachen
+      im Rahmen der Befugnis nach § 4 Nummer 11 bedient
+    sim: 17.57
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:401
+    zitat: § 401 AktG
+    titel: Pflichtverletzung bei Verlust, Überschuldung oder Zahlungsunfähigkeit
+    sim: 12.55
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:383b
+    zitat: § 383b AO
+    titel: Pflichtverletzung bei Übermittlung von Vollmachtsdaten
+    sim: 12.55
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao.txt
+  query: 'Ein zuvor ergangener Bescheid
+
+    enthielt eine offenbare Unrichtigkeit, die nach § 129 AO berichtigt wurde'
+  kandidaten:
+  - norm_id: norm:AO:129
+    zitat: § 129 AO
+    titel: Offenbare Unrichtigkeiten beim Erlass eines Verwaltungsakts
+    sim: 0.636
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:177
+    zitat: § 177 AO
+    titel: Berichtigung von materiellen Fehlern
+    sim: 0.558
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:280
+    zitat: § 280 AO
+    titel: Änderung des Aufteilungsbescheids
+    sim: 0.554
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.539
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:HGB:334
+    zitat: § 334 HGB
+    titel: Bußgeldvorschriften
+    sim: 0.525
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:129
+    zitat: § 129 AO
+    titel: Offenbare Unrichtigkeiten beim Erlass eines Verwaltungsakts
+    sim: 24.55
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:FGO:107
+    zitat: § 107 FGO
+    titel: ''
+    sim: 7.01
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UmwG:67
+    zitat: § 67 UmwG
+    titel: Anwendung der Vorschriften über die Nachgründung
+    sim: 5.4
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:414
+    zitat: § 414 HGB
+    titel: Verschuldensunabhängige Haftung des Absenders in besonderen Fällen
+    sim: 5.22
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:HGB:488
+    zitat: § 488 HGB
+    titel: Haftung des Befrachters und Dritter
+    sim: 5.22
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: Außenprüfung bei der Beta GmbH (rein tatsächliche Schilderung – die Begriffe werden bewusst NICHT
+    benannt)
+  kandidaten:
+  - norm_id: norm:BewG:156
+    zitat: § 156 BewG
+    titel: Außenprüfung
+    sim: 0.562
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 0.546
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:203a
+    zitat: § 203a AO
+    titel: Außenprüfung bei Datenübermittlung durch Dritte
+    sim: 0.532
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:193
+    zitat: § 193 AO
+    titel: Zulässigkeit einer Außenprüfung
+    sim: 0.532
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:203
+    zitat: § 203 AO
+    titel: Abgekürzte Außenprüfung
+    sim: 0.531
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:63
+    zitat: § 63 AO
+    titel: Anforderungen an die tatsächliche Geschäftsführung
+    sim: 17.13
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:193
+    zitat: § 193 AO
+    titel: Zulässigkeit einer Außenprüfung
+    sim: 15.66
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 15.66
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:198
+    zitat: § 198 AO
+    titel: Ausweispflicht, Beginn der Außenprüfung
+    sim: 15.66
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:203
+    zitat: § 203 AO
+    titel: Abgekürzte Außenprüfung
+    sim: 15.66
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Der Prüfer entdeckt, dass in mehreren Jahren Bareinnahmen nicht in der Kasse
+
+    erscheinen'
+  kandidaten:
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.652
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.648
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.647
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 0.586
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.553
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:28
+    zitat: § 28 StBerG
+    titel: Pflicht zum Erscheinen vor der Aufsichtsbehörde, Befugnisse der Aufsichtsbehörde
+    sim: 19.16
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:StBerG:80
+    zitat: § 80 StBerG
+    titel: Pflicht zum Erscheinen vor der Steuerberaterkammer
+    sim: 19.16
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:BewG:3
+    zitat: § 3 BewG
+    titel: Wertermittlung bei mehreren Beteiligten
+    sim: 12.49
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:EStDV:68a
+    zitat: § 68a EStDV
+    titel: Einkünfte aus mehreren ausländischen Staaten
+    sim: 12.49
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:198
+    zitat: § 198 AO
+    titel: Ausweispflicht, Beginn der Außenprüfung
+    sim: 10.22
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: Belege fehlen, die Kassenführung ist nicht nachvollziehbar
+  kandidaten:
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.642
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.633
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 0.632
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.629
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:129
+    zitat: § 129 AO
+    titel: Offenbare Unrichtigkeiten beim Erlass eines Verwaltungsakts
+    sim: 0.568
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:21
+    zitat: § 21 StBerG
+    titel: Aufzeichnungspflicht
+    sim: 5.22
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:UStDV:17a
+    zitat: § 17a UStDV
+    titel: Gelangensvermutung bei innergemeinschaftlichen Lieferungen in Beförderungs- und Versendungsfällen
+    sim: 5.22
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UStDV:17c
+    zitat: § 17c UStDV
+    titel: Nachweis bei innergemeinschaftlichen Lieferungen in Bearbeitungs- oder Verarbeitungsfällen
+    sim: 5.22
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:UStDV:20
+    zitat: § 20 UStDV
+    titel: Belegmäßiger Nachweis bei steuerfreien Leistungen, die sich auf Gegenstände der Ausfuhr oder
+      Einfuhr beziehen
+    sim: 5.22
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:HGB:416
+    zitat: § 416 HGB
+    titel: Anspruch auf Teilbeförderung
+    sim: 4.85
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Weil sich
+
+    die wirklichen Umsätze nicht mehr feststellen lassen, setzt das Finanzamt die
+
+    Bemessungsgrundlagen anhand allgemeiner Erfahrungssätze kurzerhand selbst an'
+  kandidaten:
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.668
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:20
+    zitat: § 20 UStG
+    titel: Berechnung der Steuer nach vereinnahmten Entgelten
+    sim: 0.591
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:88
+    zitat: § 88 AO
+    titel: Untersuchungsgrundsatz
+    sim: 0.584
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.541
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:212
+    zitat: § 212 AO
+    titel: Durchführungsvorschriften
+    sim: 0.54
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:270
+    zitat: § 270 AO
+    titel: Allgemeiner Aufteilungsmaßstab
+    sim: 21.58
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:UmwG:190
+    zitat: § 190 UmwG
+    titel: Allgemeiner Anwendungsbereich
+    sim: 21.58
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UStG:1
+    zitat: § 1 UStG
+    titel: Steuerbare Umsätze
+    sim: 14.3
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:UStG:22d
+    zitat: § 22d UStG
+    titel: Steuernummer und zuständiges Finanzamt
+    sim: 10.5
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UStDV:67
+    zitat: § 67 UStDV
+    titel: 'Aufzeichnungspflichten bei der Anwendung der Durchschnittssätze
+
+      für land- und forstwirtschaftliche Betriebe'
+    sim: 10.25
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: Die Steuerbescheide waren längst nicht mehr anfechtbar
+  kandidaten:
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.606
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:176
+    zitat: § 176 AO
+    titel: Vertrauensschutz bei der Aufhebung und Änderung von Steuerbescheiden
+    sim: 0.527
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:155
+    zitat: § 155 AO
+    titel: Steuerfestsetzung
+    sim: 0.523
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.518
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:175
+    zitat: § 175 AO
+    titel: Änderung von Steuerbescheiden auf Grund von Grundlagenbescheiden und bei rückwirkenden Ereignissen
+    sim: 0.518
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:157
+    zitat: § 157 AO
+    titel: Form und Inhalt der Steuerbescheide
+    sim: 18.48
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:FGO:67
+    zitat: § 67 FGO
+    titel: ''
+    sim: 6.73
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 5.28
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:50
+    zitat: § 50 AO
+    titel: Erlöschen und Unbedingtwerden der Verbrauchsteuer, Übergang der bedingten Verbrauchsteuerschuld
+    sim: 3.38
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:76
+    zitat: § 76 AO
+    titel: Sachhaftung
+    sim: 3.38
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Nun werden dem Amt
+
+    Umstände bekannt, die ihm bei der ursprünglichen Veranlagung nicht vorlagen'
+  kandidaten:
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.651
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.62
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.604
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.566
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.554
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:176
+    zitat: § 176 AktG
+    titel: Vorlagen. Anwesenheit des Abschlußprüfers
+    sim: 20.7
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:EStG:46
+    zitat: § 46 EStG
+    titel: Veranlagung bei Bezug von Einkünften aus nichtselbständiger Arbeit
+    sim: 14.92
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:EStDV:62d
+    zitat: § 62d EStDV
+    titel: Anwendung des § 10d des Gesetzes bei der Veranlagung von Ehegatten
+    sim: 10.65
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:EStG:26
+    zitat: § 26 EStG
+    titel: Veranlagung von Ehegatten
+    sim: 10.65
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:KStG:31
+    zitat: § 31 KStG
+    titel: Steuererklärungspflicht, Veranlagung und Erhebung von Körperschaftsteuer
+    sim: 10.65
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Ob
+
+    der Unternehmer die unvollständige Erklärung hätte vermeiden müssen, weil er die
+
+    Aufzeichnungen erkennbar nachlässig geführt hat, ist zwischen den Beteiligten
+
+    streitig'
+  kandidaten:
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.716
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:22
+    zitat: § 22 UStG
+    titel: Aufzeichnungspflichten
+    sim: 0.567
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UStDV:63
+    zitat: § 63 UStDV
+    titel: Aufzeichnungspflichten
+    sim: 0.552
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.544
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AktG:400
+    zitat: § 400 AktG
+    titel: Unrichtige Darstellung
+    sim: 0.543
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:145
+    zitat: § 145 AO
+    titel: Allgemeine Anforderungen an die Buchführung und Aufzeichnungen
+    sim: 14.7
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 14.7
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:147a
+    zitat: § 147a AO
+    titel: Vorschriften für die Aufbewahrung von Aufzeichnungen und Unterlagen bestimmter Steuerpflichtiger
+    sim: 14.7
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:EStDV:73d
+    zitat: § 73d EStDV
+    titel: Aufzeichnungen, Aufbewahrungspflichten, Steueraufsicht
+    sim: 14.7
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:HGB:289b
+    zitat: § 289b HGB
+    titel: Pflicht zur nichtfinanziellen Erklärung; Befreiungen
+    sim: 11.36
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Die Gesellschaft hatte ihre Lizenzrechte auf eine eigens dafür gegründete Firma
+
+    in einem Niedrigsteuerland übertragen'
+  kandidaten:
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.594
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.556
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.541
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:EStG:50h
+    zitat: § 50h EStG
+    titel: Bestätigung für Zwecke der Entlastung von Quellensteuern in einem anderen Mitgliedstaat der
+      Europäischen Union oder der Schweizerischen Eidgenossenschaft
+    sim: 0.504
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.497
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:4
+    zitat: § 4 AktG
+    titel: Firma
+    sim: 12.76
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:279
+    zitat: § 279 AktG
+    titel: Firma
+    sim: 12.76
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:4
+    zitat: § 4 GmbHG
+    titel: Firma
+    sim: 12.76
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:150
+    zitat: § 150 HGB
+    titel: Anmeldung des Erlöschens der Firma
+    sim: 12.76
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UmwG:18
+    zitat: § 18 UmwG
+    titel: Firma oder Name des übernehmenden Rechtsträgers
+    sim: 12.76
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Diese Firma verfügt über kein eigenes
+
+    Personal und über keine Geschäftsräume'
+  kandidaten:
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.621
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 0.607
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.594
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.581
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.573
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:4
+    zitat: § 4 AktG
+    titel: Firma
+    sim: 12.76
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:279
+    zitat: § 279 AktG
+    titel: Firma
+    sim: 12.76
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:4
+    zitat: § 4 GmbHG
+    titel: Firma
+    sim: 12.76
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:150
+    zitat: § 150 HGB
+    titel: Anmeldung des Erlöschens der Firma
+    sim: 12.76
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UmwG:18
+    zitat: § 18 UmwG
+    titel: Firma oder Name des übernehmenden Rechtsträgers
+    sim: 12.76
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'sie leitet die eingehenden Zahlungen
+
+    lediglich weiter'
+  kandidaten:
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.59
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.573
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.554
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 0.535
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.53
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:230
+    zitat: § 230 AktG
+    titel: Verbot von Zahlungen an die Aktionäre
+    sim: 15.75
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:EStG:50g
+    zitat: § 50g EStG
+    titel: Entlastung vom Steuerabzug bei Zahlungen von Zinsen und Lizenzgebühren zwischen verbundenen
+      Unternehmen verschiedener Mitgliedstaaten der Europäischen Union
+    sim: 11.25
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:FGO:92
+    zitat: § 92 FGO
+    titel: ''
+    sim: 6.17
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:ErbStG:18
+    zitat: § 18 ErbStG
+    titel: Mitgliederbeiträge
+    sim: 4.68
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:GrStG:37
+    zitat: § 37 GrStG
+    titel: Anwendung des Gesetzes
+    sim: 4.62
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Tatsächlich wurde alles unverändert vom inländischen Betrieb
+
+    aus gesteuert, der die Rechte auch weiterhin nutzte und über sie verfügte'
+  kandidaten:
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.668
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.626
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.542
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.535
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.531
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:160
+    zitat: § 160 BewG
+    titel: Betrieb der Land- und Forstwirtschaft
+    sim: 11.17
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:BewG:234
+    zitat: § 234 BewG
+    titel: Betrieb der Land- und Forstwirtschaft
+    sim: 11.17
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:71b
+    zitat: § 71b AktG
+    titel: Rechte aus eigenen Aktien
+    sim: 10.48
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:216
+    zitat: § 216 AktG
+    titel: Wahrung der Rechte der Aktionäre und Dritter
+    sim: 10.48
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:402
+    zitat: § 402 AO
+    titel: Allgemeine Rechte und Pflichten der Finanzbehörde
+    sim: 10.48
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_ao_edge.txt
+  query: 'Schließlich soll der Geschäftsführer persönlich für die offenen Beträge einstehen,
+
+    weil er die fälligen Abgaben trotz ausreichender Mittel über Monate nicht an das
+
+    Finanzamt weitergeleitet, sondern andere Gläubiger bevorzugt bedient hat'
+  kandidaten:
+  - norm_id: norm:GmbHG:6
+    zitat: § 6 GmbHG
+    titel: Geschäftsführer
+    sim: 0.605
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.6
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:134
+    zitat: § 134 UmwG
+    titel: Schutz der Gläubiger in besonderen Fällen
+    sim: 0.591
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:InvStG:32
+    zitat: § 32 InvStG
+    titel: Haftung bei ausgeübter Transparenzoption
+    sim: 0.583
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:GmbHG:43
+    zitat: § 43 GmbHG
+    titel: Haftung der Geschäftsführer
+    sim: 0.578
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:163
+    zitat: § 163 StBerG
+    titel: Pflichtverletzung von Personen, deren sich der Verein bei der Hilfeleistung in Steuersachen
+      im Rahmen der Befugnis nach § 4 Nummer 11 bedient
+    sim: 19.16
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GmbHG:6
+    zitat: § 6 GmbHG
+    titel: Geschäftsführer
+    sim: 14.43
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:39
+    zitat: § 39 GmbHG
+    titel: Anmeldung der Geschäftsführer
+    sim: 14.43
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:GmbHG:43
+    zitat: § 43 GmbHG
+    titel: Haftung der Geschäftsführer
+    sim: 14.43
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:StBerG:121
+    zitat: § 121 StBerG
+    titel: Hauptverhandlung trotz Ausbleibens des Mitglieds der Steuerberaterkammer
+    sim: 14.07
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: Sachverhalt (rein tatsächliche Schilderung – die Rechtsbegriffe werden bewusst NICHT benannt)
+  kandidaten:
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.554
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:129
+    zitat: § 129 AO
+    titel: Offenbare Unrichtigkeiten beim Erlass eines Verwaltungsakts
+    sim: 0.551
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.508
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:4
+    zitat: § 4 AO
+    titel: Gesetz
+    sim: 0.491
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.483
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:63
+    zitat: § 63 AO
+    titel: Anforderungen an die tatsächliche Geschäftsführung
+    sim: 17.13
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:HGB:475g
+    zitat: § 475g HGB
+    titel: Traditionswirkung des Lagerscheins
+    sim: 5.55
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:HGB:513
+    zitat: § 513 HGB
+    titel: Anspruch auf Ausstellung eines Konnossements
+    sim: 5.55
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:59
+    zitat: § 59 AO
+    titel: Voraussetzung der Steuervergünstigung
+    sim: 4.89
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:FGO:76
+    zitat: § 76 FGO
+    titel: ''
+    sim: 4.89
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: Die Alpha SE hält alle Anteile und damit sämtliche Stimmen an der Beta GmbH
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.51
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.485
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AktG:118
+    zitat: § 118 AktG
+    titel: Allgemeines
+    sim: 0.478
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:GmbHG:47
+    zitat: § 47 GmbHG
+    titel: Abstimmung
+    sim: 0.464
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.44
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:UStG:3b
+    zitat: § 3b UStG
+    titel: Ort der Beförderungsleistungen und der damit zusammenhängenden sonstigen Leistungen
+    sim: 10.36
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:BewG:11
+    zitat: § 11 BewG
+    titel: Wertpapiere und Anteile
+    sim: 10.12
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:HGB:307
+    zitat: § 307 HGB
+    titel: Anteile anderer Gesellschafter
+    sim: 10.12
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:UmwStG:21
+    zitat: § 21 UmwStG
+    titel: Bewertung der Anteile beim Anteilstausch
+    sim: 10.12
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:ErbStG:13a
+    zitat: § 13a ErbStG
+    titel: Steuerbefreiung für Betriebsvermögen, Betriebe der Land- und Forstwirtschaft und Anteile an
+      Kapitalgesellschaften
+    sim: 7.23
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: Beide Gesellschaften werden von derselben Person geführt
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.653
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.635
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.574
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.568
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.562
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:HGB:604
+    zitat: § 604 HGB
+    titel: Rangordnung der Pfandrechte unter derselben Nummer
+    sim: 14.92
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GmbHG:77a
+    zitat: § 77a GmbHG
+    titel: Besetzung von Organen bei Gesellschaften mit Mehrheitsbeteiligung des Bundes
+    sim: 10.65
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:HGB:13g
+    zitat: § 13g HGB
+    titel: Zweigniederlassungen von Gesellschaften mit beschränkter Haftung mit Sitz im Ausland
+    sim: 10.65
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:UmwG:306
+    zitat: § 306 UmwG
+    titel: Verschmelzungsfähige Gesellschaften
+    sim: 10.65
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UmwG:321
+    zitat: § 321 UmwG
+    titel: Spaltungsfähige Gesellschaften
+    sim: 10.65
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'in der Beta GmbH kann
+
+    diese Person jede Entscheidung, die ihren Vorstellungen zuwiderläuft, von
+
+    vornherein unterbinden'
+  kandidaten:
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.607
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:StBerG:140
+    zitat: § 140 StBerG
+    titel: Zuwiderhandlungen gegen das Verbot
+    sim: 0.513
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:41
+    zitat: § 41 UmwG
+    titel: Widerspruch gegen den Beschluss der Gesellschafterversammlung
+    sim: 0.507
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.499
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:HGB:111
+    zitat: § 111 HGB
+    titel: Anfechtungsbefugnis; Rechtsschutzbedürfnis
+    sim: 0.497
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:260
+    zitat: § 260 AktG
+    titel: Gerichtliche Entscheidung über die abschließenden Feststellungen der Sonderprüfer
+    sim: 9.87
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GmbHG:51b
+    zitat: § 51b GmbHG
+    titel: Gerichtliche Entscheidung über das Auskunfts- und Einsichtsrecht
+    sim: 9.87
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:StBerG:82
+    zitat: § 82 StBerG
+    titel: Antrag auf berufsgerichtliche Entscheidung
+    sim: 9.87
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:StBerG:149
+    zitat: § 149 StBerG
+    titel: Kostenpflicht in dem Verfahren bei Anträgen auf berufsgerichtliche Entscheidung über die Rüge
+    sim: 9.87
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UStDV:30
+    zitat: § 30 UStDV
+    titel: Schausteller
+    sim: 8.11
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'Die Beta GmbH liefert ihre Erzeugnisse fast vollständig
+
+    an die Alpha SE und richtet ihren Betrieb ganz auf deren Bedarf aus'
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.522
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.513
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.477
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.469
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.458
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:160
+    zitat: § 160 BewG
+    titel: Betrieb der Land- und Forstwirtschaft
+    sim: 11.17
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:BewG:234
+    zitat: § 234 BewG
+    titel: Betrieb der Land- und Forstwirtschaft
+    sim: 11.17
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:HGB:564
+    zitat: § 564 HGB
+    titel: Kosten für den Betrieb des Schiffes
+    sim: 7.98
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:66
+    zitat: § 66 AktG
+    titel: Keine Befreiung der Aktionäre von ihren Leistungspflichten
+    sim: 7.33
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:HGB:129
+    zitat: § 129 HGB
+    titel: Zwangsvollstreckung gegen die Gesellschaft oder gegen ihre Gesellschafter
+    sim: 5.89
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'Zum Jahreswechsel übernimmt ein außenstehender Käufer innerhalb weniger Monate
+
+    60 % der Anteile an der Beta GmbH'
+  kandidaten:
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.615
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.503
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:87
+    zitat: § 87 UmwG
+    titel: Anteilstausch
+    sim: 0.497
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:UmwG:313
+    zitat: § 313 UmwG
+    titel: Barabfindung
+    sim: 0.493
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.492
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:307
+    zitat: § 307 AktG
+    titel: 'Vertragsbeendigung zur Sicherung
+
+      außenstehender Aktionäre'
+    sim: 28.39
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:HGB:403
+    zitat: § 403 HGB
+    titel: ''
+    sim: 10.85
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:BewG:11
+    zitat: § 11 BewG
+    titel: Wertpapiere und Anteile
+    sim: 10.12
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:307
+    zitat: § 307 HGB
+    titel: Anteile anderer Gesellschafter
+    sim: 10.12
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UmwStG:21
+    zitat: § 21 UmwStG
+    titel: Bewertung der Anteile beim Anteilstausch
+    sim: 10.12
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'Kurz darauf bleibt die jährliche Weiterleitung
+
+    des Überschusses an die Muttergesellschaft aus'
+  kandidaten:
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.595
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.571
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.56
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.559
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.558
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:EStG:43b
+    zitat: § 43b EStG
+    titel: Bemessung der Kapitalertragsteuer bei bestimmten Gesellschaften
+    sim: 8.11
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:KStG:21
+    zitat: § 21 KStG
+    titel: Beitragsrückerstattungen
+    sim: 6.03
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:67c
+    zitat: § 67c AktG
+    titel: Übermittlung von Informationen durch Intermediäre an die Gesellschaft; Nachweis des Anteilsbesitzes
+    sim: 5.63
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:67f
+    zitat: § 67f AktG
+    titel: Kosten; Verordnungsermächtigung
+    sim: 5.63
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:EStG:7
+    zitat: § 7 EStG
+    titel: Absetzung für Abnutzung oder Substanzverringerung
+    sim: 3.13
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'in den Büchern wird die
+
+    entsprechende Forderung nicht ausgewiesen'
+  kandidaten:
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.588
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:173
+    zitat: § 173 AO
+    titel: Aufhebung oder Änderung von Steuerbescheiden wegen neuer Tatsachen oder Beweismittel
+    sim: 0.588
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:146
+    zitat: § 146 AO
+    titel: Ordnungsvorschriften für die Buchführung und für Aufzeichnungen
+    sim: 0.554
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.514
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AStG:7
+    zitat: § 7 AStG
+    titel: Beteiligung an ausländischer Zwischengesellschaft
+    sim: 0.512
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:310
+    zitat: § 310 AO
+    titel: Pfändung einer durch Hypothek gesicherten Forderung
+    sim: 14.18
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:311
+    zitat: § 311 AO
+    titel: Pfändung einer durch Schiffshypothek oder Registerpfandrecht an einem Luftfahrzeug gesicherten
+      Forderung
+    sim: 14.18
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:320
+    zitat: § 320 AO
+    titel: Mehrfache Pfändung einer Forderung
+    sim: 14.18
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:599
+    zitat: § 599 HGB
+    titel: Erlöschen der Forderung
+    sim: 14.18
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:312
+    zitat: § 312 AO
+    titel: Pfändung einer Forderung aus indossablen Papieren
+    sim: 10.13
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'Die Beta GmbH erwirbt zudem laufend Grundstücke und veräußert sie nach kurzer
+
+    Haltedauer mit Aufschlag wieder'
+  kandidaten:
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.55
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.503
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:EStG:23
+    zitat: § 23 EStG
+    titel: Private Veräußerungsgeschäfte
+    sim: 0.499
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.496
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:EStG:14
+    zitat: § 14 EStG
+    titel: Veräußerung des Betriebs
+    sim: 0.496
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:178
+    zitat: § 178 BewG
+    titel: Begriff der unbebauten Grundstücke
+    sim: 14.37
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:BewG:179
+    zitat: § 179 BewG
+    titel: Bewertung der unbebauten Grundstücke
+    sim: 14.37
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:BewG:180
+    zitat: § 180 BewG
+    titel: Begriff der bebauten Grundstücke
+    sim: 14.37
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:BewG:182
+    zitat: § 182 BewG
+    titel: Bewertung der bebauten Grundstücke
+    sim: 14.37
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:BewG:246
+    zitat: § 246 BewG
+    titel: Begriff der unbebauten Grundstücke
+    sim: 14.37
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_beschreibung.txt
+  query: 'ein eigener Mitarbeiterstab steuert diese
+
+    An- und Verkäufe planmäßig'
+  kandidaten:
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.639
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.609
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.565
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.561
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:162
+    zitat: § 162 AO
+    titel: Schätzung von Besteuerungsgrundlagen
+    sim: 0.557
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:71
+    zitat: § 71 AktG
+    titel: Erwerb eigener Aktien
+    sim: 16.16
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:71e
+    zitat: § 71e AktG
+    titel: Inpfandnahme eigener Aktien
+    sim: 16.16
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:33
+    zitat: § 33 GmbHG
+    titel: Erwerb eigener Geschäftsanteile
+    sim: 16.16
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:56
+    zitat: § 56 AktG
+    titel: 'Keine Zeichnung eigener Aktien. Aktienübernahme für Rechnung
+
+      der Gesellschaft oder durch ein abhängiges oder in Mehrheitsbesitz
+
+      stehendes Unternehmen'
+    sim: 11.54
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:71c
+    zitat: § 71c AktG
+    titel: Veräußerung und Einziehung eigener Aktien
+    sim: 11.54
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: Umstrukturierung der M-Gruppe
+  kandidaten:
+  - norm_id: norm:UmwG:355
+    zitat: § 355 UmwG
+    titel: Übergangsvorschrift zum Gesetz zur Umsetzung der Umwandlungsrichtlinie und zur Änderung weiterer
+      Gesetze
+    sim: 0.46
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.454
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:HGB:327
+    zitat: § 327 HGB
+    titel: Größenabhängige Erleichterungen für mittelgroße Kapitalgesellschaften bei der Offenlegung
+    sim: 0.449
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:HGB:267
+    zitat: § 267 HGB
+    titel: Umschreibung der Größenklassen
+    sim: 0.448
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:GrEStG:6a
+    zitat: § 6a GrEStG
+    titel: Steuervergünstigung bei Umstrukturierungen im Konzern
+    sim: 0.442
+    rang: 5
+    quelle: embedding
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: Die M-GmbH hält 100 % der Anteile an der T-GmbH
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.478
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.471
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.42
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:393a
+    zitat: § 393a AktG
+    titel: Besetzung von Organen bei Aktiengesellschaften mit Mehrheitsbeteiligung des Bundes
+    sim: 0.419
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.418
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:11
+    zitat: § 11 BewG
+    titel: Wertpapiere und Anteile
+    sim: 10.12
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:HGB:307
+    zitat: § 307 HGB
+    titel: Anteile anderer Gesellschafter
+    sim: 10.12
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UmwStG:21
+    zitat: § 21 UmwStG
+    titel: Bewertung der Anteile beim Anteilstausch
+    sim: 10.12
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:ErbStG:13a
+    zitat: § 13a ErbStG
+    titel: Steuerbefreiung für Betriebsvermögen, Betriebe der Land- und Forstwirtschaft und Anteile an
+      Kapitalgesellschaften
+    sim: 7.23
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:EStDV:53
+    zitat: § 53 EStDV
+    titel: Anschaffungskosten bestimmter Anteile an Kapitalgesellschaften
+    sim: 7.23
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Zwischen beiden Gesellschaften
+
+    besteht seit 2019 ein Gewinnabführungsvertrag'
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.635
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AktG:291
+    zitat: § 291 AktG
+    titel: Beherrschungsvertrag. Gewinnabführungsvertrag
+    sim: 0.538
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AktG:304
+    zitat: § 304 AktG
+    titel: Angemessener Ausgleich
+    sim: 0.536
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:324
+    zitat: § 324 AktG
+    titel: Gesetzliche Rücklage. Gewinnabführung. Verlustübernahme
+    sim: 0.535
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.533
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:316
+    zitat: § 316 AktG
+    titel: 'Kein Bericht über Beziehungen zu verbundenen Unternehmen
+
+      bei Gewinnabführungsvertrag'
+    sim: 22.32
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:291
+    zitat: § 291 AktG
+    titel: Beherrschungsvertrag. Gewinnabführungsvertrag
+    sim: 19.41
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:77a
+    zitat: § 77a GmbHG
+    titel: Besetzung von Organen bei Gesellschaften mit Mehrheitsbeteiligung des Bundes
+    sim: 10.65
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:13g
+    zitat: § 13g HGB
+    titel: Zweigniederlassungen von Gesellschaften mit beschränkter Haftung mit Sitz im Ausland
+    sim: 10.65
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:UmwG:306
+    zitat: § 306 UmwG
+    titel: Verschmelzungsfähige Gesellschaften
+    sim: 10.65
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Die finanzielle Eingliederung der
+
+    T-GmbH war bislang unstreitig, da die M-GmbH über die Mehrheit der Stimmrechte
+
+    verfügt'
+  kandidaten:
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.566
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.544
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.523
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:16
+    zitat: § 16 AktG
+    titel: 'In Mehrheitsbesitz stehende Unternehmen und mit Mehrheit
+
+      beteiligte Unternehmen'
+    sim: 0.51
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:GmbHG:57m
+    zitat: § 57m GmbHG
+    titel: Verhältnis der Rechte; Beziehungen zu Dritten
+    sim: 0.509
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AktG:319
+    zitat: § 319 AktG
+    titel: Eingliederung
+    sim: 20.0
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:320
+    zitat: § 320 AktG
+    titel: Eingliederung durch Mehrheitsbeschluß
+    sim: 20.0
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:320a
+    zitat: § 320a AktG
+    titel: Wirkungen der Eingliederung
+    sim: 20.0
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:327
+    zitat: § 327 AktG
+    titel: Ende der Eingliederung
+    sim: 20.0
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:16
+    zitat: § 16 AktG
+    titel: 'In Mehrheitsbesitz stehende Unternehmen und mit Mehrheit
+
+      beteiligte Unternehmen'
+    sim: 18.34
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Auch die organisatorische Eingliederung wurde angenommen, weil der
+
+    Geschäftsführer der M-GmbH zugleich die laufende Geschäftsführung der T-GmbH
+
+    beherrschte und so eine abweichende Willensbildung verhindern konnte'
+  kandidaten:
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.547
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.54
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:52
+    zitat: § 52 UmwG
+    titel: Anmeldung der Verschmelzung
+    sim: 0.494
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:91
+    zitat: § 91 AktG
+    titel: Organisation. Buchführung
+    sim: 0.493
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:GmbHG:41
+    zitat: § 41 GmbHG
+    titel: Buchführung
+    sim: 0.49
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:35
+    zitat: § 35 StBerG
+    titel: Zulassung zur Prüfung, Befreiung von der Prüfung, organisatorische Durchführung der Prüfung,
+      Abnahme der Prüfung, Wiederholung der Prüfung und Besetzung des Prüfungsausschusses
+    sim: 21.12
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:319
+    zitat: § 319 AktG
+    titel: Eingliederung
+    sim: 20.0
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:320
+    zitat: § 320 AktG
+    titel: Eingliederung durch Mehrheitsbeschluß
+    sim: 20.0
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:320a
+    zitat: § 320a AktG
+    titel: Wirkungen der Eingliederung
+    sim: 20.0
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:327
+    zitat: § 327 AktG
+    titel: Ende der Eingliederung
+    sim: 20.0
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: April 2026 wechselt der Geschäftsführer der T-GmbH
+  kandidaten:
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.434
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UmwG:230
+    zitat: § 230 UmwG
+    titel: Vorbereitung der Versammlung der Anteilsinhaber
+    sim: 0.406
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.399
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:GmbHG:6
+    zitat: § 6 GmbHG
+    titel: Geschäftsführer
+    sim: 0.375
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UmwG:260
+    zitat: § 260 UmwG
+    titel: Vorbereitung der Generalversammlung
+    sim: 0.374
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:GmbHG:6
+    zitat: § 6 GmbHG
+    titel: Geschäftsführer
+    sim: 14.43
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GmbHG:39
+    zitat: § 39 GmbHG
+    titel: Anmeldung der Geschäftsführer
+    sim: 14.43
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:43
+    zitat: § 43 GmbHG
+    titel: Haftung der Geschäftsführer
+    sim: 14.43
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:KStG:36
+    zitat: § 36 KStG
+    titel: Endbestände
+    sim: 4.45
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:GmbHG:8
+    zitat: § 8 GmbHG
+    titel: Inhalt der Anmeldung
+    sim: 4.12
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Der neue
+
+    Geschäftsführer ist nicht mehr personell mit der M-GmbH verflochten'
+  kandidaten:
+  - norm_id: norm:AO:69
+    zitat: § 69 AO
+    titel: Haftung der Vertreter
+    sim: 0.546
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.496
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:42
+    zitat: § 42 AO
+    titel: Missbrauch von rechtlichen Gestaltungsmöglichkeiten
+    sim: 0.483
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.473
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.472
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:GmbHG:6
+    zitat: § 6 GmbHG
+    titel: Geschäftsführer
+    sim: 14.43
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:GmbHG:39
+    zitat: § 39 GmbHG
+    titel: Anmeldung der Geschäftsführer
+    sim: 14.43
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:GmbHG:43
+    zitat: § 43 GmbHG
+    titel: Haftung der Geschäftsführer
+    sim: 14.43
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:74
+    zitat: § 74 AktG
+    titel: 'Neue Urkunden an Stelle beschädigter oder verunstalteter
+
+      Aktien oder Zwischenscheine'
+    sim: 9.49
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:75
+    zitat: § 75 AktG
+    titel: Neue Gewinnanteilscheine
+    sim: 9.49
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Damit
+
+    stellt sich die Frage, ob die organisatorische Eingliederung fortbesteht oder
+
+    ob die Willensdurchsetzung des Organträgers entfallen ist'
+  kandidaten:
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.625
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.573
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UmwG:132a
+    zitat: § 132a UmwG
+    titel: Mitbestimmungsbeibehaltung
+    sim: 0.57
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:KStG:19
+    zitat: § 19 KStG
+    titel: Steuerabzug bei dem Organträger
+    sim: 0.54
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AO:55
+    zitat: § 55 AO
+    titel: Selbstlosigkeit
+    sim: 0.535
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:35
+    zitat: § 35 StBerG
+    titel: Zulassung zur Prüfung, Befreiung von der Prüfung, organisatorische Durchführung der Prüfung,
+      Abnahme der Prüfung, Wiederholung der Prüfung und Besetzung des Prüfungsausschusses
+    sim: 21.12
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AktG:319
+    zitat: § 319 AktG
+    titel: Eingliederung
+    sim: 20.0
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:320
+    zitat: § 320 AktG
+    titel: Eingliederung durch Mehrheitsbeschluß
+    sim: 20.0
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AktG:320a
+    zitat: § 320a AktG
+    titel: Wirkungen der Eingliederung
+    sim: 20.0
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AktG:327
+    zitat: § 327 AktG
+    titel: Ende der Eingliederung
+    sim: 20.0
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Parallel wurden im Februar 2026 48 % der Anteile an der T-GmbH an einen Investor
+
+    veräußert'
+  kandidaten:
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.525
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:EStG:17
+    zitat: § 17 EStG
+    titel: Veräußerung von Anteilen an Kapitalgesellschaften
+    sim: 0.431
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:8
+    zitat: § 8 KStG
+    titel: Ermittlung des Einkommens
+    sim: 0.424
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.421
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UmwG:33
+    zitat: § 33 UmwG
+    titel: Anderweitige Veräußerung
+    sim: 0.42
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:BewG:11
+    zitat: § 11 BewG
+    titel: Wertpapiere und Anteile
+    sim: 10.12
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:HGB:307
+    zitat: § 307 HGB
+    titel: Anteile anderer Gesellschafter
+    sim: 10.12
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:UmwStG:21
+    zitat: § 21 UmwStG
+    titel: Bewertung der Anteile beim Anteilstausch
+    sim: 10.12
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:32b
+    zitat: § 32b AO
+    titel: Informationspflicht der Finanzbehörde, wenn personenbezogene Daten nicht bei der betroffenen
+      Person erhoben wurden
+    sim: 7.61
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:ErbStG:13a
+    zitat: § 13a ErbStG
+    titel: Steuerbefreiung für Betriebsvermögen, Betriebe der Land- und Forstwirtschaft und Anteile an
+      Kapitalgesellschaften
+    sim: 7.23
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: eine weitere Tranche von 7 % ist für Herbst geplant
+  kandidaten:
+  - norm_id: norm:KStG:23
+    zitat: § 23 KStG
+    titel: Steuersatz
+    sim: 0.478
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:EStG:34a
+    zitat: § 34a EStG
+    titel: Begünstigung der nicht entnommenen Gewinne
+    sim: 0.46
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:UStG:28
+    zitat: § 28 UStG
+    titel: Zeitlich begrenzte Fassungen einzelner Gesetzesvorschriften
+    sim: 0.452
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:InvStG:18
+    zitat: § 18 InvStG
+    titel: Vorabpauschale
+    sim: 0.447
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:EStG:118
+    zitat: § 118 EStG
+    titel: Energiepreispauschale im Einkommensteuer-Vorauszahlungsverfahren
+    sim: 0.442
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:StBerG:34
+    zitat: § 34 StBerG
+    titel: Berufliche Niederlassung, weitere Beratungsstellen
+    sim: 11.55
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:EStG:58
+    zitat: § 58 EStG
+    titel: Weitere Anwendung von Rechtsvorschriften, die vor Herstellung der Einheit Deutschlands in dem
+      in Artikel 3 des Einigungsvertrages genannten Gebiet gegolten haben
+    sim: 8.25
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:StBerG:76d
+    zitat: § 76d StBerG
+    titel: Weitere Eintragungen in das Berufsregister
+    sim: 8.25
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:HGB:359
+    zitat: § 359 HGB
+    titel: ''
+    sim: 8.11
+    rang: 4
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Zu prüfen ist,
+
+    ob hierin ein schädlicher Beteiligungserwerb im Sinne des § 8c KStG liegt und
+
+    ob die tatsächliche Durchführung des Gewinnabführungsvertrags im laufenden
+
+    Wirtschaftsjahr noch gewährleistet ist'
+  kandidaten:
+  - norm_id: norm:KStG:8d
+    zitat: § 8d KStG
+    titel: Fortführungsgebundener Verlustvortrag
+    sim: 0.64
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.61
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.595
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AktG:256
+    zitat: § 256 AktG
+    titel: Nichtigkeit
+    sim: 0.595
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:AktG:292
+    zitat: § 292 AktG
+    titel: Andere Unternehmensverträge
+    sim: 0.594
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:EStG:94
+    zitat: § 94 EStG
+    titel: Verfahren bei schädlicher Verwendung
+    sim: 18.55
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:63
+    zitat: § 63 AO
+    titel: Anforderungen an die tatsächliche Geschäftsführung
+    sim: 17.13
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:EStDV:8b
+    zitat: § 8b EStDV
+    titel: Wirtschaftsjahr
+    sim: 13.89
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:EStDV:8c
+    zitat: § 8c EStDV
+    titel: Wirtschaftsjahr bei Land- und Forstwirten
+    sim: 13.89
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:EStG:4a
+    zitat: § 4a EStG
+    titel: Gewinnermittlungszeitraum, Wirtschaftsjahr
+    sim: 13.89
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Schließlich vermietet die T-GmbH seit 2025 mehrere Immobilien und veräußert
+
+    diese in kurzer Folge wieder'
+  kandidaten:
+  - norm_id: norm:EStG:23
+    zitat: § 23 EStG
+    titel: Private Veräußerungsgeschäfte
+    sim: 0.48
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:KStG:8c
+    zitat: § 8c KStG
+    titel: Verlustabzug bei Körperschaften
+    sim: 0.477
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.473
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.472
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.44
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:291
+    zitat: § 291 AO
+    titel: Niederschrift
+    sim: 8.11
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:InvStG:2
+    zitat: § 2 InvStG
+    titel: Begriffsbestimmungen
+    sim: 6.17
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:InvStG:26
+    zitat: § 26 InvStG
+    titel: Anlagebestimmungen
+    sim: 6.17
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:InvStG:35
+    zitat: § 35 InvStG
+    titel: Ausgeschüttete Erträge und Ausschüttungsreihenfolge
+    sim: 6.17
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:EStG:48
+    zitat: § 48 EStG
+    titel: Steuerabzug
+    sim: 6.03
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Ob die T-GmbH insoweit gewerblich tätig ist oder
+
+    nur vermögensverwaltend handelt, bedarf einer Gesamtwürdigung der tatsächlichen
+
+    Verhältnisse'
+  kandidaten:
+  - norm_id: norm:BewG:109
+    zitat: § 109 BewG
+    titel: Bewertung
+    sim: 0.608
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.567
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.555
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:HGB:341b
+    zitat: § 341b HGB
+    titel: Bewertung von Vermögensgegenständen
+    sim: 0.553
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:BewG:163
+    zitat: § 163 BewG
+    titel: Ermittlung der Wirtschaftswerte
+    sim: 0.55
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:InvStG:5
+    zitat: § 5 InvStG
+    titel: Prüfung der steuerlichen Verhältnisse
+    sim: 12.84
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:AO:194
+    zitat: § 194 AO
+    titel: Sachlicher Umfang einer Außenprüfung
+    sim: 6.46
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AO:82
+    zitat: § 82 AO
+    titel: Ausgeschlossene Personen
+    sim: 3.92
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:AO:86
+    zitat: § 86 AO
+    titel: Beginn des Verfahrens
+    sim: 3.92
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:BewG:9
+    zitat: § 9 BewG
+    titel: Bewertungsgrundsatz, gemeiner Wert
+    sim: 3.67
+    rang: 5
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: Fraglich ist außerdem, ob eine Betriebsaufspaltung vorliegt
+  kandidaten:
+  - norm_id: norm:AO:153
+    zitat: § 153 AO
+    titel: Berichtigung von Erklärungen
+    sim: 0.628
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:AO:39
+    zitat: § 39 AO
+    titel: Zurechnung
+    sim: 0.57
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.565
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:UmwG:150
+    zitat: § 150 UmwG
+    titel: Möglichkeit der Spaltung
+    sim: 0.558
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:GewStG:30
+    zitat: § 30 GewStG
+    titel: Zerlegung bei mehrgemeindlichen Betriebsstätten
+    sim: 0.557
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:86
+    zitat: § 86 AO
+    titel: Beginn des Verfahrens
+    sim: 3.97
+    rang: 1
+    quelle: trigger
+  ziele: []
+- datei: examples/beispiel_organschaft.txt
+  query: 'Eine
+
+    Betriebsaufspaltung setzt voraus, dass zwischen Besitz- und Betriebsunternehmen
+
+    eine sachliche und personelle Verflechtung besteht'
+  kandidaten:
+  - norm_id: norm:UStG:2
+    zitat: § 2 UStG
+    titel: Unternehmer, Unternehmen
+    sim: 0.609
+    rang: 1
+    quelle: embedding
+  - norm_id: norm:UmwG:132a
+    zitat: § 132a UmwG
+    titel: Mitbestimmungsbeibehaltung
+    sim: 0.605
+    rang: 2
+    quelle: embedding
+  - norm_id: norm:KStG:14
+    zitat: § 14 KStG
+    titel: Aktiengesellschaft oder Kommanditgesellschaft auf Aktien als Organgesellschaft
+    sim: 0.602
+    rang: 3
+    quelle: embedding
+  - norm_id: norm:EStG:15
+    zitat: § 15 EStG
+    titel: Einkünfte aus Gewerbebetrieb
+    sim: 0.601
+    rang: 4
+    quelle: embedding
+  - norm_id: norm:UmwG:168
+    zitat: § 168 UmwG
+    titel: Möglichkeit der Ausgliederung
+    sim: 0.583
+    rang: 5
+    quelle: embedding
+  - norm_id: norm:AO:16
+    zitat: § 16 AO
+    titel: Sachliche Zuständigkeit
+    sim: 22.76
+    rang: 1
+    quelle: trigger
+  - norm_id: norm:StBerG:55h
+    zitat: § 55h StBerG
+    titel: Bürogemeinschaft
+    sim: 7.42
+    rang: 2
+    quelle: trigger
+  - norm_id: norm:AktG:35
+    zitat: § 35 AktG
+    titel: Meinungsverschiedenheiten zwischen Gründern und Gründungsprüfern. Vergütung und Auslagen der
+      Gründungsprüfer
+    sim: 7.26
+    rang: 3
+    quelle: trigger
+  - norm_id: norm:EStG:50g
+    zitat: § 50g EStG
+    titel: Entlastung vom Steuerabzug bei Zahlungen von Zinsen und Lizenzgebühren zwischen verbundenen
+      Unternehmen verschiedener Mitgliedstaaten der Europäischen Union
+    sim: 7.26
+    rang: 4
+    quelle: trigger
+  - norm_id: norm:AO:158
+    zitat: § 158 AO
+    titel: Beweiskraft der Buchführung
+    sim: 6.5
+    rang: 5
+    quelle: trigger
+  ziele: []
