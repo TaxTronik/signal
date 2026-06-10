@@ -37,3 +37,17 @@ def _kein_ner(monkeypatch):
     """
     monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: None)
     monkeypatch.delenv("RISK_LAYER_NER", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _kein_lemma(monkeypatch):
+    """Kein Test lädt implizit das echte spaCy-Modell des Lemma-Pfads (/LF50/).
+
+    Gleiches Muster wie ``_kein_ner``: der Lade-Seam ``risk_layer.lemma._lade_nlp``
+    (Modul-Cache ``_NLP``) wird auf None gepatcht – matcher.match_lemma und
+    pipeline (optionen.lemma) degradieren damit zum exakt heutigen Verhalten.
+    tests/test_lemma.py injiziert sein Fake-NLP über DENSELBEN Seam –
+    test-lokale monkeypatches überschreiben diese Fixture.
+    """
+    monkeypatch.setattr("risk_layer.lemma._lade_nlp", lambda: None)
+    monkeypatch.delenv("RISK_LAYER_LEMMA", raising=False)

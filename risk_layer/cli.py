@@ -99,6 +99,7 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
             abweichung=args.abweichung,
             detektor=True,
             streit=True,
+            lemma=args.lemma,
         ),
         berater=berater,
         graph=graph,
@@ -660,6 +661,9 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
     a.add_argument("--abweichung", action="store_true",
                    help="Abweichungs-Analyse (wie /v1/analyse optionen.abweichung)")
+    a.add_argument("--lemma", action="store_true",
+                   help="Lemma-Robustheitspfad /LF50/: flektierte Katalogformen "
+                        "über spaCy-Lemmatisierung (wie /v1/analyse optionen.lemma)")
     a.add_argument(
         "--fail-on-luecke",
         action="store_true",

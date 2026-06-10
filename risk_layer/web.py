@@ -257,7 +257,7 @@ class Anwendung:
 
     def analyse(self, text: str, *, unknown: bool, berater: bool, nutzer: str | None,
                 schicht2: bool = False, llm_url: str | None = None,
-                abweichung: bool = False) -> dict[str, Any]:
+                abweichung: bool = False, lemma: bool = False) -> dict[str, Any]:
         store = self._berater() if berater else None
         # Lauf-Optionen gebündelt über AnalyseOptionen (Single Source of Truth der
         # Defaults in pipeline.py); Ressourcen-Objekte bleiben Einzel-Parameter.
@@ -266,7 +266,8 @@ class Anwendung:
             text,
             optionen=AnalyseOptionen(unknown=unknown, nutzer=nutzer,
                                      abweichung=abweichung,
-                                     detektor=True, streit=True),
+                                     detektor=True, streit=True,
+                                     lemma=lemma),
             berater=store, graph=self.graph,
             provider=self._provider(schicht2, llm_url), trigger=self.trigger,
             embedding=self.embedding,

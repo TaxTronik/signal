@@ -83,6 +83,9 @@ def test_dataclass_defaults_sind_die_dokumentierten():
         "streit": False,
         "smart_windowing": False,
         "fenster_max_chars": _FENSTER_MAX_CHARS,
+        # /LF50/ Lemma-Robustheitspfad: bewusst additiv ergänzt – Default False
+        # hält jeden Lauf ohne das Flag byte-identisch zum Bestand.
+        "lemma": False,
     }
     ist = {f.name: f.default for f in dataclasses.fields(AnalyseOptionen)}
     assert ist == erwartet

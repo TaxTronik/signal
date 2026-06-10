@@ -36,7 +36,7 @@ V1_VERSION = "1.2.0"
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/analyse – zustandsloser Lauf über einen Text.
 
-    Body:  {text, mitLLM?: bool, optionen?: {unknown?, berater?, abweichung?}}
+    Body:  {text, mitLLM?: bool, optionen?: {unknown?, berater?, abweichung?, lemma?}}
     mitLLM steuert Schicht 2 (LLM). false ⇒ schnell/deterministisch (empfohlen für
     den ersten, synchronen Aufruf; den LLM-Lauf optional asynchron nachholen).
 
@@ -76,6 +76,9 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         # der server-konfigurierte llama-server (self.llm_url).
         llm_url=None,
         abweichung=bool(opt.get("abweichung")),
+        # /LF50/: optionaler Lemma-Robustheitspfad (flektierte Katalogformen).
+        # Default False – Bestands-Clients erhalten byte-identische Antworten.
+        lemma=bool(opt.get("lemma")),
     )
     res["engineVersion"] = V1_VERSION
     return 200, res

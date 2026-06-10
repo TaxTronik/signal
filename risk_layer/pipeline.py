@@ -30,7 +30,7 @@ from . import ingest as ingest_mod
 from .berater import BeraterStore
 from .catalog import Katalog, lade_katalog
 from .idschema import para_level as _para_level
-from .matcher import Schicht1Matcher
+from .matcher import Schicht1Matcher, entferne_lemma_dubletten
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status, Treffer
 from .muster import MusterMatcher, StreitDetektor, StreitFund, saetze_mit_offset
 from .reranker import (RERANK_TOPN, baue_norm_doc_fn, rerank_normen,
@@ -251,6 +251,9 @@ class AnalyseOptionen:
     streit: bool = False                    # Streit-Verstärker (Subsumtions-Brennpunkte)
     smart_windowing: bool = False           # Coverage-gesteuertes LLM-Gating (Schicht 2)
     fenster_max_chars: int = _FENSTER_MAX_CHARS   # Hauptfenster-Größe fürs Windowing
+    # /LF50/: Lemma-Robustheitspfad (matcher.match_lemma, spaCy). Default False:
+    # ohne das Flag ist der Lauf byte-identisch zum bisherigen Verhalten.
+    lemma: bool = False
 
 
 class Pipeline:
@@ -478,6 +481,18 @@ class Pipeline:
         treffer = self.matcher.match(ergebnis)      # Schicht 1 (Original-Offsets)
         n_literal = len(treffer)
 
+        # Schicht 1 – Lemma-Pfad /LF50/ (optional, additiv): flektierte Formen
+        # über die Lemma-Sicht. EXAKTE Treffer gewinnen – Lemma-Treffer, die
+        # einen exakten Treffer derselben Begriffs-ID überlappen, entfallen
+        # (matcher.entferne_lemma_dubletten). Bei opt.lemma=False wird der Pfad
+        # nicht einmal betreten (byte-identisches Bestandsverhalten, /NF20/).
+        n_lemma = 0
+        if opt.lemma:
+            lemma_treffer = entferne_lemma_dubletten(
+                treffer, self.matcher.match_lemma(ergebnis))
+            treffer.extend(lemma_treffer)
+            n_lemma = len(lemma_treffer)
+
         # Schicht 1b – Beschreibungs-/Negativbefund-Muster (deterministisch).
         # Synthetische Treffer durchlaufen die GLEICHE Auflösung wie wörtliche
         # Treffer (volle Karte, Graph-Anreicherung). Offsets normalisiert → Original.
@@ -499,7 +514,9 @@ class Pipeline:
                 matched_text=text[o_start:o_end], surface=mt.matched_text, segment_index=-1))
 
         karten = resolve_alle(treffer, self.katalog)
-        for k in karten[n_literal:]:
+        for k in karten[n_literal:n_literal + n_lemma]:
+            k.via = "lemma"                         # ① Katalog · Lemma (/LF50/)
+        for k in karten[n_literal + n_lemma:]:
             k.via = "muster"                        # ① Katalog · Beschreibungsmuster
         if graph is not None:
             anreichern_mit_graph(karten, graph)

@@ -166,6 +166,10 @@ class Treffer:
     matched_text: str           # wörtlich aus dem Originaltext
     surface: str                # die getroffene Oberflächenvariante (Regelbeleg)
     segment_index: int
+    # /LF50/: Treffer stammt aus dem Lemma-Pfad (matcher.match_lemma) statt aus
+    # dem wörtlichen Abgleich. Default False hält alle Bestands-Konstruktionen
+    # und -Vergleiche abwärtskompatibel.
+    via_lemma: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -210,6 +214,19 @@ class Begriffskarte:
                 "hinweis": "Der Begriff ist nicht wörtlich genannt, aber durch ein "
                            "kuratiertes Ko-Okkurrenz-Muster (kein Modell) belegt. "
                            "Inhaltlich vom Berufsträger zu prüfen.",
+            }
+        if self.via == "lemma":
+            # /LF50/: ehrliche Provenienz – die Normalisierung auf die Katalog-
+            # form ist MODELLGESTÜTZT (spaCy-Lemmatizer), der Beleg-Span zeigt
+            # aber wörtlich auf den Originaltext (keine inhaltliche Wertung).
+            return {
+                "schicht": "1", "methode": "katalog_lemma", "interpretation": False,
+                "kurz": "① Katalog · Lemma",
+                "art": "Katalogtreffer über Lemma-Abgleich (flektierte Form, /LF50/)",
+                "hinweis": "Der Begriff steht in flektierter Form im Text und wurde "
+                           "per Lemmatisierung (spaCy) auf die Katalogform abgebildet. "
+                           "Der Span zeigt wörtlich auf den Originaltext; die "
+                           "Subsumtion schuldet der Berufsträger.",
             }
         if self.status is Status.LUECKE:
             return {

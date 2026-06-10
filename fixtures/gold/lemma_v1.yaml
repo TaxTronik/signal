@@ -1,0 +1,242 @@
+# =============================================================================
+# Gold v1 — Lemma-Robustheitspfad /LF50/ (BINDEND, mechanisch objektiv)
+# =============================================================================
+# Zweck: Nachweis des /LF50/-Lemma-Pfads (matcher.match_lemma, optionen.lemma).
+# Jeder Fall ist EIN grammatisch korrekter deutscher Satz mit einer FLEKTIERTEN
+# Form einer echten Katalog-Oberfläche (catalog/begriffe.yaml), die der heutige
+# wörtliche Schicht-1-Matcher NICHT findet (beim Erstellen programmatisch
+# verifiziert: kein exakter Treffer der begriff_id im Satz). Erwartet werden
+# begriff_id und die EXAKTE Oberflächen-Span im Satz (start/end inklusive/
+# exklusiv; satz[start:end] == span_text, von tools/lemma_eval.py validiert).
+#
+# Kategorien: zu-Infinitive/finite Verbformen von Partizip-Aliassen, Umlaut-
+# Plurale, Artikel-Kasus in Mehrwort-Oberflaechen (des->der), Komparative/
+# Superlative, -nis-Plurale.
+#
+# bekannt_hart: true  => erfüllt die Gold-Kriterien, ist mit dem heutigen
+# Modellstand (de_core_news_lg 3.8) aber NICHT auflösbar (Umlaut-/Partizip-
+# Artefakte des Lemmatizers, je Fall im kommentar dokumentiert). Diese Fälle
+# bleiben absichtlich drin: sie messen den ehrlichen Restabstand zu 100 %.
+#
+# Auswertung: python tools/lemma_eval.py  (Recall ohne/mit Lemma, Span-Exaktheit)
+# =============================================================================
+
+version: "1.0"
+zweck: "/LF50/-Nachweis: flektierte Katalogformen, die der woertliche Matcher verpasst"
+stand: "2026-06-10"
+modell_referenz: "de_core_news_lg 3.8 (spaCy)"
+n: 29
+faelle:
+  - id: lemma_001
+    kategorie: verbflexion_zu_infinitiv
+    satz: "Der Gewinnabführungsvertrag ist tatsächlich durchzuführen."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchzuführen"
+    start: 32
+    end: 57
+  - id: lemma_002
+    kategorie: verbflexion_infinitiv
+    satz: "Die Parteien werden den Ergebnisabführungsvertrag tatsächlich durchführen."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchführen"
+    start: 50
+    end: 73
+  - id: lemma_003
+    kategorie: verbflexion_praeteritum
+    satz: "Die Gesellschaft, die den Vertrag tatsächlich durchführte, bleibt anerkannt."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchführte"
+    start: 34
+    end: 57
+  - id: lemma_004
+    kategorie: verbflexion_praesens
+    satz: "Es genügt, dass die Organgesellschaft den Vertrag tatsächlich durchführt."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchführt"
+    start: 50
+    end: 72
+  - id: lemma_005
+    kategorie: verbflexion_praeteritum_plural
+    satz: "Nur Gesellschaften, die ihre Verträge tatsächlich durchführten, bleiben anerkannt."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchführten"
+    start: 38
+    end: 62
+  - id: lemma_006
+    kategorie: verbflexion_konjunktiv
+    satz: "Die Klägerin trug vor, dass sie den Vertrag tatsächlich durchführe."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "tatsächlich durchführe"
+    start: 44
+    end: 66
+  - id: lemma_007
+    kategorie: umlaut_plural_mit_artikel_kasus
+    satz: "Die Durchführung der Ergebnisabführungsverträge war nicht zu beanstanden."
+    begriff_id: kst_tatsaechliche_durchfuehrung
+    span_text: "Durchführung der Ergebnisabführungsverträge"
+    start: 4
+    end: 47
+  - id: lemma_008
+    kategorie: verbflexion_infinitiv
+    satz: "Der Organträger konnte jede abweichende Willensbildung verhindern."
+    begriff_id: ust_willensdurchsetzung
+    span_text: "abweichende Willensbildung verhindern"
+    start: 28
+    end: 65
+  - id: lemma_009
+    kategorie: verbflexion_konjunktiv
+    satz: "Das Gericht stellte fest, dass er jede abweichende Willensbildung verhindere."
+    begriff_id: ust_willensdurchsetzung
+    span_text: "abweichende Willensbildung verhindere"
+    start: 39
+    end: 76
+  - id: lemma_010
+    kategorie: nis_plural_mit_artikel_kasus
+    satz: "Die Veranlassung durch die Gesellschaftsverhältnisse ist offenkundig."
+    begriff_id: kst_vga
+    span_text: "Veranlassung durch die Gesellschaftsverhältnisse"
+    start: 4
+    end: 52
+  - id: lemma_011
+    kategorie: artikel_kasus_genitiv_plural
+    satz: "Die Haftung der Geschäftsführer erstreckt sich auf die verkürzten Beträge."
+    begriff_id: ao_vertreterhaftung
+    span_text: "Haftung der Geschäftsführer"
+    start: 4
+    end: 31
+  - id: lemma_012
+    kategorie: artikel_kasus_genitiv_plural
+    satz: "Die Pflichtverletzung der gesetzlichen Vertreter wiegt schwer."
+    begriff_id: ao_vertreterhaftung
+    span_text: "Pflichtverletzung der gesetzlichen Vertreter"
+    start: 4
+    end: 48
+  - id: lemma_013
+    kategorie: steigerung_komparativ_genitiv
+    satz: "Aufgrund neuerer Tatsachen wurde der Bescheid geändert."
+    begriff_id: ao_neue_tatsachen
+    span_text: "neuerer Tatsachen"
+    start: 9
+    end: 26
+  - id: lemma_014
+    kategorie: steigerung_komparativ_dativ
+    satz: "Die Änderung stützte sich auf die neueren Tatsachen aus der Außenprüfung."
+    begriff_id: ao_neue_tatsachen
+    span_text: "neueren Tatsachen"
+    start: 34
+    end: 51
+  - id: lemma_015
+    kategorie: steigerung_komparativ
+    satz: "Es lagen neuere Beweismittel vor."
+    begriff_id: ao_neue_tatsachen
+    span_text: "neuere Beweismittel"
+    start: 9
+    end: 28
+  - id: lemma_016
+    kategorie: steigerung_superlativ
+    satz: "Selbst die neuesten Tatsachen änderten daran nichts."
+    begriff_id: ao_neue_tatsachen
+    span_text: "neuesten Tatsachen"
+    start: 11
+    end: 29
+  - id: lemma_017
+    kategorie: nis_plural
+    satz: "Die Schätzungsbefugnisse der Finanzbehörde sind begrenzt."
+    begriff_id: ao_schaetzung
+    span_text: "Schätzungsbefugnisse"
+    start: 4
+    end: 24
+  - id: lemma_018
+    kategorie: nis_plural_dativ
+    satz: "Von den Schätzungsbefugnissen machte die Behörde Gebrauch."
+    begriff_id: ao_schaetzung
+    span_text: "Schätzungsbefugnissen"
+    start: 8
+    end: 29
+  - id: lemma_019
+    kategorie: steigerung_superlativ
+    satz: "Den schädlichsten Anteilserwerb bewirkte die Kapitalerhöhung."
+    begriff_id: kst_schaedlicher_beteiligungserwerb
+    span_text: "schädlichsten Anteilserwerb"
+    start: 4
+    end: 31
+  - id: lemma_020
+    kategorie: steigerung_superlativ_plural
+    satz: "Die schädlichsten Beteiligungserwerbe erfolgten unterjährig."
+    begriff_id: kst_schaedlicher_beteiligungserwerb
+    span_text: "schädlichsten Beteiligungserwerbe"
+    start: 4
+    end: 37
+  - id: lemma_021
+    kategorie: steigerung_komparativ_plural
+    satz: "Noch schädlichere Anteilserwerbe sind denkbar."
+    begriff_id: kst_schaedlicher_beteiligungserwerb
+    span_text: "schädlichere Anteilserwerbe"
+    start: 5
+    end: 32
+  - id: lemma_022
+    kategorie: steigerung_superlativ
+    satz: "Die unangemessenste rechtliche Gestaltung wählten die Beteiligten."
+    begriff_id: ao_gestaltungsmissbrauch
+    span_text: "unangemessenste rechtliche Gestaltung"
+    start: 4
+    end: 41
+  - id: lemma_023
+    kategorie: steigerung_komparativ
+    satz: "Eine noch unangemessenere rechtliche Gestaltung ist kaum denkbar."
+    begriff_id: ao_gestaltungsmissbrauch
+    span_text: "unangemessenere rechtliche Gestaltung"
+    start: 10
+    end: 47
+  - id: lemma_024
+    kategorie: steigerung_superlativ_plural
+    satz: "Selbst die offenbarsten Unrichtigkeiten blieben unkorrigiert."
+    begriff_id: ao_offenbare_unrichtigkeit
+    span_text: "offenbarsten Unrichtigkeiten"
+    start: 11
+    end: 39
+  - id: lemma_025
+    kategorie: umlaut_komparativ
+    satz: "Ein noch gröberes Verschulden ist kaum vorstellbar."
+    begriff_id: ao_grobes_verschulden
+    span_text: "gröberes Verschulden"
+    start: 9
+    end: 29
+    bekannt_hart: true
+    kommentar: "Umlaut-Stamm: de_core_news_lg lemmatisiert \"gröberes\" zu \"gröb\" (nicht \"grob\")."
+  - id: lemma_026
+    kategorie: umlaut_plural_kompositum
+    satz: "Solche Gestaltungsmissbräuche erkennt die Finanzverwaltung nicht an."
+    begriff_id: ao_gestaltungsmissbrauch
+    span_text: "Gestaltungsmissbräuche"
+    start: 7
+    end: 29
+    bekannt_hart: true
+    kommentar: "Umlaut-Plural: Lemma bleibt \"Gestaltungsmissbräuch\" (Umlaut nicht rückgeführt)."
+  - id: lemma_027
+    kategorie: umlaut_plural
+    satz: "Derartige Missbräuche von rechtlichen Gestaltungsmöglichkeiten sind unbeachtlich."
+    begriff_id: ao_gestaltungsmissbrauch
+    span_text: "Missbräuche von rechtlichen Gestaltungsmöglichkeiten"
+    start: 10
+    end: 62
+    bekannt_hart: true
+    kommentar: "Umlaut-Plural: Lemma bleibt \"Missbräuche\"/\"Missbräuch\" (Umlaut nicht rückgeführt)."
+  - id: lemma_028
+    kategorie: verbflexion_zu_infinitiv
+    satz: "Die Organgesellschaft ist organisatorisch einzugliedern."
+    begriff_id: ust_organisatorische_eingliederung
+    span_text: "organisatorisch einzugliedern"
+    start: 26
+    end: 55
+    bekannt_hart: true
+    kommentar: "Katalogseite: Lemma von \"eingegliedert\" ist \"eingegliedern\" (ge-Infix bleibt), Textseite \"eingliedern\"."
+  - id: lemma_029
+    kategorie: partizip_praesens
+    satz: "Erst nachträglich bekannt werdende Tatsachen rechtfertigen eine Änderung."
+    begriff_id: ao_neue_tatsachen
+    span_text: "nachträglich bekannt werdende Tatsachen"
+    start: 5
+    end: 44
+    bekannt_hart: true
+    kommentar: "Katalogseite: Lemma von \"gewordene\" ist \"geworden\" (nicht \"werden\"), Textseite \"werdend\"."
