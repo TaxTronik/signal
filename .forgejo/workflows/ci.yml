@@ -2,7 +2,9 @@ name: Quality
 
 # Bewusst (noch) NICHT in dieser CI: mypy, Coverage-Gate, Windows-Runner,
 # PSScriptAnalyzer — zu schwergewichtig für den aktuellen Stand; bei Bedarf
-# als eigene Jobs nachziehen.
+# als eigene Jobs nachziehen. Windows-Runner bleibt offen; ein PS-Parse-Check
+# (Syntax-Gate über die .ps1-Skripte) läuft inzwischen OPPORTUNISTISCH in
+# build.yml, falls pwsh im Runner-Image vorhanden ist.
 
 on:
   push:
@@ -54,22 +56,27 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-lock.txt
 
       # Dependencies BEWUSST minimal halten:
-      #   * PyYAML  – einzige Kern-Laufzeitabhängigkeit (pyproject [project].dependencies)
-      #   * pytest  – das 'dev'-Extra
+      #   * requirements-lock.txt – Kern (PyYAML) + dev (pytest) mit EXAKTEN Pins
+      #               inkl. transitiver Deps (deterministisch über die Flotte;
+      #               regenerieren: siehe Header von requirements-lock.txt).
       #   * numpy   – de-facto Pflicht: embedding.py importiert numpy am Modulkopf und
       #               web.py importiert embedding. numpy steckt aber im 'embedding'-Extra,
       #               das zusätzlich sentence-transformers + torch (~2 GB) zöge.
       #               Die Tests brauchen torch/sentence-transformers NICHT (lazy import,
       #               HashEncoder-Fallback) – also installieren wir sie bewusst NICHT.
+      #               numpy bewusst ungepinnt (GPU-/Plattform-Matrix, ML-Extra).
       # Ebenfalls bewusst NICHT installiert: die Extras 'llm' (llama-cpp-python) und
       # 'nlp' (spacy). web.py ist reine Stdlib — es gibt kein fastapi/uvicorn-Extra.
-      - name: Install dependencies (minimal, kein torch)
+      # Das Paket selbst mit --no-deps: alle Deps kommen aus dem Lock, nicht aus
+      # den >=-Ranges in pyproject.toml.
+      - name: Install dependencies (Lock für Kern+dev, kein torch)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]" "numpy>=1.26"
+          python -m pip install -r requirements-lock.txt "numpy>=1.26"
+          python -m pip install --no-deps -e .
 
       # Schnelles, versionsspezifisches "parst es überhaupt?"-Gate vor dem Testlauf.
       - name: Byte-compile

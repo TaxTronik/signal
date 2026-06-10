@@ -70,7 +70,12 @@ ok "Python $PYV"
 if [[ $SKIP_DEPS -eq 0 ]]; then
   schritt "Abhaengigkeiten installieren"
   "$PY" -m pip install --upgrade pip >/dev/null
-  "$PY" -m pip install -e . "numpy>=1.26"
+  # Kern (PyYAML) + dev exakt aus dem Lock (deterministisch ueber die Flotte,
+  # identisch zu CI/Dockerfile); das Paket selbst mit --no-deps, damit die
+  # >=-Ranges aus pyproject.toml das Lock nicht ueberstimmen.
+  # numpy bewusst ungepinnt (GPU-/Plattform-Matrix, ML-Extra).
+  "$PY" -m pip install -r requirements-lock.txt "numpy>=1.26"
+  "$PY" -m pip install --no-deps -e .
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
     # NVIDIA: Blackwell-faehiges torch ZUERST aus dem CUDA-Wheel (sonst zieht
     # sentence-transformers ggf. ein zu altes/CPU-torch -> GPU ungenutzt). Default
@@ -81,6 +86,7 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
         || info "torch-CUDA-Install fehlgeschlagen -> sentence-transformers waehlt torch selbst"
     fi
     info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
+    # bewusst ungepinnt (GPU-/Plattform-Matrix) — ML-Extras sind nicht im Lock.
     "$PY" -m pip install "sentence-transformers>=2.7" hf_transfer
     ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
   else

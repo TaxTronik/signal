@@ -30,6 +30,30 @@ jobs:
       - name: Bash-Syntax (deploy.sh, build-release-artifact.sh)
         run: bash -n deploy.sh && bash -n build-release-artifact.sh
 
+      # PowerShell-Parse-Check OPPORTUNISTISCH: läuft nur, falls pwsh im
+      # Runner-Image vorhanden ist (kein Windows-Runner in der Flotte — bewusst
+      # KEIN runs-on: windows, das würde ohne Runner ewig queuen; vgl. den
+      # Kommentarblock in ci.yml). Reiner Syntax-Gate via PowerShell-Parser,
+      # kein PSScriptAnalyzer.
+      - name: PowerShell-Syntax (deploy.ps1, install-service.ps1, build-release-artifact.ps1)
+        run: |
+          if command -v pwsh >/dev/null 2>&1; then
+            pwsh -NoProfile -Command '
+              $gesamt = 0
+              foreach ($f in "deploy.ps1","install-service.ps1","build-release-artifact.ps1") {
+                $tokens = $null; $fehler = $null
+                [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$tokens, [ref]$fehler)
+                if ($fehler.Count -gt 0) {
+                  $fehler | ForEach-Object { Write-Host "${f}: $($_.Extent.StartLineNumber): $($_.Message)" }
+                  $gesamt += $fehler.Count
+                } else { Write-Host "$f ok" }
+              }
+              exit ([int]($gesamt -gt 0))
+            '
+          else
+            echo "::notice::pwsh nicht verfügbar — PS-Parse-Check übersprungen (kein Windows-Runner; siehe ci.yml)"
+          fi
+
       - name: Python byte-compile (Engine)
         run: python3 -m compileall -q risk_layer
 

@@ -11,7 +11,14 @@
 # Modell lazy zur Laufzeit; ohne sie liefert /v1/embedding/suche schlicht leer.
 # Schicht 2 (LLM) läuft als SEPARATER llama-server (nicht in diesem Image).
 # =============================================================================
-FROM python:3.12-slim AS base
+# Basis-Image per DIGEST gepinnt (reproduzierbare Builds): der Tag 3.12-slim
+# dokumentiert die Intention, der Digest pinnt den multi-arch Manifest-List-Stand
+# (OCI image index, Docker-Content-Digest der Registry-API, Stand 2026-06-10).
+# Update: neuen Digest holen via
+#   docker buildx imagetools inspect python:3.12-slim
+# (oder Registry-API: HEAD registry-1.docker.io/v2/library/python/manifests/3.12-slim)
+# und hier ersetzen.
+FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203 AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -23,14 +30,17 @@ WORKDIR /app
 # Nur die Projektmetadaten zuerst (Layer-Caching der Dependencies): die
 # Dependencies werden VOR dem Quellcode installiert — eine reine Code-Änderung
 # in risk_layer/ invalidiert diesen (teuren) Layer damit NICHT.
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements-lock.txt ./
 
 ARG WITH_EMBEDDING=0
-# Basis immer; Embedding nur, wenn ausdrücklich gewünscht. "PyYAML>=6.0" spiegelt
-# [project].dependencies aus pyproject.toml (Two-Step: Deps explizit, Paket später
-# mit --no-deps — pip kann die Deps nicht ohne den Quellcode auflösen).
+# Kern exakt aus dem Lockfile (requirements-lock.txt, gespiegelt aus pyproject
+# [project].dependencies + dev-Extra) — deterministisch über die Flotte.
+# (Two-Step: Deps explizit, Paket später mit --no-deps — pip kann die Deps nicht
+# ohne den Quellcode auflösen.)
+# numpy + sentence-transformers bewusst ungepinnt (GPU-/Plattform-Matrix):
+# hardware-/plattformspezifische ML-Extras, siehe requirements.in.
 RUN pip install --upgrade pip \
- && pip install "numpy>=1.26" "PyYAML>=6.0" \
+ && pip install -r requirements-lock.txt "numpy>=1.26" \
  && if [ "$WITH_EMBEDDING" = "1" ]; then pip install "sentence-transformers>=2.7"; fi
 
 # Quellcode erst NACH den Dependencies kopieren + Paket ohne Dep-Auflösung installieren.

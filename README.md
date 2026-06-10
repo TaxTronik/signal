@@ -76,6 +76,8 @@ Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semanti
 
 ```bash
 pip install pyyaml numpy
+#   reproduzierbar (exakt gepinnter Kern+dev, wie CI/Docker/deploy):
+#   pip install -r requirements-lock.txt numpy
 
 # (a) Headless-Engine: bedient ausschließlich das authentifizierte /v1
 RISK_LAYER_TOKEN=<secret> python -m risk_layer.web --host 0.0.0.0
@@ -440,7 +442,8 @@ Einträge werden gemerkt.
 | trainingsdaten-unabhängig | Erkennung ruht auf Korpus/Katalog, nicht Modellwissen | — |
 
 ```bash
-pip install -e ".[dev]" numpy
+pip install -r requirements-lock.txt numpy   # Kern+dev exakt gepinnt (Lock, wie CI)
+pip install --no-deps -e .
 python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
                              #   Surface/Auth, Engine-Analysevertrag, Graph, LLM-Mock +
                              #   Norm-Vorschlag, Muster/Streit, Trigger, Embedding/Paraphrasen-Anker,

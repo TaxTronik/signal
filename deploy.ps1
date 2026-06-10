@@ -73,11 +73,18 @@ OkMsg "Python $pv"
 if (-not $SkipDeps) {
     Schritt "Abhaengigkeiten installieren"
     & python -m pip install --upgrade pip | Out-Null
-    & python -m pip install -e . "numpy>=1.26"
+    # Kern (PyYAML) + dev exakt aus dem Lock (deterministisch ueber die Flotte,
+    # identisch zu CI/Dockerfile); das Paket selbst mit --no-deps, damit die
+    # >=-Ranges aus pyproject.toml das Lock nicht ueberstimmen.
+    # numpy bewusst ungepinnt (GPU-/Plattform-Matrix, ML-Extra).
+    & python -m pip install -r requirements-lock.txt "numpy>=1.26"
+    if ($LASTEXITCODE -ne 0) { throw "pip install (Lock + numpy) fehlgeschlagen." }
+    & python -m pip install --no-deps -e .
     if ($LASTEXITCODE -ne 0) { throw "pip install (Kern) fehlgeschlagen." }
     if ($WithEmbedding) {
         # Bewusste Luecke: kein --cuda-wheel-Pendant zu deploy.sh (torch-CUDA-Vorabinstallation) — Windows-Hosts nutzen das torch, das sentence-transformers waehlt.
         Info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
+        # bewusst ungepinnt (GPU-/Plattform-Matrix) — ML-Extras sind nicht im Lock.
         & python -m pip install "sentence-transformers>=2.7" hf_transfer
         if ($LASTEXITCODE -ne 0) { throw "pip install sentence-transformers fehlgeschlagen." }
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"

@@ -36,9 +36,14 @@ services:
 
   # ---- Schicht 2 (LLM) — NVIDIA-GPU. Auf AMD/Windows auskommentieren + nativ. ----
   llm:
-    # bewusst latest-server-cuda (kein Tag-Pinning): Digest/versionierte Tags
-    # erfordern Registry-Zugriff zum Nachschlagen — bei Bedarf hier pinnen.
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    # Per DIGEST gepinnt (reproduzierbar über die Flotte): der Tag server-cuda
+    # dokumentiert die Intention, der Digest pinnt den Stand (OCI image index,
+    # Docker-Content-Digest der ghcr.io-Registry-API, Stand 2026-06-10).
+    # Update: neuen Digest holen via
+    #   docker buildx imagetools inspect ghcr.io/ggml-org/llama.cpp:server-cuda
+    # (oder ghcr.io-API: HEAD /v2/ggml-org/llama.cpp/manifests/server-cuda)
+    # und hier ersetzen.
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:1c4ff61ab157cdaee20dcae39860394384e5e9703c8848a33d2e40d68b6df0fa
     command: ["-m", "/models/granite-4.1-8b-Q5_K_M.gguf", "--host", "0.0.0.0",
               "--port", "8080", "-ngl", "99", "--jinja"]
     volumes:

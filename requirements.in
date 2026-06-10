@@ -1,0 +1,18 @@
+# =============================================================================
+# Quelle fuer requirements-lock.txt (pip-tools) — NUR Kern + Dev.
+#
+# Gespiegelt aus pyproject.toml:
+#   * [project].dependencies  -> PyYAML  (einzige Kern-Laufzeitabhaengigkeit)
+#   * dev-Extra               -> pytest
+#
+# Die schweren ML-Extras (numpy, sentence-transformers, llama-cpp-python, spacy)
+# sind BEWUSST NICHT im Lock: hardware-/plattformspezifisch (GPU-/Plattform-
+# Matrix: CUDA-/ROCm-/Vulkan-Wheels, torch-Varianten) und in pyproject.toml
+# bewusst optional — sie bleiben Range-basiert.
+#
+# Regenerieren (z. B. nach pyproject-Aenderung an Kern/dev):
+#   python -m pip install pip-tools
+#   python -m piptools compile --output-file=requirements-lock.txt requirements.in
+# =============================================================================
+PyYAML>=6.0
+pytest>=8.0
