@@ -1,0 +1,624 @@
+{
+  "zweck": "A/B-Test: 2026-06-04er BGE-M3-Finetune (H200, 1688 Discovery-Paare, REPRODUZIERT — Original-Artefakt nicht mehr vorhanden) gegen Basis-BGE-M3 unter dem neuen Eval-Harness (Fusion+Rettungs-Policy)",
+  "erstellt_am": "2026-06-10T20:43:14",
+  "harness": "eval_harness/2",
+  "ft_artefakt": {
+    "original": {
+      "pfad": "C:\\dev\\taxtronikexctract\\models\\bge-m3-ft-2026-06-04",
+      "status": "NICHT MEHR VORHANDEN — Lauf fand auf gemieteter H200 statt (Memory b300-discovery-finetune-run-order), Artefakt wurde nach Guardrail-Durchfall ('Fine-Tune verworfen', Commit a2689c7) nicht lokal gesichert; Suche über C:/E:/J: ohne Treffer",
+      "record": "benchmarks/bge-m3-ft.json (stand 2026-06-04T19:19:14+00:00)"
+    },
+    "reproduktion": {
+      "pfad": "%TEMP%\\ft_ab\\bge-m3-ft-2026-06-04-repro",
+      "skript_grundlage": "C:\\dev\\taxtronikexctract\\tools\\finetune_embedding.py (Original-Stand, pre-Protokoll)",
+      "trainingsdaten": "C:\\dev\\taxtronikexctract\\discovery\\qwen-36b\\training_pairs.yaml (H200-Discovery-Output, stand 2026-06-04T19:10:22+00:00, 1688 Kandidaten)",
+      "datenaufbereitung": "identisch reproduziert: 1688 Kandidaten -> 1688 Trainingspaare, 63 Bench-Anfragen ausgeschlossen (Leckage-Filter, taxtronikexctract-Katalog 0.3.0 byte-identisch zu signal)",
+      "parameter": "BAAI/bge-m3, MultipleNegativesRankingLoss, 1 Epoche, batch 16, warmup 10, fp32, lr-Defaults von sentence-transformers model.fit",
+      "abweichungen_vom_h200_lauf": [
+        "Hardware: RX 9070 XT 16 GiB ROCm statt H200 141 GiB CUDA",
+        "gradient checkpointing aktiviert (numerisch identische Gradienten, nur langsamer)",
+        "max_seq_length 1024 statt 8192 (laengster positive ~3195 Zeichen — praktisch keine Truncation)",
+        "Seed 0 gesetzt (Original ungeseedet; Batch-Zusammensetzung ist ohnehin nicht bit-reproduzierbar)",
+        "sentence-transformers 5.5.1 lokal; H200-Version unbekannt"
+      ],
+      "fidelitaets_check": "siehe embedding_bench-Vergleich (bge-m3-ft-repro-bench.json) gegen benchmarks/bge-m3-ft.json"
+    }
+  },
+  "repro_hinweis": "Original-Artefakt verworfen/nicht gesichert; faithful Repro auf RX 9070 XT, Abweichungen: gradient checkpointing, max_seq 1024",
+  "laeufe": {
+    "bge-m3 @ produktiv-index": {
+      "encoder": "bge-m3",
+      "reranker": "bge-reranker-v2-m3",
+      "index": {
+        "n_vektoren": 2905,
+        "dim": 1024,
+        "graph_fingerprint": null
+      },
+      "corpus": "C:\\dev\\taxtronikexctract\\corpus",
+      "gold": {
+        "ao_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 6
+        },
+        "organschaft_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 19
+        }
+      },
+      "negativ_gold": {
+        "name": "negativ_v1.yaml",
+        "version": "v1",
+        "stand": "2026-06-10",
+        "n": 30
+      },
+      "konfigurationen": [
+        {
+          "konfig": "a_embedding_only",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "aus",
+            "policy": null,
+            "floor": 0.35,
+            "schwelle": null,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": null
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.48,
+            "recall@5": 0.76,
+            "recall@10": 0.92,
+            "recall@50": 0.96,
+            "mrr": 0.6105,
+            "abstention": 0.0,
+            "median_latenz_ms": 21.4
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 21.4
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.3158,
+              "recall@5": 0.6842,
+              "recall@10": 0.8947,
+              "recall@50": 0.9474,
+              "mrr": 0.4875,
+              "abstention": 0.0,
+              "median_latenz_ms": 21.4
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 1.0,
+            "mittlere_kandidaten": 50.0,
+            "pro_kategorie": {
+              "alltag": 1.0,
+              "juristisch_neutral": 1.0,
+              "steuer_neutral": 1.0
+            }
+          }
+        },
+        {
+          "konfig": "b_reranker_p0",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "an",
+            "policy": "P0",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.44,
+            "recall@5": 0.56,
+            "recall@10": 0.56,
+            "recall@50": 0.56,
+            "mrr": 0.4933,
+            "abstention": 0.36,
+            "median_latenz_ms": 81.4
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 79.8
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.2632,
+              "recall@5": 0.4211,
+              "recall@10": 0.4211,
+              "recall@50": 0.4211,
+              "mrr": 0.3333,
+              "abstention": 0.4737,
+              "median_latenz_ms": 82.2
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.2,
+            "mittlere_kandidaten": 0.47,
+            "pro_kategorie": {
+              "alltag": 0.0,
+              "juristisch_neutral": 0.2,
+              "steuer_neutral": 0.4
+            }
+          }
+        },
+        {
+          "konfig": "c_fusion_p2_rrf60",
+          "params": {
+            "fusion": "rrf",
+            "k_rrf": 60,
+            "rerank": "an",
+            "policy": "P2",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": 0.55,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.6,
+            "recall@5": 0.84,
+            "recall@10": 0.88,
+            "recall@50": 0.88,
+            "mrr": 0.6997,
+            "abstention": 0.0,
+            "median_latenz_ms": 81.7
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 80.2
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.4737,
+              "recall@5": 0.7895,
+              "recall@10": 0.8421,
+              "recall@50": 0.8421,
+              "mrr": 0.6048,
+              "abstention": 0.0,
+              "median_latenz_ms": 82.4
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.5,
+            "mittlere_kandidaten": 3.57,
+            "pro_kategorie": {
+              "alltag": 0.1,
+              "juristisch_neutral": 0.5,
+              "steuer_neutral": 0.9
+            }
+          }
+        }
+      ]
+    },
+    "bge-m3 @ frischer-index": {
+      "encoder": "bge-m3",
+      "reranker": "bge-reranker-v2-m3",
+      "index": {
+        "n_vektoren": 2947,
+        "dim": 1024,
+        "graph_fingerprint": "52b7f62d4029a970cc18421746c98dc281ddaeba955f92474bee31e0d6497721"
+      },
+      "corpus": "C:\\Users\\Rey\\AppData\\Local\\Temp\\ft_ab\\corpus_base",
+      "gold": {
+        "ao_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 6
+        },
+        "organschaft_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 19
+        }
+      },
+      "negativ_gold": {
+        "name": "negativ_v1.yaml",
+        "version": "v1",
+        "stand": "2026-06-10",
+        "n": 30
+      },
+      "konfigurationen": [
+        {
+          "konfig": "a_embedding_only",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "aus",
+            "policy": null,
+            "floor": 0.35,
+            "schwelle": null,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": null
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.48,
+            "recall@5": 0.76,
+            "recall@10": 0.92,
+            "recall@50": 0.96,
+            "mrr": 0.6105,
+            "abstention": 0.0,
+            "median_latenz_ms": 21.3
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 21.2
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.3158,
+              "recall@5": 0.6842,
+              "recall@10": 0.8947,
+              "recall@50": 0.9474,
+              "mrr": 0.4875,
+              "abstention": 0.0,
+              "median_latenz_ms": 21.3
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 1.0,
+            "mittlere_kandidaten": 50.0,
+            "pro_kategorie": {
+              "alltag": 1.0,
+              "juristisch_neutral": 1.0,
+              "steuer_neutral": 1.0
+            }
+          }
+        },
+        {
+          "konfig": "b_reranker_p0",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "an",
+            "policy": "P0",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.44,
+            "recall@5": 0.56,
+            "recall@10": 0.56,
+            "recall@50": 0.56,
+            "mrr": 0.4933,
+            "abstention": 0.36,
+            "median_latenz_ms": 82.7
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 80.4
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.2632,
+              "recall@5": 0.4211,
+              "recall@10": 0.4211,
+              "recall@50": 0.4211,
+              "mrr": 0.3333,
+              "abstention": 0.4737,
+              "median_latenz_ms": 84.0
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.2,
+            "mittlere_kandidaten": 0.47,
+            "pro_kategorie": {
+              "alltag": 0.0,
+              "juristisch_neutral": 0.2,
+              "steuer_neutral": 0.4
+            }
+          }
+        },
+        {
+          "konfig": "c_fusion_p2_rrf60",
+          "params": {
+            "fusion": "rrf",
+            "k_rrf": 60,
+            "rerank": "an",
+            "policy": "P2",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": 0.55,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.6,
+            "recall@5": 0.84,
+            "recall@10": 0.88,
+            "recall@50": 0.88,
+            "mrr": 0.6997,
+            "abstention": 0.0,
+            "median_latenz_ms": 83.0
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 80.7
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.4737,
+              "recall@5": 0.7895,
+              "recall@10": 0.8421,
+              "recall@50": 0.8421,
+              "mrr": 0.6048,
+              "abstention": 0.0,
+              "median_latenz_ms": 84.5
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.5,
+            "mittlere_kandidaten": 3.6,
+            "pro_kategorie": {
+              "alltag": 0.1,
+              "juristisch_neutral": 0.5,
+              "steuer_neutral": 0.9
+            }
+          }
+        }
+      ]
+    },
+    "bge-m3-ft-repro @ frischer-index": {
+      "encoder": "C:\\Users\\Rey\\AppData\\Local\\Temp\\ft_ab\\bge-m3-ft-2026-06-04-repro",
+      "reranker": "bge-reranker-v2-m3",
+      "index": {
+        "n_vektoren": 2947,
+        "dim": 1024,
+        "graph_fingerprint": "52b7f62d4029a970cc18421746c98dc281ddaeba955f92474bee31e0d6497721"
+      },
+      "corpus": "C:\\Users\\Rey\\AppData\\Local\\Temp\\ft_ab\\corpus_ft",
+      "gold": {
+        "ao_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 6
+        },
+        "organschaft_v1.yaml": {
+          "version": "v1",
+          "stand": "2026-06-06",
+          "n": 19
+        }
+      },
+      "negativ_gold": {
+        "name": "negativ_v1.yaml",
+        "version": "v1",
+        "stand": "2026-06-10",
+        "n": 30
+      },
+      "konfigurationen": [
+        {
+          "konfig": "a_embedding_only",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "aus",
+            "policy": null,
+            "floor": 0.35,
+            "schwelle": null,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": null
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.56,
+            "recall@5": 0.72,
+            "recall@10": 0.76,
+            "recall@50": 0.8,
+            "mrr": 0.6294,
+            "abstention": 0.04,
+            "median_latenz_ms": 21.1
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 20.8
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.4211,
+              "recall@5": 0.6316,
+              "recall@10": 0.6842,
+              "recall@50": 0.7368,
+              "mrr": 0.5124,
+              "abstention": 0.0526,
+              "median_latenz_ms": 21.2
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.6333,
+            "mittlere_kandidaten": 7.07,
+            "pro_kategorie": {
+              "alltag": 0.2,
+              "juristisch_neutral": 0.7,
+              "steuer_neutral": 1.0
+            }
+          }
+        },
+        {
+          "konfig": "b_reranker_p0",
+          "params": {
+            "fusion": "aus",
+            "k_rrf": null,
+            "rerank": "an",
+            "policy": "P0",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": null,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.44,
+            "recall@5": 0.48,
+            "recall@10": 0.48,
+            "recall@50": 0.48,
+            "mrr": 0.46,
+            "abstention": 0.36,
+            "median_latenz_ms": 82.4
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 78.2
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.2632,
+              "recall@5": 0.3158,
+              "recall@10": 0.3158,
+              "recall@50": 0.3158,
+              "mrr": 0.2895,
+              "abstention": 0.4737,
+              "median_latenz_ms": 82.9
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.2,
+            "mittlere_kandidaten": 0.47,
+            "pro_kategorie": {
+              "alltag": 0.0,
+              "juristisch_neutral": 0.2,
+              "steuer_neutral": 0.4
+            }
+          }
+        },
+        {
+          "konfig": "c_fusion_p2_rrf60",
+          "params": {
+            "fusion": "rrf",
+            "k_rrf": 60,
+            "rerank": "an",
+            "policy": "P2",
+            "floor": 0.35,
+            "schwelle": 0.1,
+            "hoch": 0.55,
+            "topk": 50,
+            "rerank_topn": 20
+          },
+          "aggregat": {
+            "n": 25,
+            "recall@1": 0.44,
+            "recall@5": 0.56,
+            "recall@10": 0.56,
+            "recall@50": 0.56,
+            "mrr": 0.4933,
+            "abstention": 0.28,
+            "median_latenz_ms": 82.8
+          },
+          "pro_gold": {
+            "ao_v1.yaml": {
+              "n": 6,
+              "recall@1": 1.0,
+              "recall@5": 1.0,
+              "recall@10": 1.0,
+              "recall@50": 1.0,
+              "mrr": 1.0,
+              "abstention": 0.0,
+              "median_latenz_ms": 78.5
+            },
+            "organschaft_v1.yaml": {
+              "n": 19,
+              "recall@1": 0.2632,
+              "recall@5": 0.4211,
+              "recall@10": 0.4211,
+              "recall@50": 0.4211,
+              "mrr": 0.3333,
+              "abstention": 0.3684,
+              "median_latenz_ms": 83.6
+            }
+          },
+          "negativ": {
+            "n": 30,
+            "fehlvorschlagsquote": 0.2,
+            "mittlere_kandidaten": 0.53,
+            "pro_kategorie": {
+              "alltag": 0.0,
+              "juristisch_neutral": 0.2,
+              "steuer_neutral": 0.4
+            }
+          }
+        }
+      ]
+    }
+  }
+}
