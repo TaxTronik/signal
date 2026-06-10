@@ -186,6 +186,83 @@ def test_fehlgeschlagene_auth_wird_geloggt(tmp_path, monkeypatch, caplog):
         httpd.server_close()
 
 
+# -- Token-Rotation (L8): Übergangsfenster mit Vorgänger-Token ----------------
+
+def test_rotationsfenster_akzeptiert_alten_und_neuen_token(tmp_path, monkeypatch):
+    # RISK_LAYER_TOKEN_VORGAENGER gesetzt → alter UND neuer Token gelten
+    # (beide konstant-zeitig geprüft); jeder dritte Wert bleibt 401.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "neu")
+    monkeypatch.setenv("RISK_LAYER_TOKEN_VORGAENGER", "alt")
+    monkeypatch.setattr(web, "_rotations_hinweis_geloggt", False)
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        assert _get(f"{base}/v1/health", token="neu")[0] == 200
+        assert _get(f"{base}/v1/health", token="alt")[0] == 200
+        assert _get(f"{base}/v1/health", token="weder-noch")[0] == 401
+        assert _get(f"{base}/v1/health")[0] == 401          # ganz ohne Token: weiter 401
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_ohne_vorgaenger_gilt_nur_der_aktuelle_token(tmp_path, monkeypatch):
+    # Fenster geschlossen (VORGAENGER ungesetzt bzw. leer) → der alte Token ist tot.
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "neu")
+    monkeypatch.delenv("RISK_LAYER_TOKEN_VORGAENGER", raising=False)
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        assert _get(f"{base}/v1/health", token="neu")[0] == 200
+        assert _get(f"{base}/v1/health", token="alt")[0] == 401
+        # leerer String zählt wie ungesetzt — sonst würde das "Leeren" der Env
+        # nach der Rotation das Fenster nicht wirklich schließen.
+        monkeypatch.setenv("RISK_LAYER_TOKEN_VORGAENGER", "")
+        assert _get(f"{base}/v1/health", token="alt")[0] == 401
+        assert _get(f"{base}/v1/health", token="neu")[0] == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_vorgaenger_treffer_loggt_einmalig_ohne_tokenwert(tmp_path, monkeypatch, caplog):
+    # Treffer auf den Vorgänger-Token → GENAU EIN Info-Log je Prozess
+    # ("Rotationsfenster aktiv …"), egal wie viele Requests; Token-Werte
+    # erscheinen nie im Log (Secret-Hygiene).
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "neu")
+    monkeypatch.setenv("RISK_LAYER_TOKEN_VORGAENGER", "altes-geheimnis-xyz")
+    monkeypatch.setattr(web, "_rotations_hinweis_geloggt", False)
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        with caplog.at_level(logging.INFO, logger="risk_layer.web"):
+            assert _get(f"{base}/v1/health", token="altes-geheimnis-xyz")[0] == 200
+            assert _get(f"{base}/v1/health", token="altes-geheimnis-xyz")[0] == 200
+            assert _get(f"{base}/v1/health", token="neu")[0] == 200
+        rot = [r.getMessage() for r in caplog.records
+               if "Rotationsfenster" in r.getMessage()]
+        assert len(rot) == 1, "Hinweis muss genau EINMAL je Prozess kommen"
+        assert "RISK_LAYER_TOKEN_VORGAENGER" in rot[0]      # sagt, was zu tun ist
+        assert all("altes-geheimnis-xyz" not in r.getMessage()
+                   for r in caplog.records)                  # kein Token-Leak
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_neuer_token_loggt_kein_rotationsfenster(tmp_path, monkeypatch, caplog):
+    # Nur der NEUE Token in Verwendung → kein Rotations-Hinweis (das Log soll
+    # ausschließlich auf umzustellende Alt-Clients zeigen).
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "neu")
+    monkeypatch.setenv("RISK_LAYER_TOKEN_VORGAENGER", "alt")
+    monkeypatch.setattr(web, "_rotations_hinweis_geloggt", False)
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        with caplog.at_level(logging.INFO, logger="risk_layer.web"):
+            assert _get(f"{base}/v1/health", token="neu")[0] == 200
+        assert not any("Rotationsfenster" in r.getMessage() for r in caplog.records)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 # -- serve()/main(): Exit-Codes + TLS-Warnung beim Netz-Bind -----------------
 
 def test_serve_netzbind_ohne_token_exit_ungleich_null(monkeypatch, capsys):

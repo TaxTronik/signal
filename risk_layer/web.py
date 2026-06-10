@@ -53,6 +53,28 @@ def _ist_loopback(host: str) -> bool:
     return h in _LOOPBACK_HOSTS or h.startswith("127.")
 
 
+# --- Token-Rotation (IDW PS 861, Mapping-Lücke L8) ---------------------------
+# Merker, ob der Rotationshinweis in diesem Prozess schon geloggt wurde: ein
+# Rotationsfenster kann tausende Requests umfassen — EIN Hinweis je Prozess
+# reicht dem Betreiber als Erinnerung, alles weitere wäre Log-Rauschen. Das
+# Lock verhindert Doppel-Logs aus parallelen Handler-Threads
+# (ThreadingHTTPServer); Tests setzen den Merker per monkeypatch zurück.
+_rotations_hinweis_geloggt = False
+_rotations_hinweis_lock = threading.Lock()
+
+
+def _logge_rotationsfenster_einmalig() -> None:
+    global _rotations_hinweis_geloggt
+    with _rotations_hinweis_lock:
+        if _rotations_hinweis_geloggt:
+            return
+        _rotations_hinweis_geloggt = True
+    # Bewusst OHNE Token-Werte (Secret-Hygiene wie bei _401/_llm_url_anzeige):
+    # die Meldung sagt nur, DASS das Fenster genutzt wird, nie WOMIT.
+    _log.info("Rotationsfenster aktiv — Vorgänger-Token in Verwendung; nach "
+              "Abschluss RISK_LAYER_TOKEN_VORGAENGER leeren")
+
+
 def _llm_url_anzeige(url: str | None) -> str | None:
     """Nur ``host:port`` für den Engine-Status (Secret-Hygiene).
 
@@ -664,14 +686,37 @@ def make_handler(app: Anwendung):
             aber das ist nur bei Loopback-Bind erreichbar: ``serve()`` lehnt einen
             Netz-Bind ohne Token ab. Der Vergleich nutzt ``hmac.compare_digest``
             auf utf-8-Bytes (kein Timing-Orakel, robust gegen Nicht-ASCII-Token).
+
+            Rotationsfenster (L8): ist zusätzlich RISK_LAYER_TOKEN_VORGAENGER
+            gesetzt, gilt ÜBERGANGSWEISE auch der alte Token — so lassen sich
+            Engine und Clients nacheinander statt im Gleichschritt umstellen
+            (Schrittfolge: INTEGRATION_TAXTRONIK.md § 3 F). Beide Vergleiche
+            laufen IMMER vollständig, erst danach wird ODER-verknüpft: ein
+            Kurzschluss (``or`` direkt zwischen den compare_digest-Aufrufen)
+            wäre ein Timing-Leck — die Antwortzeit verriete, ob bereits der
+            erste Vergleich getroffen hat.
             """
             erwartet = os.environ.get("RISK_LAYER_TOKEN", "")
             if not erwartet:
+                # Kein aktueller Token → keine Auth (nur Loopback erreichbar,
+                # Logik unverändert). Ein NUR gesetzter Vorgänger aktiviert
+                # bewusst keine Auth: das Rotationsfenster setzt einen gültigen
+                # NEUEN Token voraus, sonst wäre die Rotation keine.
                 return True
             auth = self.headers.get("Authorization", "")
             if not auth.startswith("Bearer "):
                 return False
-            return hmac.compare_digest(auth[7:].encode("utf-8"), erwartet.encode("utf-8"))
+            geboten = auth[7:].encode("utf-8")
+            aktuell_ok = hmac.compare_digest(geboten, erwartet.encode("utf-8"))
+            vorgaenger = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+            vorgaenger_ok = (hmac.compare_digest(geboten, vorgaenger.encode("utf-8"))
+                             if vorgaenger else False)
+            if vorgaenger_ok and not aktuell_ok:
+                # ECHTER Vorgänger-Treffer (nicht bloß alter == neuer Wert):
+                # der Betreiber soll einmalig sehen, dass noch Clients auf dem
+                # alten Token stehen und das Fenster zu schließen ist.
+                _logge_rotationsfenster_einmalig()
+            return aktuell_ok or vorgaenger_ok
 
         def _fehler_500(self, exc: Exception) -> None:
             # § 203 / Info-Leak: roher Exception-Text kann Mandantentext-Fragmente

@@ -14,6 +14,7 @@ lokalen llama-server über HTTP an (siehe ``llm.LlamaServerProvider``).
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -31,8 +32,18 @@ from pathlib import Path
 from typing import Callable
 
 from .llm import server_verfuegbar
+from .persistenz import atomar_schreiben
 
 HF = "https://huggingface.co"
+# HF-Revision der Modell-Downloads, EXPLIZIT statt implizit (Reproduzierbarkeit,
+# IDW PS 861 Tz. 36 / Mapping-Lücke L4): bisher steckte "main" als Literal in
+# der Resolve-URL. Die GGUF-Repos der Registry taggen keine Releases, deshalb
+# bleibt "main" der ehrliche Stand — der eigentliche Integritätsanker ist der
+# sha256 (HF-LFS-Erwartungswert + Sidecar, s. unten), nicht der Branch-Name.
+# Update-Anweisung: für einen harten Pin den Commit-Hash des jeweiligen Repos
+# eintragen (huggingface.co/<repo>/commits/main); sollen Modelle UNTERSCHIEDLICHE
+# Revisionen pinnen, gehört das Feld in ModellInfo, nicht hierher.
+HF_REVISION = "main"
 DEFAULT_MODELL_DIR = Path("models")
 DEFAULT_ENGINE_DIR = Path("engine")
 GITHUB_RELEASES = "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=12"
@@ -85,10 +96,36 @@ DEFAULT_MODELL = "granite-4.1-8b"
 # ---------------------------------------------------------------------------
 
 def hf_dateien(repo: str, *, timeout: float = 25.0) -> list[str]:
-    url = f"{HF}/api/models/{repo}"
+    # Revision explizit in der API-URL (gleicher Stand wie datei_url): Dateiliste
+    # und Download dürfen nie aus zwei verschiedenen Revisionen stammen.
+    url = f"{HF}/api/models/{repo}/revision/{urllib.parse.quote(HF_REVISION)}"
     with urllib.request.urlopen(url, timeout=timeout) as r:  # noqa: S310
         data = json.load(r)
     return [s["rfilename"] for s in data.get("siblings", [])]
+
+
+def hf_lfs_digests(repo: str, *, revision: str = HF_REVISION,
+                   timeout: float = 25.0) -> dict[str, str]:
+    """sha256-Erwartungswerte je Datei (``pfad → hex``) aus dem HF-Tree-Endpunkt.
+
+    Warum der Tree-Endpunkt: er ist ein simpler GET wie ``hf_dateien`` (kein
+    POST-``paths-info``, kein ``huggingface_hub``-Paket — /NF10/-Geist: keine
+    schweren Abhängigkeiten) und liefert für LFS-Dateien ``lfs.oid`` = sha256
+    des Inhalts. Nicht-LFS-Dateien (README, configs) tragen keinen LFS-Digest
+    und fehlen im Ergebnis — für sie greift dann das Sidecar-Pinning beim
+    Erst-Download. ``recursive=true`` deckt Repos mit Unterordnern ab.
+    """
+    url = (f"{HF}/api/models/{repo}/tree/{urllib.parse.quote(revision)}"
+           "?recursive=true")
+    req = urllib.request.Request(url, headers={"User-Agent": "risk-layer/0.1"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:  # noqa: S310
+        eintraege = json.load(r)
+    digests: dict[str, str] = {}
+    for e in eintraege:
+        oid = (e.get("lfs") or {}).get("oid")
+        if e.get("type") == "file" and oid:
+            digests[e["path"]] = str(oid).lower()
+    return digests
 
 
 def passende_dateien(repo: str, quant: str, *, timeout: float = 25.0) -> list[str]:
@@ -100,7 +137,130 @@ def passende_dateien(repo: str, quant: str, *, timeout: float = 25.0) -> list[st
 
 
 def datei_url(repo: str, datei: str) -> str:
-    return f"{HF}/{repo}/resolve/main/{urllib.parse.quote(datei)}?download=true"
+    return f"{HF}/{repo}/resolve/{HF_REVISION}/{urllib.parse.quote(datei)}?download=true"
+
+
+# ---------------------------------------------------------------------------
+# Integritätsnachweis (IDW PS 861, Mapping-Lücke L4): sha256-Sidecars
+# ---------------------------------------------------------------------------
+
+SIDECAR_SUFFIX = ".sha256"
+
+
+def sidecar_pfad(datei: Path) -> Path:
+    """``<datei>.sha256`` neben der Datei (sha256sum-Konvention)."""
+    return datei.with_name(datei.name + SIDECAR_SUFFIX)
+
+
+def sidecar_schreiben(datei: Path, digest: str) -> None:
+    """Schreibt den Integritäts-Sidecar im exakten sha256sum-Format.
+
+    Format ``<hex>  <dateiname>`` (ZWEI Leerzeichen, nur der Dateiname ohne
+    Pfad): so prüft auch ein ``sha256sum -c <datei>.sha256`` ohne diese Engine
+    — ein Wirtschaftsprüfer braucht kein Python für den Nachweis. Geschrieben
+    wird atomar (persistenz.atomar_schreiben), damit nie ein halber Sidecar
+    liegt; das Format verträgt keine Kommentarzeilen, Zusatzinfos gehören
+    deshalb ins Log, nicht in die Datei.
+    """
+    atomar_schreiben(sidecar_pfad(datei), f"{digest.lower()}  {datei.name}\n")
+
+
+def sidecar_lesen(datei: Path) -> str | None:
+    """Erwarteter sha256 (hex, klein) aus dem Sidecar — ``None`` bei fehlend/unlesbar.
+
+    Degradierend: ein fehlender/kaputter Sidecar wirft hier nie — die Befund-
+    Seite ist ``verifiziere_artefakte`` (ok=False mit Grund), der Engine-Start
+    sagt schlicht „ungeprüft" (LlamaServerManager.start).
+    """
+    try:
+        erster = sidecar_pfad(datei).read_text(encoding="utf-8").split()[0].lower()
+    except (OSError, IndexError):
+        return None
+    if len(erster) == 64 and all(c in "0123456789abcdef" for c in erster):
+        return erster
+    return None
+
+
+def datei_sha256(pfad: str | Path, *, blocksize: int = 1 << 20) -> str:
+    """sha256 einer Datei, blockweise gelesen (GB-Dateien, konstanter Speicher)."""
+    del blocksize  # file_digest wählt die Blockgröße selbst; Param bleibt API-stabil
+    with Path(pfad).open("rb") as fh:
+        return hashlib.file_digest(fh, "sha256").hexdigest()
+
+
+def _pruefe_und_pinne(ziel: Path, ist: str, erwartet: str | None) -> None:
+    """Digest-Abgleich + Sidecar-Pinning nach vollständigem Download.
+
+    Mit Erwartungswert (HF-LFS-Digest) ist eine Abweichung ein HARTER Fehler:
+    die Datei wird entfernt — bliebe sie liegen, meldete der nächste Resume-
+    Versuch sie per 416 still als „fertig" und das korrupte/manipulierte
+    Artefakt ginge in Betrieb. Ohne Erwartungswert pinnt der Sidecar den
+    Erst-Download (Trust-on-first-use); das wird GELOGGT statt in den Sidecar
+    geschrieben, weil das sha256sum-Format keine Kommentare kennt.
+    """
+    if erwartet is not None and ist != erwartet.lower():
+        ziel.unlink(missing_ok=True)
+        sidecar_pfad(ziel).unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Integritätsfehler bei {ziel.name}: sha256 weicht vom Hugging-Face-"
+            f"Erwartungswert ab (erwartet {erwartet.lower()}, ist {ist}) — das "
+            "Artefakt ist manipuliert oder korrupt. Die Datei wurde entfernt; "
+            "Download wiederholen (und bei erneuter Abweichung Quelle prüfen).")
+    if erwartet is None:
+        _log.info("kein HF-Erwartungsdigest für %s verfügbar — Sidecar pinnt den "
+                  "Erst-Download (sha256 %s); künftige Prüfungen laufen dagegen "
+                  "('risk-layer modell verify').", ziel.name, ist)
+    sidecar_schreiben(ziel, ist)
+
+
+def verifiziere_artefakte(verzeichnis: str | Path = DEFAULT_MODELL_DIR) -> list[dict]:
+    """Prüft jedes Modellartefakt im Verzeichnis gegen seinen sha256-Sidecar.
+
+    Vertrag (CLI ``risk-layer modell verify``): je Datei ein Dict
+    ``{"datei", "erwartet", "ist", "ok", "grund"}`` — deterministisch nach
+    Dateiname sortiert. Geprüft wird ALLES, was kein Sidecar ist (GGUF wie
+    sonstige Artefakte): eine unbekannte Datei im Modellverzeichnis ist ein
+    ehrliches ok=False („kein Sidecar"), kein stilles Auslassen. Sidecars ohne
+    zugehörige Datei werden ebenfalls Befund (Datei fehlt).
+    """
+    verzeichnis = Path(verzeichnis)
+    befunde: list[dict] = []
+    if not verzeichnis.exists():
+        return befunde   # kein Modellverzeichnis = nichts zu prüfen (kein Crash)
+    kandidaten: set[str] = set()
+    for p in verzeichnis.iterdir():
+        # Nur Top-Level: download_modell legt Registry-Modelle flach ab.
+        # Versteckte Dateien (atomar_schreiben-Temps ".<name>.tmp") sind keine
+        # Artefakte und würden nur Pseudo-Befunde erzeugen.
+        if not p.is_file() or p.name.startswith("."):
+            continue
+        if p.name.endswith(SIDECAR_SUFFIX):
+            kandidaten.add(p.name[: -len(SIDECAR_SUFFIX)])   # Sidecar ohne Datei → Befund
+        else:
+            kandidaten.add(p.name)
+    for name in sorted(kandidaten):
+        datei = verzeichnis / name
+        if not sidecar_pfad(datei).exists():
+            befunde.append({"datei": name, "erwartet": None, "ist": None, "ok": False,
+                            "grund": "kein Sidecar (.sha256) — Erst-Download mit aktueller "
+                                     "Version nachholen oder Sidecar manuell erzeugen"})
+            continue
+        erwartet = sidecar_lesen(datei)
+        if erwartet is None:
+            # Sidecar liegt da, ist aber kein sha256sum-Format → eigener Grund,
+            # NICHT „kein Sidecar": der Operator soll die kaputte Datei finden.
+            befunde.append({"datei": name, "erwartet": None, "ist": None, "ok": False,
+                            "grund": "Sidecar unlesbar (kein sha256sum-Format)"})
+            continue
+        if not datei.exists():
+            befunde.append({"datei": name, "erwartet": erwartet, "ist": None, "ok": False,
+                            "grund": "Datei fehlt (Sidecar vorhanden)"})
+            continue
+        ist = datei_sha256(datei)
+        ok = ist == erwartet
+        befunde.append({"datei": name, "erwartet": erwartet, "ist": ist, "ok": ok,
+                        "grund": None if ok else "Digest weicht ab"})
+    return befunde
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +270,16 @@ def datei_url(repo: str, datei: str) -> str:
 def download_datei(
     url: str, ziel: Path, *, fortschritt: Callable[[int, int], None] | None = None,
     timeout: float = 60.0, blocksize: int = 1 << 20,
+    erwartet_sha256: str | None = None,
 ) -> Path:
-    """Lädt ``url`` nach ``ziel`` – setzt einen Teildownload per HTTP-Range fort."""
+    """Lädt ``url`` nach ``ziel`` – setzt einen Teildownload per HTTP-Range fort.
+
+    Integritätsnachweis (Mapping-Lücke L4): der sha256 wird STREAMEND während
+    des Downloads mitberechnet — kein zweiter Festplatten-Pass über GB-Dateien.
+    Nach Erfolg entsteht der Sidecar ``<datei>.sha256`` (sha256sum-Format); ist
+    ``erwartet_sha256`` gesetzt (HF-LFS-Digest), ist eine Abweichung ein harter
+    Fehler und die Datei wird entfernt.
+    """
     ziel.parent.mkdir(parents=True, exist_ok=True)
     vorhanden = ziel.stat().st_size if ziel.exists() else 0
     req = urllib.request.Request(url, headers={"User-Agent": "risk-layer/0.1"})
@@ -133,8 +301,16 @@ def download_datei(
             _log.info("bereits vollständig: %s (%s)", ziel.name, menschlich(vorhanden))
             if fortschritt:
                 fortschritt(vorhanden, gesamt)
+            # Integritätsnachweis NACHHOLEN: es lief kein Byte durch den Stream-
+            # Hasher. Fehlt der Sidecar (Download aus einer Version vor L4),
+            # einmalig voll hashen + pinnen — das ist ein nutzerausgelöster
+            # Build-Schritt, KEIN Startpfad, der Voll-Pass ist hier vertretbar.
+            # Liegt ein Sidecar, nichts tun: die Prüfung ist verifiziere_artefakte.
+            if sidecar_lesen(ziel) is None:
+                _pruefe_und_pinne(ziel, datei_sha256(ziel), erwartet_sha256)
             return ziel
         raise
+    hasher = hashlib.sha256()
     with antwort as resp:
         if vorhanden and resp.status == 206:
             # echte Fortsetzung: Gesamtgröße aus Content-Range ("bytes a-b/<gesamt>")
@@ -142,11 +318,25 @@ def download_datei(
             gesamt = int(cr.split("/")[-1]) if cr else (
                 int(resp.headers.get("Content-Length", 0)) + vorhanden)
             modus, gelesen = "ab", vorhanden
+            # Resume: den schon liegenden Teil EINMALIG nachhashen, dann den
+            # Netz-Stream weiterhashen. Warum hier (statt Vollhash nach dem
+            # Abschluss): ob der Server 206 oder 200 antwortet, wissen wir erst
+            # JETZT — und so liest die Platte jedes vorhandene Byte genau einmal,
+            # der neue Teil kommt direkt aus dem Netz-Puffer. Bei GB-Dateien
+            # dauert das Nachhashen Sekunden; die offene, noch ungelesene
+            # HTTP-Antwort übersteht das problemlos.
+            with ziel.open("rb") as fh:
+                while True:
+                    chunk = fh.read(blocksize)
+                    if not chunk:
+                        break
+                    hasher.update(chunk)
         else:
             # Frischer Download ODER der Server IGNORIERT den Range-Header und
             # antwortet 200 mit der GANZEN Datei: dann neu schreiben statt anhängen
             # (sonst läge die Datei doppelt vor) – und Content-Length ist hier schon
-            # die Gesamtgröße, ``vorhanden`` darf NICHT aufaddiert werden.
+            # die Gesamtgröße, ``vorhanden`` darf NICHT aufaddiert werden. Der
+            # Hasher startet leer: alles, was in die Datei geht, läuft durch ihn.
             gesamt = int(resp.headers.get("Content-Length", 0))
             modus, gelesen = "wb", 0
         with ziel.open(modus) as fh:
@@ -155,9 +345,11 @@ def download_datei(
                 if not chunk:
                     break
                 fh.write(chunk)
+                hasher.update(chunk)
                 gelesen += len(chunk)
                 if fortschritt:
                     fortschritt(gelesen, gesamt)
+    _pruefe_und_pinne(ziel, hasher.hexdigest(), erwartet_sha256)
     return ziel
 
 
@@ -165,12 +357,27 @@ def download_modell(
     info: ModellInfo, ziel_dir: Path | str = DEFAULT_MODELL_DIR,
     *, fortschritt: Callable[[int, int], None] | None = None,
 ) -> list[Path]:
-    """Lädt alle zur Quantisierung passenden GGUF-Dateien des Modells."""
+    """Lädt alle zur Quantisierung passenden GGUF-Dateien des Modells.
+
+    Je Datei wird der sha256-Erwartungswert von Hugging Face (LFS-Digest)
+    mitgeprüft, sofern abfragbar — Abweichung = harter Fehler (download_datei).
+    """
     ziel_dir = Path(ziel_dir)
+    # Erwartungswerte DEGRADIEREND beschaffen: schlägt die Tree-Abfrage fehl
+    # (HF-API-Hickser, Proxy), läuft der Download trotzdem — dann pinnt der
+    # Sidecar den Erst-Download (Log in _pruefe_und_pinne). Ein verfügbarer
+    # Erwartungswert macht Abweichungen dagegen zum harten Fehler.
+    try:
+        erwartet = hf_lfs_digests(info.repo)
+    except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
+        _log.warning("HF-Digest-Abfrage für %s fehlgeschlagen (%s) — Download ohne "
+                     "Erwartungswert, Sidecar pinnt den Erst-Download.", info.repo, exc)
+        erwartet = {}
     pfade: list[Path] = []
     for datei in passende_dateien(info.repo, info.quant):
         pfade.append(download_datei(datei_url(info.repo, datei), ziel_dir / datei,
-                                    fortschritt=fortschritt))
+                                    fortschritt=fortschritt,
+                                    erwartet_sha256=erwartet.get(datei)))
     return pfade
 
 
@@ -339,6 +546,10 @@ def _lade_und_entpacke(name: str, url: str, ziel_dir: Path,
             # kein Fallback ohne Filter: das wäre der Verlust genau dieses Schutzes.
             tf.extractall(ziel_dir, filter="data")
     arch.unlink()
+    # Das Archiv ist transient (entpackt + gelöscht) — sein Download-Sidecar
+    # darf nicht als verwaister Integritätsnachweis im Engine-Verzeichnis
+    # zurückbleiben (verifiziere_artefakte meldete sonst "Datei fehlt").
+    sidecar_pfad(arch).unlink(missing_ok=True)
 
 
 def download_engine(ziel_dir: Path | str = DEFAULT_ENGINE_DIR, *,
@@ -433,6 +644,19 @@ class LlamaServerManager:
             )
         if not Path(self.model_path).exists():
             raise FileNotFoundError(f"Modell nicht gefunden: {self.model_path}")
+        # Integritäts-Transparenz beim Start (L4): den Digest des geladenen GGUF
+        # aus dem SIDECAR loggen — bewusst KEIN Vollhash an dieser Stelle (eine
+        # GB-Datei zu hashen würde jeden Engine-Start um Sekunden bis Minuten
+        # verzögern). Die echte Prüfung ist der explizite Schritt
+        # 'risk-layer modell verify' (verifiziere_artefakte).
+        digest = sidecar_lesen(Path(self.model_path))
+        if digest:
+            _log.info("GGUF-Digest (sha256 lt. Sidecar): %s — %s",
+                      digest, Path(self.model_path).name)
+        else:
+            _log.info("GGUF ungeprüft — kein Sidecar für %s; Integrität mit "
+                      "'risk-layer modell verify' bzw. erneutem 'modell download' "
+                      "nachweisen.", Path(self.model_path).name)
         # stdout/stderr NICHT nach DEVNULL: Startfehler ("unknown architecture" bei
         # zu alter Engine, s. Hinweis bei lfm2.5 oben) wären sonst undiagnostizierbar.
         # Logdatei statt PIPE, damit der Server nie an einem vollen, ungelesenen

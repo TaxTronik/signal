@@ -1,12 +1,19 @@
 """Modell-Integration: Registry, HF-Auflösung, Download, Engine-Manager (gemockt)."""
 
+import hashlib
 import io
+import json
+import logging
 import urllib.error
 from pathlib import Path
 
 import pytest
 
 from risk_layer import modell as M
+
+
+def _sha(b: bytes) -> str:
+    return hashlib.sha256(b).hexdigest()
 
 
 def test_registry_default_ist_granite_4_1_8b():
@@ -211,6 +218,204 @@ def test_download_datei_resume_server_ignoriert_range(monkeypatch, tmp_path):
     M.download_datei("http://x/f", ziel, fortschritt=lambda g, t: stand.append((g, t)))
     assert ziel.read_bytes() == b"hello"      # NICHT b"hehello"
     assert stand[-1] == (5, 5)                # gesamt = 5, nicht 5 + 2
+
+
+# --- Integritätsnachweis (L4): Sidecar, HF-Erwartungswert, Verify ----------
+
+def test_download_datei_schreibt_sha256_sidecar_im_sha256sum_format(monkeypatch, tmp_path):
+    # Nach erfolgreichem Download liegt <datei>.sha256 im EXAKTEN sha256sum-
+    # Format: "<hex>  <dateiname>\n" — zwei Leerzeichen, nur der Dateiname ohne
+    # Pfad. Damit prüft auch `sha256sum -c f.gguf.sha256` ohne diese Engine.
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda req, timeout=60: _fake_resp(200, {"Content-Length": "5"}, b"hello"))
+    ziel = tmp_path / "f.gguf"
+    M.download_datei("http://x/f", ziel)
+    sc = tmp_path / "f.gguf.sha256"
+    assert sc.read_text(encoding="utf-8") == f"{_sha(b'hello')}  f.gguf\n"
+    assert M.sidecar_lesen(ziel) == _sha(b"hello")
+
+
+def test_download_datei_resume_206_sidecar_hash_ueber_gesamtdatei(monkeypatch, tmp_path):
+    # Resume (206): der Sidecar muss den Hash der GESAMTDATEI tragen — der
+    # vorhandene Teil wird einmalig nachgehasht, der Netz-Teil streamend.
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"he")
+    monkeypatch.setattr(M.urllib.request, "urlopen", lambda req, timeout=60: _fake_resp(
+        206, {"Content-Range": "bytes 2-4/5", "Content-Length": "3"}, b"llo"))
+    M.download_datei("http://x/f", ziel)
+    assert ziel.read_bytes() == b"hello"
+    assert M.sidecar_lesen(ziel) == _sha(b"hello")     # NICHT nur _sha(b"llo")
+
+
+def test_download_datei_digest_mismatch_gegen_hf_erwartung_ist_harter_fehler(monkeypatch, tmp_path):
+    # Abweichung vom HF-Erwartungswert = manipuliertes/korruptes Artefakt →
+    # harter Fehler mit klarer Meldung; die Datei darf NICHT liegen bleiben
+    # (sonst meldete der nächste Resume-Versuch sie per 416 still als "fertig").
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda req, timeout=60: _fake_resp(200, {"Content-Length": "5"}, b"hello"))
+    ziel = tmp_path / "f.gguf"
+    with pytest.raises(RuntimeError, match="weicht|Integrität"):
+        M.download_datei("http://x/f", ziel, erwartet_sha256="ab" * 32)
+    assert not ziel.exists()
+    assert not (tmp_path / "f.gguf.sha256").exists()   # kein Sidecar für Korruptes
+
+
+def test_download_datei_digest_match_gegen_hf_erwartung(monkeypatch, tmp_path):
+    # Passender Erwartungswert (Groß-/Kleinschreibung egal) → Erfolg + Sidecar.
+    monkeypatch.setattr(M.urllib.request, "urlopen",
+                        lambda req, timeout=60: _fake_resp(200, {"Content-Length": "5"}, b"hello"))
+    ziel = tmp_path / "f.gguf"
+    M.download_datei("http://x/f", ziel, erwartet_sha256=_sha(b"hello").upper())
+    assert ziel.read_bytes() == b"hello"
+    assert M.sidecar_lesen(ziel) == _sha(b"hello")
+
+
+def test_download_datei_416_holt_fehlenden_sidecar_nach(monkeypatch, tmp_path):
+    # Datei war schon vollständig (416, z. B. Download aus einer Version vor L4):
+    # der Stream-Hasher lief nie — der Sidecar wird einmalig per Vollhash nachgeholt.
+    ziel = tmp_path / "f.gguf"
+    ziel.write_bytes(b"hello")
+    def urlopen(req, timeout=60):
+        raise urllib.error.HTTPError(req.full_url, 416, "Range Not Satisfiable",
+                                     {"Content-Range": "bytes */5"}, None)
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    M.download_datei("http://x/f", ziel)
+    assert M.sidecar_lesen(ziel) == _sha(b"hello")
+
+
+def test_hf_lfs_digests_liest_tree_endpunkt(monkeypatch):
+    # Der HF-Tree-Endpunkt liefert je LFS-Datei lfs.oid = sha256; Nicht-LFS-
+    # Dateien (README) haben keinen Digest und fehlen im Ergebnis.
+    eintraege = [
+        {"type": "file", "path": "README.md", "oid": "gitsha", "size": 5},
+        {"type": "file", "path": "a.gguf", "oid": "gitsha",
+         "lfs": {"oid": "AB" * 32, "size": 99, "pointerSize": 135}},
+        {"type": "directory", "path": "sub"},
+    ]
+    gefragt = {}
+
+    class FakeResp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(req, timeout=25.0):
+        gefragt["url"] = req.full_url
+        return FakeResp(json.dumps(eintraege).encode("utf-8"))
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    d = M.hf_lfs_digests("org/repo")
+    assert d == {"a.gguf": "ab" * 32}                   # nur LFS, kleingeschrieben
+    assert "/api/models/org/repo/tree/main" in gefragt["url"]
+
+
+def test_download_modell_reicht_hf_erwartungswert_durch(monkeypatch, tmp_path):
+    erhalten = {}
+    monkeypatch.setattr(M, "passende_dateien", lambda repo, quant: ["a.gguf"])
+    monkeypatch.setattr(M, "hf_lfs_digests", lambda repo: {"a.gguf": "f" * 64})
+
+    def fake_dl(url, ziel, *, fortschritt=None, erwartet_sha256=None):
+        erhalten["erwartet"] = erwartet_sha256
+        return ziel
+    monkeypatch.setattr(M, "download_datei", fake_dl)
+    M.download_modell(M.MODELLE[M.DEFAULT_MODELL], tmp_path)
+    assert erhalten["erwartet"] == "f" * 64
+
+
+def test_download_modell_degradiert_ohne_hf_digests(monkeypatch, tmp_path):
+    # Digest-Abfrage scheitert (offline/HF-API down) → Download läuft trotzdem,
+    # nur ohne Erwartungswert (der Sidecar pinnt dann den Erst-Download).
+    def kaputt(repo):
+        raise urllib.error.URLError("offline (Test)")
+    monkeypatch.setattr(M, "hf_lfs_digests", kaputt)
+    monkeypatch.setattr(M, "passende_dateien", lambda repo, quant: ["a.gguf"])
+    erhalten = {}
+
+    def fake_dl(url, ziel, *, fortschritt=None, erwartet_sha256=None):
+        erhalten["erwartet"] = erwartet_sha256
+        return ziel
+    monkeypatch.setattr(M, "download_datei", fake_dl)
+    M.download_modell(M.MODELLE[M.DEFAULT_MODELL], tmp_path)
+    assert erhalten["erwartet"] is None
+
+
+def test_verifiziere_artefakte_vier_faelle(tmp_path):
+    # (1) ok: Datei + passender Sidecar
+    ok_datei = tmp_path / "a.gguf"
+    ok_datei.write_bytes(b"aaa")
+    M.sidecar_schreiben(ok_datei, _sha(b"aaa"))
+    # (2) kein Sidecar
+    (tmp_path / "b.gguf").write_bytes(b"bbb")
+    # (3) Sidecar da, Datei fehlt
+    M.sidecar_schreiben(tmp_path / "c.gguf", _sha(b"ccc"))
+    # (4) Hash-Mismatch
+    falsch = tmp_path / "d.gguf"
+    falsch.write_bytes(b"echt")
+    M.sidecar_schreiben(falsch, _sha(b"anders"))
+    res = M.verifiziere_artefakte(tmp_path)
+    assert [r["datei"] for r in res] == ["a.gguf", "b.gguf", "c.gguf", "d.gguf"]  # deterministisch
+    a, b, c, d = res
+    assert a == {"datei": "a.gguf", "erwartet": _sha(b"aaa"), "ist": _sha(b"aaa"),
+                 "ok": True, "grund": None}
+    assert b["ok"] is False and b["erwartet"] is None and b["ist"] is None
+    assert "kein Sidecar" in b["grund"]
+    assert c["ok"] is False and c["erwartet"] == _sha(b"ccc") and c["ist"] is None
+    assert "fehlt" in c["grund"]
+    assert d["ok"] is False and d["grund"] == "Digest weicht ab"
+    assert d["erwartet"] == _sha(b"anders") and d["ist"] == _sha(b"echt")
+
+
+def test_verifiziere_artefakte_leer_und_fehlendes_verzeichnis(tmp_path):
+    assert M.verifiziere_artefakte(tmp_path / "gibtsnicht") == []   # kein Crash
+    assert M.verifiziere_artefakte(tmp_path) == []
+
+
+def test_verifiziere_artefakte_vertrag_signatur():
+    # FESTER VERTRAG für die CLI ('risk-layer modell verify'): Default-Verzeichnis
+    # ist DEFAULT_MODELL_DIR; Aufruf ohne Argumente muss funktionieren.
+    import inspect
+    sig = inspect.signature(M.verifiziere_artefakte)
+    assert list(sig.parameters) == ["verzeichnis"]
+    assert sig.parameters["verzeichnis"].default == M.DEFAULT_MODELL_DIR
+
+
+def test_hf_revision_explizit_in_datei_url():
+    # Reproduzierbarkeit (D5/L4): die Revision steht EXPLIZIT als Konstante,
+    # nicht implizit als "main"-Literal in der URL verstreut.
+    assert M.HF_REVISION == "main"
+    assert f"/resolve/{M.HF_REVISION}/" in M.datei_url("a/b", "c.gguf")
+
+
+def test_manager_start_loggt_sidecar_digest_oder_ungeprueft(monkeypatch, tmp_path, caplog):
+    # Engine-Start: Digest aus dem Sidecar wird GELOGGT (kein Vollhash der
+    # GB-Datei beim Start!); ohne Sidecar gibt es den "ungeprüft"-Hinweis
+    # mit Verweis auf 'modell verify'.
+    binpath = tmp_path / "llama-server"
+    binpath.write_text("x")
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"x")
+
+    class FakeProc:
+        def poll(self): return None
+        def terminate(self): pass
+        def wait(self, timeout=None): return 0
+        def kill(self): pass
+    monkeypatch.setattr(M.subprocess, "Popen", lambda *a, **k: FakeProc())
+
+    mgr = M.LlamaServerManager(model, binary=str(binpath))
+    with caplog.at_level(logging.INFO, logger="risk_layer.modell"):
+        mgr.start()
+    mgr.stop()
+    assert any("ungeprüft" in r.getMessage() and "verify" in r.getMessage()
+               for r in caplog.records)
+    Path(mgr.log_pfad).unlink()
+
+    caplog.clear()
+    M.sidecar_schreiben(model, _sha(b"x"))
+    mgr2 = M.LlamaServerManager(model, binary=str(binpath))
+    with caplog.at_level(logging.INFO, logger="risk_layer.modell"):
+        mgr2.start()
+    mgr2.stop()
+    assert any(_sha(b"x") in r.getMessage() for r in caplog.records)
+    Path(mgr2.log_pfad).unlink()
 
 
 # --- Backend-Erkennung / -Auswahl -----------------------------------------

@@ -128,6 +128,18 @@ Mindestens: TaxTronik kann via Engine-API neue Berater-Begriffe anlegen
 Bearer-Token (shared secret aus Config) auf allen Engine-Calls, da der Dienst
 zwar netzintern, aber mandantendatenführend angefragt wird. Kein offener Port.
 
+**Token-Rotation (ohne Ausfallfenster):** Die Engine akzeptiert während eines
+Rotationsfensters zusätzlich den alten Token aus der Env
+`RISK_LAYER_TOKEN_VORGAENGER` — beide werden konstant-zeitig geprüft.
+Schrittfolge: (1) neues Token erzeugen und als `RISK_LAYER_TOKEN` setzen, den
+bisherigen Wert nach `RISK_LAYER_TOKEN_VORGAENGER` übernehmen, Engine neu
+starten — alter und neuer Token gelten jetzt parallel; (2) alle Clients
+(TaxTronik-Config) auf das neue Token umstellen; (3) `RISK_LAYER_TOKEN_VORGAENGER`
+leeren und Engine neu starten — ab dann gilt nur noch das neue Token. Solange
+das Fenster offen ist und noch ein Client mit dem Vorgänger-Token anfragt,
+loggt die Engine das einmalig je Prozess (Erinnerung, das Fenster zu
+schließen); Token-Werte erscheinen nie im Log.
+
 ---
 
 ## 4. API-Vertrag der Engine (Risk-Layer-Seite — ✅ GEBAUT & getestet)
