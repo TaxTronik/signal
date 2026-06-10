@@ -285,6 +285,20 @@ def _cmd_radar(args: argparse.Namespace) -> int:
         else:
             print("\nKeine betroffenen Anker.")
 
+    # L9-Baustein (IDW-PS-861-Mapping): Radar-Berichte datiert archivieren, damit
+    # ein Wirksamkeitsnachweis ÜBER ZEITRÄUME entstehen kann. Nur auf Wunsch
+    # (--archiv); der Pfad-Hinweis (out/berichte/) steht in der Hilfe, wird aber
+    # nicht erzwungen — wohin archiviert wird, entscheidet der Betreiber.
+    if args.archiv:
+        from .persistenz import atomar_schreiben
+        from .sicherung import zeitstempel_dateiname
+        ts = bericht["stand_neu"]["erstellt_am"]   # = --zeitstempel oder jetzt
+        archiv_pfad = Path(args.archiv) / f"radar_{zeitstempel_dateiname(ts)}.json"
+        atomar_schreiben(archiv_pfad, _json.dumps(
+            bericht, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+        # stderr, damit --json-stdout maschinenrein bleibt (Konvention oben).
+        print(f"Bericht archiviert: {archiv_pfad}", file=sys.stderr)
+
     if args.fail_bei_befund and bericht["anzahl"]["betroffen"]:
         return 1
     return 0
@@ -326,6 +340,43 @@ def _cmd_modell(args: argparse.Namespace) -> int:
             mark = "*" if key == M.DEFAULT_MODELL else " "
             print(f" {mark} {key:12} {info.name:14} {info.quant:7} ~{info.groesse_gb:.1f} GB  {info.notiz}")
         return 0
+
+    if args.aktion == "verify":
+        # Integritätsnachweis der Modellartefakte (PS-861 L4, Tz. 18/36): die
+        # Funktion lebt in modell.py (verifiziere_artefakte, fester Vertrag:
+        # Einträge {"datei","erwartet","ist","ok","grund"}). Der getattr-Pfad
+        # meldet einen Zwischenstand ohne die Funktion sauber als Exit 2 statt
+        # mit AttributeError-Traceback zu sterben.
+        import json as _json
+        verifiziere = getattr(M, "verifiziere_artefakte", None)
+        if verifiziere is None:
+            print("Modell-Verifikation nicht verfügbar: "
+                  "modell.verifiziere_artefakte fehlt in dieser Installation.",
+                  file=sys.stderr)
+            return 2
+        try:
+            ergebnisse = verifiziere(args.dir) if args.dir else verifiziere()
+        except Exception as exc:  # noqa: BLE001 – Bedienfehler sauber melden
+            print(f"Verifikations-Fehler: {exc}", file=sys.stderr)
+            return 2
+        alle_ok = all(e.get("ok") for e in ergebnisse)
+        if args.json:
+            # Maschinenlesbar: NUR die Ergebnisliste auf stdout (sortierte
+            # Keys – deterministisch diffbar, wie 'radar --json').
+            print(_json.dumps(ergebnisse, ensure_ascii=False, sort_keys=True))
+        else:
+            print(f"Artefakt-Verifikation ({len(ergebnisse)} Datei(en)):")
+            for e in ergebnisse:
+                mark = "✓" if e.get("ok") else "✗"
+                zeile = f" {mark} {e.get('datei', '?')}"
+                if not e.get("ok"):
+                    zeile += f"  {e.get('grund') or 'Abweichung'}"
+                    zeile += (f"\n     erwartet: {e.get('erwartet')}"
+                              f"\n     ist     : {e.get('ist')}")
+                print(zeile)
+            print("alle Artefakte ok." if alle_ok
+                  else "ABWEICHUNG: mindestens ein Artefakt weicht ab oder fehlt.")
+        return 0 if alle_ok else 1
 
     info = M.MODELLE.get(args.modell or M.DEFAULT_MODELL)
     if info is None:
@@ -429,6 +480,50 @@ def _cmd_definiere(args: argparse.Namespace) -> int:
     print(f"definiert: {d.id} (scope={d.scope}, autor={d.autor})")
     if d.geankert_an:
         print(f"  geankert an: {', '.join(d.geankert_an)}")
+    return 0
+
+
+def _cmd_festwissen(args: argparse.Namespace) -> int:
+    """Festwissen sichern/wiederherstellen (PS-861 L5, s. sicherung.py).
+
+    Exit-Codes: 0 = ok, 2 = Fehler (Konvention dieser CLI). Gesichert werden
+    NUR die nicht-regenerierbaren Berater-YAMLs — Korpus/Indizes sind
+    Build-Artefakte und bewusst nicht enthalten.
+    """
+    import zipfile
+    from datetime import datetime
+    from . import sicherung as S
+
+    if args.aktion == "sichern":
+        ziel = Path(args.ziel) if args.ziel else Path(args.berater) / "sicherungen"
+        # Uhr NUR hier am CLI-Rand (wie graph build/radar) – der Funktionskern
+        # in sicherung.py bleibt uhrfrei/deterministisch.
+        zeit = args.zeitstempel or datetime.now().isoformat(timespec="seconds")
+        try:
+            pfad = S.sichere_festwissen(args.berater, ziel, zeit)
+        except S.SicherungsFehler as exc:
+            print(f"Sicherungs-Fehler: {exc}", file=sys.stderr)
+            return 2
+        with zipfile.ZipFile(pfad) as zf:
+            if not zf.namelist():
+                print("Hinweis: Berater-Store ist leer – gültiges leeres "
+                      "Archiv erstellt.", file=sys.stderr)
+        print(pfad)                       # Ausgabe: der Archivpfad (skriptbar)
+        return 0
+
+    # wiederherstellen
+    if not args.archiv:
+        print("Sicherungs-Fehler: 'wiederherstellen' braucht ein ARCHIV "
+              "(risk-layer festwissen wiederherstellen <ARCHIV> --berater DIR).",
+              file=sys.stderr)
+        return 2
+    try:
+        dateien = S.stelle_wieder_her(args.archiv, args.berater, force=args.force)
+    except S.SicherungsFehler as exc:
+        print(f"Sicherungs-Fehler: {exc}", file=sys.stderr)
+        return 2
+    print(f"wiederhergestellt nach {args.berater}: "
+          f"{', '.join(dateien) if dateien else '(leeres Archiv – nichts zu tun)'}")
     return 0
 
 
@@ -637,17 +732,46 @@ def build_parser() -> argparse.ArgumentParser:
                     help="maschinenlesbarer Bericht auf stdout statt Menschtext")
     ra.add_argument("--fail-bei-befund", action="store_true",
                     help="Exit-Code 1, wenn Anker betroffen sind (für Skripte/CI)")
+    ra.add_argument("--archiv",
+                    help="Verzeichnis für datierte Bericht-Archive: schreibt den "
+                         "JSON-Bericht zusätzlich als radar_<zeitstempel>.json "
+                         "dorthin (Empfehlung: out/berichte/ — wird nicht erzwungen)")
     ra.set_defaults(func=_cmd_radar)
 
     m = sub.add_parser("modell", help="LLM-Modell (GGUF) verwalten und llama-server starten")
-    m.add_argument("aktion", choices=["list", "download", "engine", "status", "start"])
+    m.add_argument("aktion", choices=["list", "download", "engine", "status", "start", "verify"])
     m.add_argument("--modell", help=f"Modell-Key (Default: {M.DEFAULT_MODELL})")
     m.add_argument("--llm-bin", help="Pfad zum llama-server-Binary")
     m.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
     m.add_argument("--backend", choices=["auto", "cuda", "hip", "vulkan", "cpu"],
                    default="auto",
                    help="GPU-Backend für 'engine' (auto: NVIDIA→cuda, AMD→hip, sonst Vulkan/CPU)")
+    m.add_argument("--dir", help="Modell-Verzeichnis für 'verify' (Default: models/)")
+    m.add_argument("--json", action="store_true",
+                   help="'verify': maschinenlesbares Ergebnis auf stdout statt Tabelle")
     m.set_defaults(func=_cmd_modell)
+
+    fw = sub.add_parser(
+        "festwissen",
+        help="Nicht-regenerierbares Festwissen (Berater-YAMLs) sichern/wiederherstellen",
+        description="Sichert die Berater-Definitionen und Norm-Kuratierungen "
+                    "(personal.yaml/geteilt.yaml/norm_kuratierung.yaml) als "
+                    "datiertes Zip bzw. stellt sie daraus wieder her. Korpus, "
+                    "Graph und Indizes sind regenerierbar und bewusst NICHT "
+                    "enthalten (PS-861 L5, s. risk_layer/sicherung.py).")
+    fw.add_argument("aktion", choices=["sichern", "wiederherstellen"])
+    fw.add_argument("archiv", nargs="?",
+                    help="Archivpfad (nur für 'wiederherstellen')")
+    fw.add_argument("--berater", required=True,
+                    help="Berater-Verzeichnis (Quelle beim Sichern, Ziel beim Wiederherstellen)")
+    fw.add_argument("--ziel",
+                    help="Zielverzeichnis der Archive beim Sichern "
+                         "(Default: <berater>/sicherungen/)")
+    fw.add_argument("--zeitstempel",
+                    help="Fester Zeitstempel für den Archivnamen (reproduzierbare Läufe)")
+    fw.add_argument("--force", action="store_true",
+                    help="'wiederherstellen': nicht-leeres Ziel ausdrücklich überschreiben")
+    fw.set_defaults(func=_cmd_festwissen)
 
     d = sub.add_parser(
         "definiere",

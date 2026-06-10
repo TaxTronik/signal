@@ -255,3 +255,172 @@ def test_definiere_hat_kein_override_flag():
     with pytest.raises(SystemExit):
         parser.parse_args(["definiere", "X", "--text", "y", "--berater", "b",
                            "--autor", "a", "--force"])
+
+
+# -- radar --archiv (L9: datierte Bericht-Archivierung) -------------------------
+
+def test_radar_archiv_schreibt_datierten_bericht(tmp_path, capsys):
+    """--archiv legt den JSON-Bericht ZUSÄTZLICH datiert ab (radar_<ts>.json);
+    --json-stdout bleibt maschinenrein (Archiv-Meldung auf stderr)."""
+    alt_db = _baue_graph(tmp_path, "alt", "Alter Wortlaut.")
+    from risk_layer.graph import graph_oeffnen
+    alt_pfad = tmp_path / "vorher.json"
+    radar.speichere_manifest(alt_pfad, radar.erstelle_manifest(
+        graph_oeffnen(alt_db), erstellt_am="2026-01-01T00:00:00"))
+    db = _baue_graph(tmp_path, "neu", "NEUER Wortlaut.")
+    archiv = tmp_path / "out" / "berichte"
+
+    rc = main(["radar", "--graph", str(db), "--alt", str(alt_pfad), "--json",
+               "--zeitstempel", "2026-06-10T12:00:00", "--archiv", str(archiv)])
+    assert rc == 0
+    captured = capsys.readouterr()
+    # Dateiname dateinamenstauglich (':' → '-'), Inhalt == stdout-Bericht
+    pfad = archiv / "radar_2026-06-10T12-00-00.json"
+    assert pfad.exists()
+    assert json.loads(pfad.read_text(encoding="utf-8")) == json.loads(captured.out)
+    assert str(pfad) in captured.err and str(pfad) not in captured.out
+
+
+def test_radar_ohne_archiv_schreibt_nichts(tmp_path, capsys):
+    db = _baue_graph(tmp_path, "g", "Text.")
+    alt_pfad = tmp_path / "vorher.json"
+    from risk_layer.graph import graph_oeffnen
+    radar.speichere_manifest(alt_pfad, radar.erstelle_manifest(
+        graph_oeffnen(db), erstellt_am="2026-01-01T00:00:00"))
+    assert main(["radar", "--graph", str(db), "--alt", str(alt_pfad)]) == 0
+    assert not list(tmp_path.glob("**/radar_*.json"))
+
+
+# -- festwissen (L5: Sicherung des nicht-regenerierbaren Festwissens) -----------
+
+def _befuellter_store(tmp_path) -> Path:
+    d = tmp_path / "berater"
+    BeraterStore(d).definiere("Betriebsaufspaltung", "Besitz und Betrieb.",
+                              autor="rey", datum="2026-06-10")
+    return d
+
+
+def test_festwissen_sichern_default_ziel_und_pfadausgabe(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--zeitstempel", "2026-06-10T12:00:00"])
+    assert rc == 0
+    erwartet = berater / "sicherungen" / "festwissen_2026-06-10T12-00-00.zip"
+    assert erwartet.exists()
+    assert str(erwartet) in capsys.readouterr().out      # Ausgabe: der Archivpfad
+
+
+def test_festwissen_sichern_eigenes_ziel(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    ziel = tmp_path / "backups"
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--ziel", str(ziel), "--zeitstempel", "2026-06-10T12:00:00"])
+    assert rc == 0
+    assert (ziel / "festwissen_2026-06-10T12-00-00.zip").exists()
+
+
+def test_festwissen_sichern_leerer_store_hinweis(tmp_path, capsys):
+    leer = tmp_path / "leer"
+    leer.mkdir()
+    rc = main(["festwissen", "sichern", "--berater", str(leer),
+               "--zeitstempel", "2026-01-01"])
+    assert rc == 0                                       # gültiges leeres Archiv
+    assert "leer" in capsys.readouterr().err
+
+
+def test_festwissen_sichern_fehlender_store_exit_2(tmp_path, capsys):
+    rc = main(["festwissen", "sichern", "--berater", str(tmp_path / "fehlt")])
+    assert rc == 2
+    assert "Sicherungs-Fehler" in capsys.readouterr().err
+
+
+def test_festwissen_wiederherstellen_roundtrip(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    assert main(["festwissen", "sichern", "--berater", str(berater),
+                 "--ziel", str(tmp_path / "b"), "--zeitstempel", "2026-06-10"]) == 0
+    capsys.readouterr()
+    archiv = tmp_path / "b" / "festwissen_2026-06-10.zip"
+
+    ziel = tmp_path / "neu"
+    rc = main(["festwissen", "wiederherstellen", str(archiv), "--berater", str(ziel)])
+    assert rc == 0
+    assert "personal.yaml" in capsys.readouterr().out
+    assert {d.id for d in BeraterStore(ziel).alle()} == {"betriebsaufspaltung"}
+
+
+def test_festwissen_wiederherstellen_nicht_leer_braucht_force(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    assert main(["festwissen", "sichern", "--berater", str(berater),
+                 "--ziel", str(tmp_path / "b"), "--zeitstempel", "t"]) == 0
+    archiv = tmp_path / "b" / "festwissen_t.zip"
+    # Ziel = der (nicht-leere) Store selbst → ohne --force Exit 2 + klare Meldung
+    rc = main(["festwissen", "wiederherstellen", str(archiv), "--berater", str(berater)])
+    assert rc == 2
+    assert "--force" in capsys.readouterr().err
+    assert main(["festwissen", "wiederherstellen", str(archiv),
+                 "--berater", str(berater), "--force"]) == 0
+
+
+def test_festwissen_wiederherstellen_ohne_archiv_exit_2(tmp_path, capsys):
+    rc = main(["festwissen", "wiederherstellen", "--berater", str(tmp_path)])
+    assert rc == 2
+    assert "ARCHIV" in capsys.readouterr().err
+
+
+# -- modell verify (Artefakt-Verifikation; Funktion lebt in modell.py) ----------
+# FESTER VERTRAG: modell.verifiziere_artefakte(verzeichnis=...) -> list[dict]
+# mit {"datei","erwartet","ist","ok","grund"}. Hier wird NUR die CLI-Verdrahtung
+# getestet (Funktion gemockt) – die Implementierung testet test_modell.py.
+
+_VERIFY_OK = [{"datei": "a.gguf", "erwartet": "sha256:aa", "ist": "sha256:aa",
+               "ok": True, "grund": ""}]
+_VERIFY_FAIL = _VERIFY_OK + [{"datei": "b.gguf", "erwartet": "sha256:bb",
+                              "ist": "sha256:cc", "ok": False,
+                              "grund": "Hash weicht ab"}]
+
+
+def _mock_verify(monkeypatch, ergebnis):
+    """Mock am Vertrag (raising=False: die Funktion entsteht parallel in modell.py)."""
+    import risk_layer.modell as M
+    aufrufe = []
+
+    def fake(verzeichnis="models"):
+        aufrufe.append(verzeichnis)
+        return ergebnis
+    monkeypatch.setattr(M, "verifiziere_artefakte", fake, raising=False)
+    return aufrufe
+
+
+def test_modell_verify_alles_ok_exit_0(monkeypatch, capsys):
+    _mock_verify(monkeypatch, _VERIFY_OK)
+    assert main(["modell", "verify"]) == 0
+    out = capsys.readouterr().out
+    assert "a.gguf" in out and "alle Artefakte ok" in out
+
+
+def test_modell_verify_abweichung_exit_1(monkeypatch, capsys):
+    _mock_verify(monkeypatch, _VERIFY_FAIL)
+    assert main(["modell", "verify"]) == 1
+    out = capsys.readouterr().out
+    assert "b.gguf" in out and "Hash weicht ab" in out
+    assert "sha256:bb" in out and "sha256:cc" in out     # erwartet/ist sichtbar
+
+
+def test_modell_verify_json_maschinenlesbar(monkeypatch, capsys):
+    _mock_verify(monkeypatch, _VERIFY_FAIL)
+    assert main(["modell", "verify", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out) == _VERIFY_FAIL
+
+
+def test_modell_verify_reicht_dir_durch(monkeypatch, tmp_path):
+    aufrufe = _mock_verify(monkeypatch, _VERIFY_OK)
+    assert main(["modell", "verify", "--dir", str(tmp_path)]) == 0
+    assert aufrufe == [str(tmp_path)]
+
+
+def test_modell_verify_funktion_fehlt_exit_2(monkeypatch, capsys):
+    """Zwischenstand ohne verifiziere_artefakte: saubere Meldung statt Traceback."""
+    import risk_layer.modell as M
+    monkeypatch.delattr(M, "verifiziere_artefakte", raising=False)
+    assert main(["modell", "verify"]) == 2
+    assert "verifiziere_artefakte" in capsys.readouterr().err

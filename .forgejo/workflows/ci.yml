@@ -86,3 +86,11 @@ jobs:
       # aus tests/fixtures/ (kein corpus/graph.sqlite, kein corpus/embedding/ nötig).
       - name: Run tests
         run: python -m pytest -q
+
+      # Gold-Gate (PS-861-Mapping, Lücke L3): deterministisches Regressionsgate —
+      # Matcher/Muster/Streit/Zitate gegen eingefrorenes Gold (fixtures/gold/
+      # deterministisch_v1.yaml), artefakt-frei wie die Suite (kein Embedding/
+      # LLM/GPU). Bewusst ein Step im Test-Job, KEIN eigener Job (Runner-
+      # Sparsamkeit). Exit 1 = Regression unter der Schwelle (tools/gold_gate.py).
+      - name: Gold-Gate (deterministische Regression)
+        run: python tools/gold_gate.py

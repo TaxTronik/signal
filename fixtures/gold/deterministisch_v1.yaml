@@ -1,0 +1,87 @@
+# Gold deterministisch-v1 — Regressionsgate über den DETERMINISTISCHEN Kern
+# (Schicht 1 Matcher, Schicht 1b Muster, Streit-Detektor, Zitat-Parser).
+#
+# WARUM ein eigenes Gold: ao_v1.yaml/organschaft_v1.yaml sind Embedding-
+# Retrieval-Gold (Laien-Paraphrasen → Ziel-Normen) — ihr deterministisch
+# prüfbarer Anteil wurde GEMESSEN und ist null (0/25 Queries erzeugen eine
+# deterministische Marke; Stand 2026-06-10). Dieses Set bindet stattdessen die
+# mitgelieferten examples/*.txt an ihre erwarteten deterministischen Marken.
+#
+# Erwartungen je Fall (alles para-/ID-Ebene, modellfrei prüfbar):
+#   erwartete_katalog       – Katalog-IDs, die als Karten (wörtlich ODER
+#                             Beschreibungsmuster) erscheinen müssen
+#   erwartete_zitate        – Norm-IDs (§-Ebene), die der Zitat-Parser aus dem
+#                             Text heben muss
+#   erwartete_streit_signale– Subsumtions-Brennpunkt-Signale des Streit-Detektors
+#   praezision: true        – ZUSÄTZLICHE Katalog-Marken sind hier eine
+#                             Regression (Negativ-Kontrolle: der Text umschreibt
+#                             bewusst und ist Schicht-2-Territorium)
+#
+# Stand der Erwartungen = gemessener Ist-Stand der Engine am 2026-06-10
+# (Katalog 0.3.0). Ändert sich der Katalog bewusst, ist DIESES Gold mit
+# fortzuschreiben (wie jedes Gold-Set).
+
+gold_version: deterministisch-v1
+stand: '2026-06-10'
+rolle: regressionsgate
+quelle: examples/*.txt gegen Produktionskatalog (catalog/begriffe.yaml 0.3.0)
+faelle:
+- datei: examples/beispiel_ao.txt
+  erwartete_katalog:
+  - ao_gestaltungsmissbrauch
+  - ao_grobes_verschulden
+  - ao_neue_tatsachen
+  - ao_offenbare_unrichtigkeit
+  - ao_schaetzung
+  - ao_verschuldensgrad
+  - ao_vertreterhaftung
+  - ao_wirtschaftliches_eigentum
+  erwartete_zitate:
+  - norm:AO:129
+  - norm:AO:162
+  - norm:AO:173
+  - norm:AO:39
+  - norm:AO:42
+  - norm:AO:69
+  erwartete_streit_signale:
+  - fraglich
+- datei: examples/beispiel_ao_edge.txt
+  # Reiner Umschreibungstext: die Treffer hier kommen aus Schicht 1b
+  # (Beschreibungs-/Negativbefund-Muster) — der eigentliche Härtetest.
+  erwartete_katalog:
+  - ao_buchfuehrungs_kassenmangel
+  - ao_gestaltungsmissbrauch
+  - ao_neue_tatsachen
+  - ao_schaetzung
+  - ao_verschuldensgrad
+  - ao_vertreterhaftung
+  - ao_wirtschaftliches_eigentum
+  - astg_hinzurechnung
+  erwartete_zitate: []
+  erwartete_streit_signale:
+  - hätte … müssen
+  - nachlässig
+  - streitig
+- datei: examples/beispiel_beschreibung.txt
+  # Negativ-Kontrolle: Begriffe werden bewusst NICHT benannt und NICHT in
+  # kuratierten Mustern umschrieben — Schicht 1/1b muss hier leer bleiben
+  # (Schicht-2-Territorium, s. tests/test_edge_beschreibung.py). Eine
+  # zusätzliche deterministische Marke wäre ein Präzisionsverlust.
+  erwartete_katalog: []
+  erwartete_zitate: []
+  erwartete_streit_signale: []
+  praezision: true
+- datei: examples/beispiel_organschaft.txt
+  erwartete_katalog:
+  - est_gewerbliche_taetigkeit
+  - gesamtwuerdigung_tatsaechliche_verhaeltnisse
+  - kst_finanzielle_eingliederung
+  - kst_schaedlicher_beteiligungserwerb
+  - kst_tatsaechliche_durchfuehrung
+  - ust_finanzielle_eingliederung
+  - ust_organisatorische_eingliederung
+  - ust_willensdurchsetzung
+  erwartete_zitate:
+  - norm:KStG:8c
+  erwartete_streit_signale:
+  - fraglich
