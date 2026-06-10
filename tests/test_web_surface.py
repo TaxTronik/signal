@@ -312,6 +312,28 @@ def test_v1_status_braucht_token(tmp_path, monkeypatch):
         httpd.server_close()
 
 
+def test_v1_radar_braucht_token(tmp_path, monkeypatch):
+    # /v1/radar ist auth-pflichtig wie ALLE /v1-Routen (der Bericht verrät
+    # Festwissens- und Korpus-Details). Expliziter graph_pfad in tmp_path hält
+    # den Test umgebungsunabhängig (Dev-Maschinen haben oft corpus/graph.sqlite):
+    # ohne Graph antwortet die Route authentifiziert mit 503 (fehlende
+    # Betriebsvoraussetzung), nicht 200.
+    import json as _json
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    app = Anwendung(None, str(tmp_path), graph_pfad=str(tmp_path / "kein-graph.sqlite"))
+    httpd, base = _starte(app)
+    try:
+        assert _get(f"{base}/v1/radar")[0] == 401                  # ohne Token
+        assert _get(f"{base}/v1/radar", token="falsch")[0] == 401
+        status, body = _get(f"{base}/v1/radar", token="geheim")
+        assert status == 503
+        obj = _json.loads(body.decode("utf-8"))
+        assert obj["ok"] is False and "Normgraph" in obj["fehler"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 def test_engine_status_traegt_encoder_degradationsgrund(tmp_path, monkeypatch):
     # Der GRUND der Degradation wird am bestehenden try/except ABGEGRIFFEN
     # (Muster test_embedding_encoder_fehler_degradiert): Encoder-Ladefehler

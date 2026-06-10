@@ -264,6 +264,87 @@ seiner Audit-Chain protokollieren kann (die Engine auditiert nicht).
 → 400, unbekannter Statuswert → 422; Rückwärts-Übergang oder unbekannte `id`
 → 400 mit `{ok: false, fehler}`.
 
+### `GET /v1/radar`  (Norm-Änderungs-Radar — Re-Review-Trigger, seit `1.2.0`)
+**Zweck:** Ändert der Gesetzgeber einen verankerten Paragraphen, veralten
+freigegebene Berater-Definitionen sonst **still** — der Review-Lebenszyklus
+kennt nur Vorwärts-Schritte und keinen Re-Review-Trigger. Das Radar benennt
+nach einem Korpus-Rebuild, **welche** Normen sich geändert haben / entfallen
+sind und **welche Festwissens-Anker** davon betroffen sind (Berater-Definitionen
+über `geankert_an`, Norm-Kuratierungen, Katalog-Anker) — **dringlichkeits-
+sortiert**: freigegebene geteilte Definitionen zuerst (kanonisches Wissen für
+alle Nutzer, der haftungsrelevanteste Fall), dann geprüft/entwurf/personal,
+Kuratierungen, Katalog. Neue Normen lösen bewusst keinen Befund aus.
+
+**Ablauf (Operator + Host):**
+1. Operator: `risk-layer korpus fetch` → `risk-layer graph build`. Der Build
+   **rotiert** das Norm-Manifest (`norm_manifest.json` →
+   `norm_manifest.vorher.json`, neben der Graph-Datei) und erzeugt damit den
+   Vergleichsstand.
+2. Host pollt `GET /v1/radar` und erzeugt **je `betroffen[]`-Eintrag eine
+   Review-Aufgabe** in seinem Workflow — die Engine erzeugt keine Aufgaben und
+   auditiert nicht; der Host protokolliert die Handlung in **seiner** Chain.
+3. Die anschließenden Freigabe-Handlungen laufen über `POST /v1/katalog/review`
+   und damit durch die Audit-Chain des Hosts.
+
+Die Engine **mutiert nichts** — bewusst keine automatische Status-Rücksetzung
+(`freigegeben → entwurf`): das bräche die Nur-vorwärts-Invariante des
+Lebenszyklus, und ob die Gesetzesänderung die Definition überhaupt berührt,
+entscheidet der Berufsträger (§§ 33, 57 StBerG). Antwort trägt `erstellt_am`-
+Zeitstempel in `stand_neu` (Bericht — **kein** Determinismus-Vertrag wie bei
+`/v1/analyse`).
+
+```jsonc
+{
+  "ok": true, "vergleichsstand": true, "engineVersion": "1.2.0",
+  "stand_alt": { "erstellt_am": "2026-01-05T09:12:00", "fingerprint": "3f9c…" },
+  "stand_neu": { "erstellt_am": "2026-06-10T08:00:00", "fingerprint": "a41b…" },
+  "normen": { "geaendert": ["norm:AO:162"], "neu": ["norm:UStG:2b"],
+              "entfallen": ["norm:KStG:8c"] },
+  "betroffen": [                                  // dringlichkeitssortiert
+    { "typ": "berater", "id": "verlustfalle", "begriff": "Verlustfalle",
+      "scope": "geteilt", "review_status": "freigegeben", "aktion": null,
+      "norm_id": "norm:KStG:8c", "ausloeser": "norm:KStG:8c",
+      "aenderung": "entfallen" },
+    { "typ": "kuratierung", "id": "ao_schaetzung", "begriff": null,
+      "scope": "geteilt", "review_status": null, "aktion": "ergaenzen",
+      "norm_id": "norm:AO:162", "ausloeser": "norm:AO:162",
+      "aenderung": "geaendert" },
+    { "typ": "katalog", "id": "ao_schaetzung", "begriff": "Schätzung",
+      "scope": null, "review_status": null, "aktion": null,
+      "norm_id": "norm:AO:162", "ausloeser": "norm:AO:162",
+      "aenderung": "geaendert" }
+  ],
+  "hinweise": [],                                 // z. B. "Katalog … ungeprüft"
+  "anzahl": { "geaendert": 1, "neu": 1, "entfallen": 1,
+              "betroffen": 3, "freigegeben": 1 }
+}
+```
+
+Jeder `betroffen[]`-Eintrag hat ein **festes Schema** (alle Keys immer
+vorhanden, ggf. `null`) — der Host muss nicht je `typ` andere Felder behandeln.
+
+**Erstinstallation (kein Fehler):** Vor dem zweiten `graph build` existiert
+noch kein Vorher-Manifest → `200` mit leerem, wohlgeformtem Bericht:
+
+```jsonc
+{
+  "ok": true, "vergleichsstand": false, "engineVersion": "1.2.0",
+  "hinweis": "kein Vergleichsstand – das Radar ist erst nach dem naechsten 'graph build' verfuegbar (die Rotation legt das Vorher-Manifest an)",
+  "betroffen": [],
+  "anzahl": { "geaendert": 0, "neu": 0, "entfallen": 0, "betroffen": 0, "freigegeben": 0 }
+}
+```
+
+**Fehlerfälle:** kein Normgraph gebaut → `503` (fehlende Betriebsvoraussetzung,
+Operator-Aktion `graph build`); korruptes Vorher-Manifest → `500` — beide als
+`{ok: false, fehler, engineVersion}`, der `fehler`-Text nennt den Datei-Pfad
+(kein Mandantenbezug, hilft dem Operator):
+
+```jsonc
+{ "ok": false, "engineVersion": "1.2.0",
+  "fehler": "corpus/norm_manifest.vorher.json: Manifest nicht lesbar (korrupt?): …" }
+```
+
 ### `GET /v1/normgraph/aufloesen?id=norm:AO:162`
 → `{gefunden: bool, titel, text, law, verwendet, …}`
 

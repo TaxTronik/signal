@@ -233,6 +233,36 @@ def _status(app) -> tuple[int, dict[str, Any]]:
                  "engine_status": app.engine_status()}
 
 
+def _radar(app) -> tuple[int, dict[str, Any]]:
+    """GET /v1/radar – Norm-Änderungs-Radar (Re-Review-Trigger, seit 1.2.0).
+
+    Nach einem Korpus-Rebuild (Operator: 'korpus fetch' + 'graph build', der
+    Build rotiert das Norm-Manifest) benennt der Bericht, WELCHE Normen sich
+    geändert haben / entfallen sind und welche Festwissens-Anker (Berater-
+    Definitionen, Norm-Kuratierungen, Katalog) betroffen sind – dringlichkeits-
+    sortiert (freigegebene geteilte Definitionen zuerst: ihre stille
+    Veralterung ist der haftungsrelevanteste Fall). Die Engine MUTIERT nichts
+    und auditiert nicht: der Host erzeugt je betroffen[]-Eintrag seine
+    Review-Aufgaben und protokolliert die Handlung in SEINER Chain; die
+    anschließenden Freigaben laufen wieder über POST /v1/katalog/review.
+
+    Statuscodes: frische Installation (noch kein Vorher-Manifest) ist KEIN
+    Fehler → 200 mit vergleichsstand:false. Kein Graph gebaut → 503: fehlende
+    Betriebsvoraussetzung, Operator-Aktion nötig – anders als die degradierenden
+    200er von /v1/normgraph/* bzw. /v1/embedding/suche liefert das Radar ohne
+    Graph keinen brauchbaren Teil-Bericht. Korruptes Vorher-Manifest → 500;
+    der Fehlertext nennt den Datei-Pfad (kein Mandantenbezug – er sagt dem
+    Operator, welche Datei zu reparieren ist).
+    """
+    res = app.radar()
+    if res.get("ok"):
+        return 200, {**res, "engineVersion": V1_VERSION}
+    # ok:false hat genau zwei Quellen (web.Anwendung.radar): kein Graph (503)
+    # oder RadarFehler/korruptes Manifest (500) – robust am App-Zustand
+    # unterschieden statt brüchig am Fehlertext geparst.
+    return (503 if app.graph is None else 500), {**res, "engineVersion": V1_VERSION}
+
+
 def _llm_status(app) -> tuple[int, dict[str, Any]]:
     """GET /v1/llm/status – Erreichbarkeit + Modell/Engine + **Queue** (Slot-/
     Auslastungszustand) des llama-server. Damit kann das Host-System entscheiden,
@@ -261,8 +291,9 @@ def _llm_stop(app) -> tuple[int, dict[str, Any]]:
 
 
 # Bekannte Routen je Methode – für 405 (Methode falsch) statt 404 (Pfad unbekannt).
-_GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/katalog", "/v1/normgraph/aufloesen",
-                        "/v1/normgraph/suche", "/v1/katalog/kuratierung", "/v1/llm/status"})
+_GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/radar", "/v1/katalog",
+                        "/v1/normgraph/aufloesen", "/v1/normgraph/suche",
+                        "/v1/katalog/kuratierung", "/v1/llm/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
                          "/v1/katalog/review", "/v1/embedding/suche",
                          "/v1/llm/start", "/v1/llm/stop"})
@@ -287,6 +318,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
                          "embedding": app.embedding is not None}
         if pfad == "/v1/status":
             return _status(app)
+        if pfad == "/v1/radar":
+            return _radar(app)
         if pfad == "/v1/katalog":
             return _katalog_lesen(app)
         if pfad == "/v1/normgraph/aufloesen":

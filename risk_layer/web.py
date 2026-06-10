@@ -22,7 +22,7 @@ import logging
 import os
 import sys
 import threading
-from datetime import date
+from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -32,9 +32,10 @@ from .anonymize import ner_status
 from .api_v1 import dispatch
 from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
-from .graph import graph_oeffnen
+from .graph import DEFAULT_DB, graph_oeffnen
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status
 from .pipeline import AnalyseOptionen, Pipeline
+from .radar import RadarFehler, lade_manifest, manifest_vorher_pfad, radar_bericht
 from .triggerindex import index_oeffnen
 from .zitate import kanonisiere_fundstelle, parse_normzitat
 
@@ -80,7 +81,13 @@ class Anwendung:
         self.katalog = lade_katalog(katalog_pfad)
         self.pipeline = Pipeline(self.katalog)
         self.berater_dir = Path(berater_dir)
-        self.graph = graph_oeffnen(graph_pfad) if graph_pfad else graph_oeffnen()
+        # Graph-DB-PFAD festhalten, nicht nur das geöffnete Objekt: das Radar
+        # (radar()) leitet daraus die Manifest-Pfade ab — die norm_manifest*.json
+        # liegen per Konvention NEBEN der Graph-Datei (radar.manifest_vorher_pfad),
+        # und im kein-Graph-Fall gäbe es sonst keinen Pfad mehr zum Benennen.
+        # Default-Konvention wie CLI/graph_oeffnen: corpus/graph.sqlite.
+        self.graph_pfad = Path(graph_pfad) if graph_pfad else DEFAULT_DB
+        self.graph = graph_oeffnen(self.graph_pfad)
         self.trigger = index_oeffnen()
         # Semantischer Embedding-Index (Schicht 1.7) – nur wenn vorab gebaut.
         # Encoder lazy, kein Startup-Download.
@@ -343,6 +350,57 @@ class Anwendung:
                     "ergaenzt": kur["ergaenzt"]}
         return {"kuratierungen": [k.as_dict()
                                   for k in store.kuratierungen(nutzer=nutzer)]}
+
+    def radar(self) -> dict[str, Any]:
+        """Norm-Änderungs-Radar: Welche Festwissens-Anker trifft der letzte
+        Korpus-Rebuild? Vergleicht das beim ``graph build`` rotierte Vorher-
+        Manifest mit dem aktuellen Graphen (radar.radar_bericht).
+
+        Die Engine BERICHTET nur — der Host (TaxTronik) erzeugt aus den
+        ``betroffen``-Einträgen seine Review-Aufgaben und protokolliert die
+        Handlung in SEINER Audit-Chain. Bewusst KEINE Status-Rücksetzung
+        (freigegeben → entwurf): das bräche die Nur-vorwärts-Invariante des
+        Review-Lebenszyklus (review_setzen) und nähme dem Berufsträger die
+        fachliche Entscheidung ab, ob die Gesetzesänderung die Definition
+        überhaupt berührt."""
+        if self.graph is None:
+            # Muster der Graph-Guards (norm_suche, /v1/normgraph/*): ohne
+            # gebauten Graph gibt es keinen aktuellen Stand zum Vergleichen.
+            return {"ok": False,
+                    "fehler": f"kein Normgraph gebaut ({self.graph_pfad}) – erst "
+                              "'risk-layer korpus fetch' + 'risk-layer graph build'"}
+        try:
+            alt = lade_manifest(manifest_vorher_pfad(self.graph_pfad))
+        except RadarFehler as exc:
+            # Korruptes Manifest: laut scheitern statt still einen leeren Diff
+            # zu melden. Der Pfad DARF in den Fehlertext (kein Mandantenbezug;
+            # er sagt dem Operator, welche Datei zu reparieren/löschen ist).
+            return {"ok": False, "fehler": str(exc)}
+        if alt is None:
+            # KEIN Fehler — frische Installation ist kein Defekt: vor dem
+            # zweiten 'graph build' existiert schlicht kein Vorher-Stand, erst
+            # die Manifest-Rotation des Builds erzeugt ihn (cli._cmd_graph).
+            return {"ok": True, "vergleichsstand": False,
+                    "hinweis": "kein Vergleichsstand – das Radar ist erst nach dem "
+                               "naechsten 'graph build' verfuegbar (die Rotation legt "
+                               "das Vorher-Manifest an)",
+                    "betroffen": [],
+                    "anzahl": {"geaendert": 0, "neu": 0, "entfallen": 0,
+                               "betroffen": 0, "freigegeben": 0}}
+        # Frischen Store unter Lock öffnen (Muster review_setzen/kuratiere_norm):
+        # hier nur read-only, aber so liest das Radar nie eine Scope-YAML,
+        # während ein paralleler Define-Write sie gerade atomar ersetzt. Der
+        # Bericht selbst läuft AUSSERHALB des Locks (Graph-Voll-Scan über
+        # knoten_hashes – er soll die Schreib-Handler nicht blockieren; der
+        # Store ist nach dem Konstruktor vollständig im Speicher).
+        with self._berater_lock:
+            store = BeraterStore(self.berater_dir)
+        # Zeitstempel hier GEWOLLT (Bericht über einen Zeitpunkt-Vergleich,
+        # KEIN Determinismus-Vertrag wie bei /v1/analyse): erstellt_am
+        # dokumentiert für die Host-Chain, WANN der Vergleich lief.
+        bericht = radar_bericht(alt, self.graph, store, self.katalog,
+                                erstellt_am=datetime.now().isoformat(timespec="seconds"))
+        return {**bericht, "vergleichsstand": True}
 
     # -- Schicht-2-LLM-Steuerung (über /v1/llm/*) ---------------------------
     def _modell_pfad(self) -> str | None:

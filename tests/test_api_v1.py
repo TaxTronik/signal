@@ -9,7 +9,11 @@ import hashlib
 
 import pytest
 
+from risk_layer import radar
 from risk_layer.api_v1 import dispatch, V1_VERSION
+from risk_layer.berater import BeraterStore
+from risk_layer.gii import NormKnoten
+from risk_layer.graph import NormGraph
 from risk_layer.web import Anwendung
 
 
@@ -413,3 +417,117 @@ def test_v1_mitLLM_false_erzeugt_keine_llm_oder_embedding_spans(app):
     assert "llm" not in layer and "embedding" not in layer
     # 'embedding' darf grundsätzlich nie ein Span-Layer sein (nur semantik-Strom)
     assert all(s["layer"] != "embedding" for s in obj["spans"])
+
+
+# --- GET /v1/radar (Norm-Änderungs-Radar — Re-Review-Trigger, seit 1.2.0) ----
+# Nach einem Korpus-Rebuild benennt das Radar betroffene Festwissens-Anker;
+# der Host erzeugt daraus Review-Aufgaben und protokolliert in SEINER Chain
+# (die Engine mutiert nichts, keine Status-Rücksetzung). Die Tests bauen echte
+# Mini-Graphen in tmp_path (Muster tests/test_radar.py) und reichen graph_pfad
+# IMMER explizit — der Default (corpus/graph.sqlite) wäre auf Dev-Maschinen
+# umgebungsabhängig vorhanden.
+
+def _knoten(nid: str, text: str) -> NormKnoten:
+    teile = nid.split(":")
+    return NormKnoten(id=nid, law=teile[1], para=teile[2], titel=teile[2], text=text)
+
+
+def _graph_mit_vorher_manifest(tmp_path):
+    """Mini-Korpus MIT Vergleichsstand: Stand ALT als Vorher-Manifest sichern
+    (wie die Build-Rotation in cli._cmd_graph), dann den Graph mit geändertem
+    Text neu bauen — norm:AO:162 ist danach 'geaendert', norm:KStG:8c
+    'entfallen'. Liefert den Graph-DB-Pfad."""
+    db = tmp_path / "graph.sqlite"
+    g_alt = NormGraph.build(
+        [_knoten("norm:AO:162", "Die Finanzbehörde schätzt."),
+         _knoten("norm:KStG:8c", "Verlustabzug bei Körperschaften.")], db)
+    radar.speichere_manifest(
+        radar.manifest_vorher_pfad(db),
+        radar.erstelle_manifest(g_alt, erstellt_am="2026-01-01T00:00:00"))
+    # Windows: offenes Handle blockiert sonst das unlink() des Rebuilds.
+    g_alt.close()
+    NormGraph.build([_knoten("norm:AO:162", "GEÄNDERTER Wortlaut nach Rebuild.")],
+                    db).close()
+    return db
+
+
+def test_v1_radar_ohne_graph_503(tmp_path):
+    """Kein Graph gebaut → 503 (fehlende Betriebsvoraussetzung; Operator-Aktion
+    'graph build' — anders als die degradierenden 200er von /v1/normgraph/*
+    gibt es hier keinen brauchbaren Teil-Bericht)."""
+    app = Anwendung(None, str(tmp_path), graph_pfad=str(tmp_path / "kein-graph.sqlite"))
+    code, obj = dispatch(app, "GET", "/v1/radar", {}, {})
+    assert code == 503 and obj["ok"] is False
+    assert "Normgraph" in obj["fehler"]
+    assert obj["engineVersion"] == V1_VERSION
+
+
+def test_v1_radar_frische_installation_vergleichsstand_false(tmp_path):
+    """Vor dem zweiten 'graph build' existiert KEIN Vorher-Manifest — das ist
+    der Normalzustand einer frischen Installation, kein Defekt: 200 mit
+    vergleichsstand:false und leerem, wohlgeformtem Bericht."""
+    db = tmp_path / "graph.sqlite"
+    NormGraph.build([_knoten("norm:AO:162", "Die Finanzbehörde schätzt.")], db).close()
+    app = Anwendung(None, str(tmp_path / "berater"), graph_pfad=str(db))
+    code, obj = dispatch(app, "GET", "/v1/radar", {}, {})
+    assert code == 200 and obj["ok"] is True
+    assert obj["vergleichsstand"] is False
+    assert "graph build" in obj["hinweis"]
+    assert obj["betroffen"] == []
+    assert obj["anzahl"] == {"geaendert": 0, "neu": 0, "entfallen": 0,
+                             "betroffen": 0, "freigegeben": 0}
+    assert obj["engineVersion"] == V1_VERSION
+
+
+def test_v1_radar_voller_durchstich(tmp_path):
+    """Voller Durchstich: rotiertes Vorher-Manifest + geankerte FREIGEGEBENE
+    geteilte Definition → der Bericht nennt sie als betroffenen Anker, vorn
+    (Dringlichkeit), mit konsistenter anzahl. Genau daraus erzeugt der Host
+    seine Review-Aufgaben."""
+    import json
+    db = _graph_mit_vorher_manifest(tmp_path)
+    berater_dir = tmp_path / "berater"
+    store = BeraterStore(berater_dir)
+    d = store.definiere("Schätzungsrisiko", "Arbeitsdefinition.", autor="rey",
+                        datum="2026-01-02", scope="geteilt", norm_anker=("§ 162 AO",))
+    store.setze_review_status(d.id, "geprüft", reviewer="rv")
+    store.setze_review_status(d.id, "freigegeben", reviewer="rv")
+
+    app = Anwendung(None, str(berater_dir), graph_pfad=str(db))
+    code, obj = dispatch(app, "GET", "/v1/radar", {}, {})
+    assert code == 200 and obj["ok"] is True
+    assert obj["vergleichsstand"] is True
+    assert obj["engineVersion"] == V1_VERSION
+    assert obj["stand_alt"]["erstellt_am"] == "2026-01-01T00:00:00"
+    assert obj["stand_neu"]["erstellt_am"]            # Zeitstempel gewollt (Bericht)
+    assert obj["normen"]["geaendert"] == ["norm:AO:162"]
+    assert obj["normen"]["entfallen"] == ["norm:KStG:8c"]
+    # die freigegebene Definition ist betroffen (norm:AO:162 geändert) …
+    assert any(t["typ"] == "berater" and t["id"] == d.id
+               and t["review_status"] == "freigegeben"
+               and t["aenderung"] == "geaendert" for t in obj["betroffen"])
+    # … und steht VORN (dringlichkeitssortiert: freigegeben/geteilt zuerst)
+    assert obj["betroffen"][0]["review_status"] == "freigegeben"
+    assert obj["anzahl"]["betroffen"] == len(obj["betroffen"]) >= 1
+    assert obj["anzahl"]["freigegeben"] >= 1
+    json.dumps(obj)                                   # /v1-tauglich serialisierbar
+
+
+def test_v1_radar_korruptes_manifest_500(tmp_path):
+    """Korruptes Vorher-Manifest → laut scheitern (500) statt still leerem
+    Diff; der Fehlertext nennt die Datei (kein Mandantenbezug — er sagt dem
+    Operator, was zu reparieren ist)."""
+    db = tmp_path / "graph.sqlite"
+    NormGraph.build([_knoten("norm:AO:162", "Text.")], db).close()
+    radar.manifest_vorher_pfad(db).write_text("{kein json", encoding="utf-8")
+    app = Anwendung(None, str(tmp_path / "berater"), graph_pfad=str(db))
+    code, obj = dispatch(app, "GET", "/v1/radar", {}, {})
+    assert code == 500 and obj["ok"] is False
+    assert radar.MANIFEST_VORHER_NAME in obj["fehler"]
+    assert obj["engineVersion"] == V1_VERSION
+
+
+def test_v1_radar_post_405(app):
+    """POST auf die GET-Route → 405 mit allow-Feld (Muster aller Routen)."""
+    code, obj = dispatch(app, "POST", "/v1/radar", {}, {})
+    assert code == 405 and obj["allow"] == "GET"
