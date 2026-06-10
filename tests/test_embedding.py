@@ -5,10 +5,14 @@ Plumbing-Garantien ohne Modell/Download gelten. Der echte BGE-M3-Pfad nutzt
 exakt dieselbe Index-/Such-Logik, nur mit stärkeren Vektoren.
 """
 
+import json
+import logging
+
 import numpy as np
 
 from risk_layer.catalog import lade_katalog
-from risk_layer.embedding import EmbeddingIndex, HashEncoder, encoder_oeffnen
+from risk_layer.embedding import (EmbeddingIndex, HashEncoder, encoder_oeffnen,
+                                  pruefe_aktualitaet)
 from risk_layer.gii import NormKnoten
 from risk_layer.graph import NormGraph
 from risk_layer.pipeline import Pipeline
@@ -101,3 +105,91 @@ def test_hash_encoder_explizit_ohne_modell():
     v = enc.encode(["test"])
     assert v.shape == (1, 128)
     assert abs(float(np.linalg.norm(v[0])) - 1.0) < 1e-3   # L2-normiert
+
+
+# --- Staleness-Erkennung (graph_fingerprint / pruefe_aktualitaet) ------------
+# Problemfall: corpus/Graph wird neu gebaut, der Embedding-Index vergessen ⇒
+# stille, plausible, FALSCHE Semantik-Vorschläge. Der Fingerprint des Quell-
+# Graphen wird beim Build eingebrannt und beim Start abgeglichen.
+
+def _graph_geaendert(tmp_path):
+    """Wie _graph, aber mit geändertem Wortlaut von § 146 (Korpus-Rebuild)."""
+    knoten = [
+        NormKnoten(id="norm:AO:146", law="AO", para="146", absatz=None, nummer=None,
+                   titel="Ordnungsvorschriften für die Buchführung und für Aufzeichnungen",
+                   text="GEÄNDERTER Wortlaut: Aufzeichnungen sind einzeln zu führen."),
+        NormKnoten(id="norm:AO:162", law="AO", para="162", absatz=None, nummer=None,
+                   titel="Schätzung von Besteuerungsgrundlagen",
+                   text="Soweit die Finanzbehörde die Besteuerungsgrundlagen nicht ermitteln kann, schätzt sie."),
+        NormKnoten(id="norm:AO:42", law="AO", para="42", absatz=None, nummer=None,
+                   titel="Missbrauch von rechtlichen Gestaltungsmöglichkeiten",
+                   text="Durch Missbrauch von Gestaltungsmöglichkeiten kann das Gesetz nicht umgangen werden."),
+    ]
+    return NormGraph.build(knoten, tmp_path / "g2.sqlite")
+
+
+def test_build_brennt_graph_fingerprint_ein_und_meta_roundtrip(tmp_path):
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g, HashEncoder(dim=64))
+    assert idx.graph_fingerprint == g.fingerprint()        # beim Build abgegriffen
+    idx.save(tmp_path / "emb")
+    wieder = EmbeddingIndex.load(tmp_path / "emb")
+    # Roundtrip build → save → load: der Fingerprint überlebt die Persistenz.
+    assert wieder is not None
+    assert wieder.graph_fingerprint == g.fingerprint()
+
+
+def test_load_alt_index_ohne_fingerprint_tolerant(tmp_path):
+    # Alt-Index simulieren: meta.json OHNE das Feld (vor der Einführung gebaut).
+    g = _graph(tmp_path)
+    EmbeddingIndex.build(g, HashEncoder(dim=64)).save(tmp_path / "emb")
+    mp = tmp_path / "emb" / "meta.json"
+    meta = json.loads(mp.read_text(encoding="utf-8"))
+    del meta["graph_fingerprint"]
+    mp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    alt = EmbeddingIndex.load(tmp_path / "emb")
+    assert alt is not None                                 # lädt weiter (tolerant)
+    assert alt.graph_fingerprint is None                   # … nur ohne Fingerprint
+
+
+def test_pruefe_aktualitaet_match_still_und_true(tmp_path, caplog):
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g, HashEncoder(dim=64))
+    with caplog.at_level(logging.INFO, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(idx, g) is True
+    # Nachgewiesene Übereinstimmung ⇒ KEIN Log-Lärm.
+    assert not caplog.records
+
+
+def test_pruefe_aktualitaet_mismatch_warnt_mit_abhilfe(tmp_path, caplog):
+    g_alt = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g_alt, HashEncoder(dim=64))
+    g_neu = _graph_geaendert(tmp_path)                     # Korpus-Rebuild danach
+    with caplog.at_level(logging.WARNING, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(idx, g_neu) is False     # degradierend: kein Raise
+    warnungen = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnungen) == 1
+    # Die Warnung muss die HANDLUNGSANWEISUNG nennen, nicht nur das Problem.
+    assert "risk-layer embedding build" in warnungen[0].getMessage()
+
+
+def test_pruefe_aktualitaet_alt_index_info_einmalig(tmp_path, caplog):
+    g = _graph(tmp_path)
+    # Alt-Index: direkt ohne Fingerprint instanziieren (wie nach load() einer
+    # alten meta.json) – Aktualität ist nicht prüfbar, also False, aber nur INFO.
+    idx = EmbeddingIndex(np.zeros((0, 0), np.float32), [], [], [], "hash64")
+    with caplog.at_level(logging.INFO, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(idx, g) is False
+        assert pruefe_aktualitaet(idx, g) is False         # zweiter Aufruf …
+    infos = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert len(infos) == 1                                 # … loggt NICHT erneut
+    assert "risk-layer embedding build" in infos[0].getMessage()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_pruefe_aktualitaet_ohne_index_oder_graph(tmp_path):
+    # Degradierender Vertrag: None-Eingaben sind kein Fehler, nur "nicht aktuell".
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g, HashEncoder(dim=64))
+    assert pruefe_aktualitaet(None, g) is False
+    assert pruefe_aktualitaet(idx, None) is False

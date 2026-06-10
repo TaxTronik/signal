@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import threading
 from pathlib import Path
@@ -35,6 +36,8 @@ import numpy as np
 from .idschema import para_level
 from .muster import saetze_mit_offset
 from .torch_compat import patch_rocm_dist
+
+_log = logging.getLogger(__name__)
 
 DEFAULT_DIR = Path("corpus") / "embedding"
 _TOKEN = re.compile(r"[a-zäöüß]+")
@@ -269,13 +272,22 @@ class EmbeddingIndex:
     """Semantischer Korpus-Index: §-Vektoren + Metadaten."""
 
     def __init__(self, vectors: np.ndarray, ids: list[str], zitate: list[str],
-                 titel: list[str], encoder_name: str):
+                 titel: list[str], encoder_name: str,
+                 graph_fingerprint: str | None = None):
         self.vectors = vectors
         self.ids = ids
         self.zitate = zitate
         self.titel = titel
         self.encoder_name = encoder_name
         self.dim = int(vectors.shape[1]) if vectors.size else 0
+        # Fingerprint des Quell-Graphen zur Staleness-Erkennung (Abgleich über
+        # ``pruefe_aktualitaet``). None bei Alt-Indizes, die vor Einführung des
+        # Felds gebaut wurden – Aktualität ist dann schlicht nicht prüfbar.
+        self.graph_fingerprint = graph_fingerprint
+        # Merker für pruefe_aktualitaet: der Alt-Index-Hinweis (Info) soll
+        # EINMAL ins Log, nicht pro Aufruf – Info-Spam würde echte Warnungen
+        # verwässern.
+        self._aktualitaet_hinweis_geloggt = False
         # Anker-Statistik: von build() befuellt. Reguläre Attribute mit Defaults,
         # damit sie auch nach load() existieren (Persistenz fuehrt sie nicht) –
         # sonst AttributeError je nach Entstehungsweg des Index.
@@ -293,7 +305,18 @@ class EmbeddingIndex:
         zeigen. Eine alltagssprachliche Anfrage trifft dann den Anker im selben
         Register hoch, statt den abstrakten Gesetzestext nur knapp – das hebt echte
         Treffer, OHNE den Rauschboden zu senken (kuratiert, kein Modellwissen).
+
+        Der Index merkt sich zusätzlich ``graph.fingerprint()`` als
+        ``graph_fingerprint`` (persistiert in meta.json): der Index ist ein
+        ABGELEITETES Artefakt – wird der Graph neu gebaut und der Index
+        vergessen, lieferte er stille, plausible, FALSCHE Semantik-Vorschläge.
+        ``pruefe_aktualitaet`` deckt das auf.
         """
+        # hasattr-tolerant: build verlangt vom graph-Parameter bisher nur
+        # ``.con`` (Duck-Typing) – minimale Graph-Stubs ohne fingerprint()
+        # sollen weiter funktionieren (Abwärtskompatibilität). Ohne Fingerprint
+        # bleibt das Feld None = "Aktualität nicht prüfbar", wie bei Alt-Indizes.
+        fp = graph.fingerprint() if hasattr(graph, "fingerprint") else None
         rows = graph.con.execute(
             "SELECT id, titel, law, para, text FROM knoten "
             "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
@@ -398,7 +421,8 @@ class EmbeddingIndex:
         # und wuerde eine falsche Dimension in den persistierten Index schreiben.
         # self.dim ist fuer leere Matrizen ohnehin definiert 0.
         vecs = encoder.encode(texte) if texte else np.zeros((0, 0), np.float32)
-        idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name)
+        idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name,
+                  graph_fingerprint=fp)
         idx.n_paraphrase_anker = n_anker
         idx.verlorene_anker = verlorene_anker
         return idx
@@ -411,6 +435,8 @@ class EmbeddingIndex:
         (d / "meta.json").write_text(json.dumps({
             "encoder": self.encoder_name, "dim": self.dim,
             "ids": self.ids, "zitate": self.zitate, "titel": self.titel,
+            # Staleness-Erkennung: Fingerprint des Quell-Graphen zum Build-Zeitpunkt.
+            "graph_fingerprint": self.graph_fingerprint,
         }, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
@@ -420,7 +446,10 @@ class EmbeddingIndex:
         if not vp.exists() or not mp.exists():
             return None
         meta = json.loads(mp.read_text(encoding="utf-8"))
-        return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"])
+        return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"],
+                   # tolerant via .get: Alt-Indizes (vor dem Feld gebaut) laden
+                   # weiter – graph_fingerprint bleibt dann None.
+                   graph_fingerprint=meta.get("graph_fingerprint"))
 
     # -- Laufzeit -----------------------------------------------------------
     def _encoder_pruefen(self, encoder: Encoder, qdim: int) -> None:
@@ -513,3 +542,47 @@ class EmbeddingIndex:
 
 def index_oeffnen(verzeichnis: str | Path = DEFAULT_DIR) -> EmbeddingIndex | None:
     return EmbeddingIndex.load(verzeichnis)
+
+
+def pruefe_aktualitaet(index: EmbeddingIndex | None, graph) -> bool:
+    """Prüft, ob der Embedding-Index noch zum aktuellen Normgraphen passt.
+
+    Vergleicht ``index.graph_fingerprint`` (zum Build-Zeitpunkt eingebrannt) mit
+    ``graph.fingerprint()`` (aktueller Korpus-Inhalt). True NUR bei NACHGEWIESENER
+    Übereinstimmung – ein Alt-Index ohne Fingerprint ist "nicht prüfbar", kein
+    stilles Okay.
+
+    Bewusst degradierend (/LF-Philosophie): wirft NIE. Ein veralteter Index
+    bleibt nutzbar (Schicht 1.7 ist nie Show-Stopper), aber das Log nennt die
+    Abhilfe laut. Gedacht für den Server-/CLI-Start (ein Voll-Scan des Graphen),
+    NICHT pro Request.
+    """
+    if index is None or graph is None:
+        return False                # nichts zu prüfen ⇒ keine nachgewiesene Aktualität
+    fp_index = getattr(index, "graph_fingerprint", None)
+    if fp_index is None:
+        # Alt-Index (vor Einführung des Felds gebaut): weder Beleg für Staleness
+        # noch für Aktualität. EINMALIG informieren statt warnen – der Index war
+        # bis gestern korrekt im Einsatz, ein Dauer-Alarm wäre falscher Lärm.
+        if not getattr(index, "_aktualitaet_hinweis_geloggt", False):
+            index._aktualitaet_hinweis_geloggt = True
+            _log.info(
+                "Embedding-Index ohne graph_fingerprint (vor der Staleness-"
+                "Erkennung gebaut) – Aktualität nicht prüfbar. Einmalig neu "
+                "bauen: 'risk-layer embedding build'.")
+        return False
+    try:
+        fp_graph = graph.fingerprint()
+    except Exception as exc:  # noqa: BLE001 – degradierend, nie Show-Stopper
+        _log.warning(
+            "Graph-Fingerprint nicht berechenbar (%s) – Aktualität des "
+            "Embedding-Index unbestätigt.", exc)
+        return False
+    if fp_index != fp_graph:
+        _log.warning(
+            "Embedding-Index ist VERALTET: der Normgraph wurde nach dem Index-"
+            "Build neu gebaut (Fingerprint-Abweichung). Semantik-Vorschläge "
+            "können still auf alte Normtexte zeigen. Abhilfe: "
+            "'risk-layer embedding build' ausführen.")
+        return False
+    return True

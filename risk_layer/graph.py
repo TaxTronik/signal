@@ -12,6 +12,7 @@ Modellgewichte. Fassungslogik über ``gueltig_ab``/``gueltig_bis`` (/R30/).
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 import threading
@@ -238,6 +239,26 @@ class NormGraph:
             "SELECT src, dst, typ FROM kanten WHERE vorhanden=0 ORDER BY src LIMIT ?", (limit,)
         )
         return [dict(r) for r in rows]
+
+    def fingerprint(self) -> str:
+        """Inhalts-Fingerprint des Korpus (sha256-Hex) – dient der Staleness-
+        Erkennung abgeleiteter Artefakte (z. B. Embedding-Index, vgl.
+        ``embedding.pruefe_aktualitaet``).
+
+        Gehasht werden die deterministisch sortierten ``(id, sha256(text))``-
+        Paare ALLER Knoten. Ein einziger SQL-Scan, NUR bei Aufruf – bewusst kein
+        Auto-Lauf beim Öffnen: der Voll-Scan ist für jeden Request zu teuer,
+        aber billig genug für Server-Start und Build-Schritte.
+        """
+        h = hashlib.sha256()
+        # ORDER BY id (SQLite-BINARY-Kollation): deterministische Reihenfolge
+        # über Builds hinweg – die Insert-Reihenfolge der Knoten darf variieren.
+        for r in self._query("SELECT id, text FROM knoten ORDER BY id"):
+            text_hash = hashlib.sha256((r["text"] or "").encode("utf-8")).hexdigest()
+            # NUL-Trenner: kommt in IDs/Hex-Hashes nie vor ⇒ keine Kollision
+            # durch Konkatenation (z. B. "a"+"bc" vs. "ab"+"c").
+            h.update(r["id"].encode("utf-8") + b"\x00" + text_hash.encode("ascii") + b"\x00")
+        return h.hexdigest()
 
     def stats(self) -> dict[str, Any]:
         n = self._query("SELECT COUNT(*) c FROM knoten")[0]["c"]

@@ -104,6 +104,46 @@ def test_suche_text_findet_relevante_paragraphen(tmp_path):
     assert "norm:AO:146" in ids
 
 
+def test_fingerprint_stabil_ueber_zwei_builds(tmp_path):
+    # Staleness-Erkennung steht und fällt mit der Stabilität: ZWEI Builds aus
+    # demselben Fixture-Korpus müssen denselben Fingerprint liefern – sonst
+    # würde jeder Graph-Rebuild den Embedding-Index fälschlich als veraltet melden.
+    g1 = NormGraph.build(gii.parse_datei(FIXTURE), tmp_path / "f1.sqlite")
+    g2 = NormGraph.build(gii.parse_datei(FIXTURE), tmp_path / "f2.sqlite")
+    fp = g1.fingerprint()
+    assert fp == g2.fingerprint()
+    assert fp == g1.fingerprint()                  # idempotent (kein Zustand)
+    assert len(fp) == 64 and int(fp, 16) >= 0      # sha256-Hex
+
+
+def test_fingerprint_unabhaengig_von_insert_reihenfolge(tmp_path):
+    from risk_layer.gii import NormKnoten
+    knoten = [
+        NormKnoten(id="norm:AO:146", law="AO", para="146", titel="Ordnungsvorschriften",
+                   text="Bücher sind vollständig zu führen."),
+        NormKnoten(id="norm:AO:162", law="AO", para="162", titel="Schätzung",
+                   text="Die Finanzbehörde schätzt."),
+    ]
+    g1 = NormGraph.build(knoten, tmp_path / "a.sqlite")
+    g2 = NormGraph.build(list(reversed(knoten)), tmp_path / "b.sqlite")
+    # Sortiert wird im Fingerprint (ORDER BY id) – die Reihenfolge beim Bau
+    # darf das Ergebnis nicht beeinflussen (deterministisch).
+    assert g1.fingerprint() == g2.fingerprint()
+
+
+def test_fingerprint_aendert_sich_bei_textaenderung(tmp_path):
+    from risk_layer.gii import NormKnoten
+    basis = NormKnoten(id="norm:AO:162", law="AO", para="162", titel="Schätzung",
+                       text="Die Finanzbehörde schätzt.")
+    geaendert = NormKnoten(id="norm:AO:162", law="AO", para="162", titel="Schätzung",
+                           text="GEÄNDERTER Wortlaut nach Korpus-Rebuild.")
+    g1 = NormGraph.build([basis], tmp_path / "v1.sqlite")
+    g2 = NormGraph.build([geaendert], tmp_path / "v2.sqlite")
+    # Genau der Fall, den die Staleness-Erkennung aufdecken soll: gleicher
+    # Knoten, neuer Normtext ⇒ anderer Fingerprint.
+    assert g1.fingerprint() != g2.fingerprint()
+
+
 def test_graph_query_aus_anderem_thread(graph):
     # Regression: der Web-Server bedient Requests in Worker-Threads; die
     # SQLite-Verbindung muss thread-übergreifend lesbar sein (check_same_thread).

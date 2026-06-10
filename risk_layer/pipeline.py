@@ -21,7 +21,7 @@ liegen wie die Treffer.
 from __future__ import annotations
 
 import re
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -220,6 +220,39 @@ def _wort_unbedeckt(ms: int, me: int, maske: bytearray, text: str) -> bool:
     return any(maske[i] == 0 and text[i].isalnum() for i in range(ms, me))
 
 
+# Sentinel für die Übergangs-API von run(): unterscheidet "Kwarg nicht übergeben"
+# von "explizit auf den Default gesetzt". Nur damit ist das Misch-Verbot
+# (optionen + Einzel-Kwargs) ohne stilles Gewinnen einer Seite durchsetzbar.
+_UNGESETZT: object = object()
+
+
+@dataclass(frozen=True)
+class AnalyseOptionen:
+    """Gebündelte Lauf-Optionen für ``Pipeline.run`` – die Single Source of Truth
+    der Default-Werte.
+
+    Hintergrund (Review-Fundstelle): CLI und Web mussten die ~17 run()-Defaults
+    per Konvention synchron halten; CLI- und /v1-Ergebnisse divergierten still.
+    Aufrufer konstruieren EIN ``AnalyseOptionen`` und reichen es durch – wer
+    einen Default ändern will, ändert ihn HIER, nirgendwo sonst.
+
+    Bewusst NUR Flags/Schwellen/Werte. Ressourcen-Objekte (graph, trigger,
+    embedding, embedding_encoder, reranker, provider, gate, berater) bleiben
+    eigene run()-Parameter: ihr Lebenszyklus ist ein anderer (einmal beim
+    Start öffnen, über viele Läufe teilen, ggf. schließen) – sie sind Infra-
+    struktur, keine Lauf-Konfiguration.
+    """
+
+    erzeugt_am: Optional[str] = None        # ISO-Zeitstempel-Override (Reproduzierbarkeit)
+    unknown: bool = False                   # heuristischer Unknown-Proposer (offline)
+    nutzer: Optional[str] = None            # Nutzerkennung für Berater-Sichten
+    abweichung: bool = False                # LLM-Norm-Abweichungen an Karten vermerken
+    detektor: bool = False                  # Schicht 1.5: Trigger-Index-Detektor
+    streit: bool = False                    # Streit-Verstärker (Subsumtions-Brennpunkte)
+    smart_windowing: bool = False           # Coverage-gesteuertes LLM-Gating (Schicht 2)
+    fenster_max_chars: int = _FENSTER_MAX_CHARS   # Hauptfenster-Größe fürs Windowing
+
+
 class Pipeline:
     """Wiederverwendbare Pipeline mit vorkompiliertem Matcher."""
 
@@ -385,23 +418,59 @@ class Pipeline:
         self,
         text: str,
         *,
-        erzeugt_am: Optional[str] = None,
+        optionen: Optional[AnalyseOptionen] = None,
+        # Ressourcen-Objekte: anderer Lebenszyklus als die Lauf-Optionen (einmal
+        # öffnen, viele Läufe) – bewusst NICHT Teil von AnalyseOptionen.
         provider: Optional[KandidatenProvider] = None,
-        unknown: bool = False,
         gate: Optional[UnknownGate] = None,
         berater: Optional[BeraterStore] = None,
-        nutzer: Optional[str] = None,
         graph: Optional[NormGraph] = None,
-        abweichung: bool = False,
         trigger: Optional[TriggerIndex] = None,
-        detektor: bool = False,
-        streit: bool = False,
         embedding: Optional[EmbeddingIndex] = None,
         embedding_encoder: Optional[Encoder] = None,
         reranker: Optional[Reranker] = None,
-        smart_windowing: bool = False,
-        fenster_max_chars: int = _FENSTER_MAX_CHARS,
+        # Übergangs-API (Einzel-Kwargs): Typen/Defaults siehe AnalyseOptionen.
+        # Der Sentinel-Default macht "explizit übergeben" erkennbar – nötig fürs
+        # Misch-Verbot; deshalb hier bewusst ohne (irreführende) Annotationen.
+        erzeugt_am=_UNGESETZT,
+        unknown=_UNGESETZT,
+        nutzer=_UNGESETZT,
+        abweichung=_UNGESETZT,
+        detektor=_UNGESETZT,
+        streit=_UNGESETZT,
+        smart_windowing=_UNGESETZT,
+        fenster_max_chars=_UNGESETZT,
     ) -> RunReport:
+        """Führt einen Analyse-Lauf aus und liefert den RunReport.
+
+        EMPFOHLENER Weg: Lauf-Optionen gebündelt über ``optionen=AnalyseOptionen(...)``
+        übergeben – die Dataclass ist die Single Source of Truth der Defaults
+        (CLI/Web bleiben damit zwangsläufig synchron). Die Einzel-Kwargs
+        (``unknown=…``, ``streit=…``, …) bleiben als ÜBERGANGS-API funktionsfähig,
+        sind aber für neue Aufrufer nicht mehr gedacht.
+
+        Beides mischen ist ein harter Fehler (ValueError): würde eine Seite still
+        gewinnen, wäre genau die CLI/Web-Divergenz zurück, die AnalyseOptionen
+        beseitigt. Ressourcen-Objekte (graph/trigger/embedding/…) sind KEINE
+        Optionen und dürfen immer zusätzlich übergeben werden.
+        """
+        # Misch-Verbot durchsetzen, dann ALLES über die Dataclass laufen lassen –
+        # der restliche Rumpf liest Optionen NUR noch aus ``opt``.
+        einzel_kwargs = {
+            "erzeugt_am": erzeugt_am, "unknown": unknown, "nutzer": nutzer,
+            "abweichung": abweichung, "detektor": detektor, "streit": streit,
+            "smart_windowing": smart_windowing, "fenster_max_chars": fenster_max_chars,
+        }
+        explizit = {k: v for k, v in einzel_kwargs.items() if v is not _UNGESETZT}
+        if optionen is not None and explizit:
+            raise ValueError(
+                "Gemischte Optionsübergabe an Pipeline.run(): 'optionen' wurde "
+                f"zusammen mit den Einzel-Kwargs {sorted(explizit)} übergeben. "
+                "Entweder alles über optionen=AnalyseOptionen(...) bündeln oder "
+                "(Übergangs-API) nur Einzel-Kwargs nutzen – ein stilles Gewinnen "
+                "einer Seite würde CLI/Web erneut still divergieren lassen.")
+        opt = optionen if optionen is not None else AnalyseOptionen(**explizit)
+
         ergebnis = ingest_mod.ingest(text)
         omap = ergebnis.offset_map
         norm_text = ergebnis.normalized_text
@@ -435,13 +504,13 @@ class Pipeline:
         if graph is not None:
             anreichern_mit_graph(karten, graph)
         if berater is not None:
-            anreichern_mit_berater(karten, berater, nutzer=nutzer)
+            anreichern_mit_berater(karten, berater, nutzer=opt.nutzer)
 
         # Deterministische Roh-Erkennungen EINMAL berechnen: für das Coverage-Gating
         # der Schicht 2 (Smart-Windowing) UND die späteren Trigger-/Streit-Marken –
         # kein Doppellauf. (Reine Funktionen; Reihenfolge unkritisch.)
-        trig_hits = list(trigger.detektiere(text)) if (detektor and trigger is not None) else []
-        streit_funde = self.streit.funde(norm_text) if streit else []
+        trig_hits = list(trigger.detektiere(text)) if (opt.detektor and trigger is not None) else []
+        streit_funde = self.streit.funde(norm_text) if opt.streit else []
         streit_zonen_orig = [_to_orig(omap, f.start, f.end) for f in streit_funde]
 
         # Schicht 2 (optional). Ohne provider bleibt der Lauf rein deterministisch.
@@ -452,17 +521,17 @@ class Pipeline:
         if provider is not None:
             bekannt = sorted({self.katalog.get(t.begriff_id).begriff_kanonisch for t in treffer})
             kontext, gestuetzt_paras = _kandidaten_normen(text, graph, trigger)
-            if smart_windowing:
+            if opt.smart_windowing:
                 kand_objs, fenster_prov = self._gefenstert(
                     text, treffer, trig_hits, streit_zonen_orig, bekannt, provider, kontext,
-                    abweichung=abweichung, max_chars=fenster_max_chars)
+                    abweichung=opt.abweichung, max_chars=opt.fenster_max_chars)
                 kandidaten = [k.as_dict() for k in kand_objs]
             else:
                 kandidaten = [k.as_dict() for k in erkenne_kandidaten(
-                    text, bekannt, provider, kontext_normen=kontext, abweichung=abweichung)]
+                    text, bekannt, provider, kontext_normen=kontext, abweichung=opt.abweichung)]
             if hasattr(provider, "audit_info"):
                 schicht2_info = provider.audit_info()
-            if smart_windowing:
+            if opt.smart_windowing:
                 schicht2_info = {**(schicht2_info or {}), "windowing": fenster_prov}
 
         # Belegte Spans: NUR deterministische Marken (Karten/Berater/Trigger) dedupen
@@ -475,14 +544,14 @@ class Pipeline:
         karten_para = [_karte_para_ids(k) for k in karten]
         belegt_det = [(t.start, t.end) for t in treffer]
         if berater is not None:
-            bmark = berater.markierungen(text, belegte_spans=belegt_det, nutzer=nutzer)
+            bmark = berater.markierungen(text, belegte_spans=belegt_det, nutzer=opt.nutzer)
             risiken.extend(bmark)
             belegt_det += [(r.start, r.end) for r in bmark]
 
         # Schicht 2 – LLM-Kandidaten: konzept-bewusst & additiv (s. _llm_marken).
         llm_risiken, llm_spans = self._llm_marken(
             kandidaten, treffer_spans, karten, karten_para,
-            abweichung=abweichung, graph=graph, gestuetzt_paras=gestuetzt_paras)
+            abweichung=opt.abweichung, graph=graph, gestuetzt_paras=gestuetzt_paras)
         risiken.extend(llm_risiken)
 
         # Schicht 1.5 – deterministischer Trigger-Detektor (OHNE Modell).
@@ -558,7 +627,7 @@ class Pipeline:
                 })
 
         # Schicht 2 – deterministischer Heuristik-Proposer (offline), wenn angefordert.
-        if unknown or gate is not None:
+        if opt.unknown or gate is not None:
             proposer = DefinitorischProposer(gate)
             risiken.extend(proposer.vorschlagen(text, belegte_spans=belegt_det + llm_spans))
 
@@ -573,7 +642,7 @@ class Pipeline:
         return RunReport(
             text_hash=ergebnis.text_hash,
             katalog_version=self.katalog.version,
-            erzeugt_am=erzeugt_am or jetzt_iso(),
+            erzeugt_am=opt.erzeugt_am or jetzt_iso(),
             karten=karten,
             kandidaten=kandidaten,
             risiken=risiken,
@@ -590,4 +659,6 @@ def analyse(
 ) -> RunReport:
     """Bequemer Ein-Aufruf-Einstieg: Text rein, RunReport raus."""
     katalog = lade_katalog(katalog_pfad)
-    return Pipeline(katalog).run(text, erzeugt_am=erzeugt_am)
+    # Empfohlener Optionsweg (statt Übergangs-Einzel-Kwargs): eine Stelle weniger,
+    # die Defaults per Konvention spiegeln müsste.
+    return Pipeline(katalog).run(text, optionen=AnalyseOptionen(erzeugt_am=erzeugt_am))
