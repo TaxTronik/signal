@@ -135,7 +135,8 @@ zwar netzintern, aber mandantendatenführend angefragt wird. Kein offener Port.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.0.0`.
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.1.0`
+(additiv zu `1.0.0`: neue Route `POST /v1/katalog/review`).
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
@@ -185,9 +186,20 @@ der Circuit-Breaker muss nur den echten 15–30s-Inferenzfall abdecken. Ein
 schadensintensitaet, kaskadenreichweite, norm_anker[], normketten[],
 hat_definitionsquelle} ]}`
 
-### `POST /v1/katalog/definiere`  (EINZIGE Schreiboperation – Festwissen)
+### `POST /v1/katalog/definiere`  (Schreiboperation – Festwissen)
 Body: `{begriff, definition_text, autor?, scope?, norm_anker?[], governance_typ?, …}`
 → `{ok, id, scope, geankert_an[], katalog_id}`. Fehlt `begriff` → 400.
+
+### `POST /v1/katalog/review`  (Festwissen – Review-Lebenszyklus, seit `1.1.0`)
+Body: `{id, status: "entwurf"|"geprüft"|"freigegeben", pruefer?}`. Setzt den
+Review-Status eines **geteilten** Berater-Eintrags – nur Vorwärts-Übergänge
+(entwurf → geprüft → freigegeben). Der Lebenszyklus ist die Kanonizitäts-Garantie
+des geteilten Festwissens; er läuft über `/v1`, damit TaxTronik die Freigabe in
+seiner Audit-Chain protokollieren kann (die Engine auditiert nicht).
+→ `{ok, id, alter_status, neuer_status, pruefer}` – die Antwort nennt den
+**vollständigen Übergang** für den Chain-Eintrag des Hosts. Fehlt `id`/`status`
+→ 400, unbekannter Statuswert → 422; Rückwärts-Übergang oder unbekannte `id`
+→ 400 mit `{ok: false, fehler}`.
 
 ### `GET /v1/normgraph/aufloesen?id=norm:AO:162`
 → `{gefunden: bool, titel, text, law, verwendet, …}`

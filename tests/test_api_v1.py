@@ -123,6 +123,74 @@ def test_bekannter_pfad_falsche_methode_405(app):
     assert code == 405 and obj["allow"] == "POST"
     code, obj = dispatch(app, "POST", "/v1/health", {}, {})
     assert code == 405 and obj["allow"] == "GET"
+    # /v1/katalog/review ist eine bekannte POST-Route → GET liefert 405, nicht 404
+    code, obj = dispatch(app, "GET", "/v1/katalog/review", {}, {})
+    assert code == 405 and obj["allow"] == "POST"
+
+
+# --- POST /v1/katalog/review (Review-Lebenszyklus des geteilten Festwissens) ---
+# Der Lebenszyklus (entwurf → geprüft → freigegeben) ist die Kanonizitäts-
+# Garantie des geteilten Festwissens; er läuft über /v1, damit der Host die
+# Freigabe in seiner Audit-Chain protokollieren kann (die Engine auditiert nicht).
+
+def _geteilter_entwurf(app, begriff="Testbegriff Review"):
+    """Legt einen geteilten Eintrag (review_status=entwurf) an, liefert seine id."""
+    code, obj = dispatch(app, "POST", "/v1/katalog/definiere", {
+        "begriff": begriff,
+        "definition_text": "Arbeitsdefinition aus erledigter Recherche.",
+        "scope": "geteilt", "autor": "junior",
+    }, {})
+    assert code == 200 and obj["ok"] is True
+    return obj["id"]
+
+
+def test_review_antwort_traegt_vollstaendigen_uebergang(app):
+    """Erfolgsfall: die Antwort macht den Übergang AUDITIERBAR — alter_status
+    wird VOR der Mutation gelesen, der Host schreibt den vollen Übergang in
+    seine Chain."""
+    eid = _geteilter_entwurf(app)
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": eid, "status": "geprüft", "pruefer": "senior"}, {})
+    assert code == 200 and obj["ok"] is True
+    assert obj["id"] == eid
+    assert obj["alter_status"] == "entwurf"
+    assert obj["neuer_status"] == "geprüft"
+    assert obj["pruefer"] == "senior"
+
+
+def test_review_rueckwaerts_uebergang_400(app):
+    """Nur Vorwärts-Schritte (berater.setze_review_status): freigegeben →
+    geprüft ist unzulässig → 400 mit Fehlertext."""
+    eid = _geteilter_entwurf(app)
+    code, _ = dispatch(app, "POST", "/v1/katalog/review",
+                       {"id": eid, "status": "freigegeben", "pruefer": "senior"}, {})
+    assert code == 200
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": eid, "status": "geprüft", "pruefer": "senior"}, {})
+    assert code == 400 and obj["ok"] is False
+    assert "vorwärts" in obj["fehler"]
+
+
+def test_review_unbekannte_id_400(app):
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": "gibtsnicht", "status": "geprüft"}, {})
+    assert code == 400 and obj["ok"] is False
+    assert "gibtsnicht" in obj["fehler"]
+
+
+def test_review_fehlender_oder_ungueltiger_status(app):
+    """Validierung konsistent zu _katalog_definiere: fehlendes Pflichtfeld → 400,
+    Form-Fehler (unbekannter Statuswert) → 422. Nichts wird mutiert."""
+    # fehlender status → 400
+    code, obj = dispatch(app, "POST", "/v1/katalog/review", {"id": "x"}, {})
+    assert code == 400 and "status" in obj["error"]
+    # unbekannter Statuswert → 422
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": "x", "status": "genehmigt"}, {})
+    assert code == 422 and "status" in obj["error"]
+    # fehlende id → 400
+    code, obj = dispatch(app, "POST", "/v1/katalog/review", {"status": "geprüft"}, {})
+    assert code == 400 and "id" in obj["error"]
 
 
 def test_analyse_optionen_nicht_objekt_400(app):

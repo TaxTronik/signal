@@ -120,6 +120,19 @@ def test_definiere_blockt_mandantengeheimnis_203(tmp_path, capsys):
     assert list(tmp_path.rglob("*.yaml")) == []
 
 
+def test_definiere_warnt_nicht_audit_pfad_auf_stderr(tmp_path, capsys):
+    """Jeder CLI-Festwissens-Write nennt auf stderr, dass er DIREKT (an der
+    TaxTronik-Audit-Chain vorbei) schreibt — Hinweis statt Verbotsschalter:
+    das Operator-Werkzeug bleibt funktional, der Exit-Code unverändert."""
+    rc = main(["definiere", "Betriebsaufspaltung",
+               "--text", "Aufteilung in Besitz- und Betriebsunternehmen.",
+               "--berater", str(tmp_path), "--autor", "rey"])
+    assert rc == 0                                  # Exit-Code unverändert
+    captured = capsys.readouterr()
+    assert "Host-Audit" in captured.err and "/v1/katalog/" in captured.err
+    assert "definiert:" in captured.out             # Erfolgsausgabe unverändert
+
+
 def test_definiere_hat_kein_override_flag():
     """Das Gate ist NICHT optional: es gibt kein --trotzdem/--force."""
     parser = build_parser()

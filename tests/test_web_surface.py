@@ -246,6 +246,36 @@ def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch):
         httpd.server_close()
 
 
+def test_veralteter_embedding_index_warnt_beim_anwendung_start(tmp_path, monkeypatch, caplog):
+    # Staleness-Check (embedding.pruefe_aktualitaet): Anwendung.__init__ prüft
+    # EINMALIG nach dem Laden von Embedding+Graph, ob der Index noch zum
+    # Normgraphen passt. Weicht der Fingerprint ab → laute Warnung im Log;
+    # der Start degradiert, crasht nie.
+    import risk_layer.embedding as emb
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        graph_fingerprint = "alt"          # ≠ FakeGraph.fingerprint()
+
+    class FakeGraph:
+        def fingerprint(self):
+            return "neu"
+
+        def stats(self):
+            return {"knoten": 0}
+
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+
+    def kein_encoder(*a, **k):              # Encoder-Load abkürzen (kein Modell im Test)
+        raise RuntimeError("kein Encoder (Test)")
+    monkeypatch.setattr(emb, "encoder_oeffnen", kein_encoder)
+    monkeypatch.setattr(web, "graph_oeffnen", lambda *a, **k: FakeGraph())
+    with caplog.at_level(logging.WARNING, logger="risk_layer.embedding"):
+        Anwendung(None, str(tmp_path))
+    assert any("VERALTET" in r.getMessage() for r in caplog.records), \
+        "Fingerprint-Abweichung muss beim Start als Warnung im Log stehen"
+
+
 def test_embedding_encoder_fehler_degradiert(tmp_path, monkeypatch):
     # Encoder nicht ladbar (z.B. torch fehlt) -> Engine startet trotzdem ohne
     # Schicht 1.7, statt komplett zu crashen.

@@ -32,7 +32,7 @@ from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
 from .graph import graph_oeffnen
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status
-from .pipeline import Pipeline
+from .pipeline import AnalyseOptionen, Pipeline
 from .triggerindex import index_oeffnen
 from .zitate import kanonisiere_fundstelle, parse_normzitat
 
@@ -67,8 +67,13 @@ class Anwendung:
         self.trigger = index_oeffnen()
         # Semantischer Embedding-Index (Schicht 1.7) – nur wenn vorab gebaut.
         # Encoder lazy, kein Startup-Download.
-        from .embedding import index_oeffnen as _emb_open, encoder_oeffnen as _enc_open
+        from .embedding import (index_oeffnen as _emb_open, encoder_oeffnen as _enc_open,
+                                pruefe_aktualitaet as _emb_aktuell)
         self.embedding = _emb_open()
+        # Staleness-Check EINMALIG beim Start (nie pro Request): warnt laut im
+        # Log, wenn der Embedding-Index nicht mehr zum aktuellen Normgraphen
+        # passt (Fingerprint-Abweichung). Degradierend – wirft nie.
+        _emb_aktuell(self.embedding, self.graph)
         # Query-Encoder: GPU bevorzugt, fällt intern auf CPU zurück. Per
         # RISK_LAYER_EMB_DEVICE setzbar.
         _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
@@ -127,13 +132,19 @@ class Anwendung:
                 schicht2: bool = False, llm_url: str | None = None,
                 abweichung: bool = False) -> dict[str, Any]:
         store = self._berater() if berater else None
-        report = self.pipeline.run(text, unknown=unknown, berater=store, nutzer=nutzer,
-                                   graph=self.graph, provider=self._provider(schicht2, llm_url),
-                                   abweichung=abweichung, trigger=self.trigger,
-                                   detektor=True, streit=True,
-                                   embedding=self.embedding,
-                                   embedding_encoder=self.embedding_encoder,
-                                   reranker=self.reranker)
+        # Lauf-Optionen gebündelt über AnalyseOptionen (Single Source of Truth der
+        # Defaults in pipeline.py); Ressourcen-Objekte bleiben Einzel-Parameter.
+        # Trigger-Detektor + Streit-Verstärker sind in /v1 immer aktiv.
+        report = self.pipeline.run(
+            text,
+            optionen=AnalyseOptionen(unknown=unknown, nutzer=nutzer,
+                                     abweichung=abweichung,
+                                     detektor=True, streit=True),
+            berater=store, graph=self.graph,
+            provider=self._provider(schicht2, llm_url), trigger=self.trigger,
+            embedding=self.embedding,
+            embedding_encoder=self.embedding_encoder,
+            reranker=self.reranker)
         return antwort_json(report, text)
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -181,6 +192,32 @@ class Anwendung:
                 return {"ok": False, "fehler": str(exc)}
         return {"ok": True, "katalog_id": katalog_id, "norm": payload.get("norm", ""),
                 "aktion": payload.get("aktion", ""), "scope": payload.get("scope", "personal")}
+
+    def review_setzen(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Review-Lebenszyklus-Übergang (entwurf → geprüft → freigegeben, nur
+        vorwärts) für einen GETEILTEN Berater-Eintrag. Festwissens-State,
+        fallzustandslos, KEIN Audit — der Host protokolliert die Handlung in
+        seiner Chain; deshalb liefert die Antwort den vollständigen Übergang
+        (``alter_status`` → ``neuer_status``) zurück."""
+        eintrag_id = (payload.get("id") or "").strip()
+        neuer_status = (payload.get("status") or "").strip()
+        pruefer = payload.get("pruefer") or "berater"
+        with self._berater_lock:
+            store = BeraterStore(self.berater_dir)
+            # Bestehenden Eintrag VOR der Mutation lesen: erst damit wird der
+            # Übergang (alter_status) für die Host-Chain auditierbar. Nur der
+            # geteilt-Scope trägt einen Review-Status (berater.setze_review_status).
+            vorher = next((e for e in store.alle()
+                           if e.id == eintrag_id and e.scope == "geteilt"), None)
+            if vorher is None:
+                return {"ok": False, "fehler": f"kein geteilter Eintrag {eintrag_id!r}"}
+            alter_status = vorher.review_status
+            try:
+                store.setze_review_status(eintrag_id, neuer_status, reviewer=pruefer)
+            except BeraterFehler as exc:
+                return {"ok": False, "fehler": str(exc)}
+        return {"ok": True, "id": eintrag_id, "alter_status": alter_status,
+                "neuer_status": neuer_status, "pruefer": pruefer}
 
     def kuratierung_lesen(self, *, katalog_id: str | None = None,
                           nutzer: str | None = None) -> dict[str, Any]:

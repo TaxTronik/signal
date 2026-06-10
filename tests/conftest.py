@@ -20,3 +20,20 @@ import pytest
 def _kein_embedding(monkeypatch):
     monkeypatch.setattr("risk_layer.embedding.index_oeffnen",
                         lambda *a, **k: None)
+
+
+@pytest.fixture(autouse=True)
+def _kein_ner(monkeypatch):
+    """Kein Test lädt implizit das echte spaCy-Modell (optionale NER-Schicht).
+
+    anonymize.anonymisiere ruft über den Lade-Seam ``_lade_nlp`` (Modul-Cache
+    ``_NLP``) lazy das deutsche spaCy-Modell – und steckt via recherche.pruefe_rest
+    im § 203-Gate von /v1/katalog/definiere und der CLI. tests/test_api_v1.py,
+    test_web.py und test_cli.py liefen auf Dev-Maschinen MIT installiertem spaCy
+    sonst gegen das echte Modell (langsam, umgebungsabhängiges Testverhalten).
+    Muster wie ``_kein_spacy`` in tests/test_anonymize.py: Loader auf None
+    patchen + Env aufräumen. NER-Tests injizieren ihren Fake über denselben
+    Seam – test-lokale monkeypatches überschreiben diese Fixture.
+    """
+    monkeypatch.setattr("risk_layer.anonymize._lade_nlp", lambda: None)
+    monkeypatch.delenv("RISK_LAYER_NER", raising=False)

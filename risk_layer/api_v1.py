@@ -20,7 +20,12 @@ from __future__ import annotations
 
 from typing import Any
 
-V1_VERSION = "1.0.0"
+from .berater import REVIEW_REIHENFOLGE
+
+# 1.1.0: additiv – neue Route POST /v1/katalog/review (Review-Lebenszyklus des
+# geteilten Festwissens läuft jetzt durch /v1, damit der Host die Freigabe in
+# seiner Audit-Chain protokollieren kann). Keine bestehende Antwort geändert.
+V1_VERSION = "1.1.0"
 
 
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -117,6 +122,34 @@ def _katalog_definiere(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     return 200, app.definiere(payload)
 
 
+def _katalog_review(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/katalog/review – Review-Lebenszyklus eines GETEILTEN Berater-
+    Eintrags: {id, status: entwurf|geprüft|freigegeben, pruefer?}. Nur Vorwärts-
+    Übergänge (entwurf → geprüft → freigegeben, berater.setze_review_status).
+
+    Der Lebenszyklus ist die Kanonizitäts-Garantie des geteilten Festwissens –
+    er MUSS durch /v1 laufen, damit der Host die Freigabe in seiner Audit-Chain
+    protokollieren kann (die Engine auditiert nicht, s. web.review_setzen).
+    Die Antwort nennt deshalb den VOLLSTÄNDIGEN Übergang (alter_status →
+    neuer_status). Reiner Festwissens-State, kein Mandantenbezug (§ 203-unkritisch).
+    """
+    eintrag_id = str(payload.get("id", "")).strip()
+    if not eintrag_id:
+        return 400, {"error": "Feld 'id' fehlt"}
+    status = str(payload.get("status", "")).strip()
+    if not status:
+        return 400, {"error": "Feld 'status' fehlt"}
+    # Form-Validierung wie norm_anker in _katalog_definiere: ein unbekannter
+    # Statuswert ist ein 422 (Form), kein Lebenszyklus-Fehler (400).
+    if status not in REVIEW_REIHENFOLGE:
+        return 422, {"error": "Feld 'status' muss eines von "
+                              f"{'|'.join(REVIEW_REIHENFOLGE)} sein, nicht {status!r}"}
+    res = app.review_setzen(payload)
+    # BeraterFehler (Rückwärts-Übergang, unbekannte id) → 400 mit Fehlertext
+    # (Muster _katalog_norm_kuratieren: ok:false trägt 'fehler').
+    return (200 if res.get("ok") else 400), res
+
+
 def _katalog_norm_kuratieren(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/katalog/norm_kuratieren – katalog-weite Norm-Kuratierung an EINEM
     Begriff: {katalog_id, norm, aktion: verwerfen|ergaenzen|zuruecksetzen, scope, autor}.
@@ -210,7 +243,8 @@ def _llm_stop(app) -> tuple[int, dict[str, Any]]:
 _GET_PFADE = frozenset({"/v1/health", "/v1/katalog", "/v1/normgraph/aufloesen",
                         "/v1/normgraph/suche", "/v1/katalog/kuratierung", "/v1/llm/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
-                         "/v1/embedding/suche", "/v1/llm/start", "/v1/llm/stop"})
+                         "/v1/katalog/review", "/v1/embedding/suche",
+                         "/v1/llm/start", "/v1/llm/stop"})
 
 
 def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
@@ -247,6 +281,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _katalog_definiere(app, payload)
         if pfad == "/v1/katalog/norm_kuratieren":
             return _katalog_norm_kuratieren(app, payload)
+        if pfad == "/v1/katalog/review":
+            return _katalog_review(app, payload)
         if pfad == "/v1/embedding/suche":
             return _embedding_suche(app, payload)
         if pfad == "/v1/llm/start":

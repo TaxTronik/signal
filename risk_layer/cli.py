@@ -17,7 +17,7 @@ from pathlib import Path
 from .berater import BeraterFehler, BeraterStore
 from .catalog import KatalogFehler, lade_katalog
 from .graph import graph_oeffnen
-from .pipeline import Pipeline
+from .pipeline import AnalyseOptionen, Pipeline
 from .report import report_html, report_text
 from .zitate import parse_entscheidung, parse_normzitat
 
@@ -55,8 +55,12 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     # nur wenn ein Index vorab gebaut wurde; Encoder-Fehler degradieren statt
     # zu crashen; Reranker NUR auf GPU. CLI und /v1/analyse liefern damit für
     # denselben Text dasselbe Ergebnis (Konsistenz-Zusage in api_v1._analyse).
-    from .embedding import encoder_oeffnen as _enc_open, index_oeffnen as _emb_open
+    from .embedding import (encoder_oeffnen as _enc_open, index_oeffnen as _emb_open,
+                            pruefe_aktualitaet as _emb_aktuell)
     embedding = _emb_open()
+    # Staleness-Check einmalig pro Lauf (wie web.Anwendung.__init__): warnt laut
+    # im Log, wenn der Index nicht mehr zum Normgraphen passt. Wirft nie.
+    _emb_aktuell(embedding, graph)
     embedding_encoder = None
     reranker = None
     _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
@@ -84,18 +88,22 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
         return 2
     report = Pipeline(katalog).run(
         text,
-        erzeugt_am=args.zeitstempel,
-        unknown=args.unknown,
+        # Lauf-Optionen gebündelt (Single Source of Truth der Defaults in
+        # pipeline.AnalyseOptionen); Ressourcen bleiben Einzel-Parameter.
+        # /v1-Semantik (web.Anwendung.analyse): Trigger-Detektor + Streit-
+        # Verstärker sind dort immer aktiv – die CLI zieht gleich.
+        optionen=AnalyseOptionen(
+            erzeugt_am=args.zeitstempel,
+            unknown=args.unknown,
+            nutzer=args.nutzer,
+            abweichung=args.abweichung,
+            detektor=True,
+            streit=True,
+        ),
         berater=berater,
-        nutzer=args.nutzer,
         graph=graph,
         provider=provider,
         trigger=trigger,
-        # /v1-Semantik (web.Anwendung.analyse): Trigger-Detektor + Streit-
-        # Verstärker sind dort immer aktiv – die CLI zieht gleich.
-        detektor=True,
-        streit=True,
-        abweichung=args.abweichung,
         embedding=embedding,
         embedding_encoder=embedding_encoder,
         reranker=reranker,
@@ -277,6 +285,17 @@ def _cmd_modell(args: argparse.Namespace) -> int:
     return 2
 
 
+# Nicht-Audit-Pfad-Hinweis für ALLE CLI-Festwissens-Writes (derzeit nur
+# `definiere`; weitere Schreib-Kommandos – z. B. Norm-Kuratierung/Review –
+# existieren in der CLI bewusst nicht). Die CLI schreibt direkt in die
+# Festwissens-YAML, vorbei an der TaxTronik-Audit-Chain – als Operator-Werkzeug
+# bleibt sie funktional (KEIN Verbotsschalter), aber der Umweg wird laut benannt.
+_FESTWISSEN_WRITE_HINWEIS = (
+    "Hinweis: Direkter Schreibzugriff am Host-Audit vorbei — in "
+    "Produktionsumgebungen /v1/katalog/* via TaxTronik nutzen."
+)
+
+
 def _cmd_definiere(args: argparse.Namespace) -> int:
     from datetime import date
 
@@ -292,6 +311,10 @@ def _cmd_definiere(args: argparse.Namespace) -> int:
             print(f"  - [{r['typ']}] {r['original']}", file=sys.stderr)
         return 2
 
+    # Den Nicht-Audit-Pfad beim Write sichtbar machen (stderr, Exit-Code
+    # unverändert): der Operator soll wissen, dass diese Handlung NICHT in der
+    # TaxTronik-Chain landet – haftungsrelevante Writes gehören durch /v1.
+    print(_FESTWISSEN_WRITE_HINWEIS, file=sys.stderr)
     try:
         store = BeraterStore(args.berater)
         d = store.definiere(
@@ -510,7 +533,15 @@ def build_parser() -> argparse.ArgumentParser:
                    help="GPU-Backend für 'engine' (auto: NVIDIA→cuda, AMD→hip, sonst Vulkan/CPU)")
     m.set_defaults(func=_cmd_modell)
 
-    d = sub.add_parser("definiere", help="Berater-Definition anlegen (define-on-the-fly)")
+    d = sub.add_parser(
+        "definiere",
+        help="Berater-Definition anlegen (define-on-the-fly). Schreibt DIREKT in "
+             "die Festwissens-YAML, am Host-Audit vorbei — in Produktions-"
+             "umgebungen /v1/katalog/* via TaxTronik nutzen.",
+        description="Berater-Definition anlegen (define-on-the-fly). "
+                    "ACHTUNG Nicht-Audit-Pfad: schreibt direkt in die Festwissens-"
+                    "YAML, vorbei an der TaxTronik-Audit-Chain — in Produktions-"
+                    "umgebungen /v1/katalog/* via TaxTronik nutzen.")
     d.add_argument("begriff", help="der zu definierende Begriff")
     d.add_argument("--text", required=True, help="Definitionstext (eigene Worte)")
     d.add_argument("--berater", required=True, help="Zielverzeichnis des Berater-Stores")
