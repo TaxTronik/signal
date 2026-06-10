@@ -3,9 +3,12 @@
 Getestet wird die PURE Mess-Logik mit dem abhängigkeitsfreien HashEncoder
 (Mini-Index wie tests/test_embedding.py) und Inline-Mini-Gold: Treffer-Logik
 inkl. Präfix-Falle, handverifizierte Recall/MRR-Berechnung, die Äquivalenz des
-Floor-Nachfilters zur Live-Suche und das Berichts-Schema. KEIN Test lädt echte
-Modelle — der Harness lädt den Index direkt über ``EmbeddingIndex.load`` (der
-conftest-Patch auf ``index_oeffnen`` greift hier gar nicht erst).
+Floor-Nachfilters zur Live-Suche und das Berichts-Schema. Dazu die
+Experiment-Erweiterungen: RRF-Fusion (handnachgerechnete Mathematik),
+Rerank-Abstention-Policies P0–P3 und die Negativ-Gold-Präzisionsmetrik
+(Fehlvorschlagsquote). KEIN Test lädt echte Modelle — der Harness lädt den
+Index direkt über ``EmbeddingIndex.load`` (der conftest-Patch auf
+``index_oeffnen`` greift hier gar nicht erst).
 """
 
 import json
@@ -20,9 +23,11 @@ from risk_layer.embedding import EmbeddingIndex, HashEncoder
 from risk_layer.gii import NormKnoten
 from risk_layer.graph import NormGraph
 
-from tools.eval_harness import (baue_bericht, floor_filter, ist_treffer,
-                                konfig_kandidaten, lade_gold, metriken,
-                                sammle_rohdaten, sweep, treffer_rang)
+from tools.eval_harness import (baue_bericht, floor_filter, fusioniere_treffer,
+                                ist_treffer, konfig_kandidaten, lade_gold,
+                                lade_negativ_gold, metriken, negativ_metriken,
+                                rrf_scores, sammle_rohdaten, sweep,
+                                treffer_rang)
 
 
 def _graph(tmp_path):
@@ -161,6 +166,171 @@ def test_konfig_kandidaten_rerank_sortiert_schwellt_und_kappt():
                           rerank_scores=scores, schwelle=None)
 
 
+# --- Rerank-Policies P1/P2/P3 (Experiment 2) ---------------------------------------
+
+_ROH4 = [{"norm_id": "norm:AO:1", "sim": 0.9},
+         {"norm_id": "norm:AO:2", "sim": 0.8},
+         {"norm_id": "norm:AO:3", "sim": 0.56},
+         {"norm_id": "norm:AO:4", "sim": 0.4}]
+_SCORES4 = {("q", "norm:AO:1"): 0.02,   # sim-stärkster, aber rerank UNTER Schwelle
+            ("q", "norm:AO:2"): 0.9,
+            ("q", "norm:AO:3"): 0.04,   # unter Schwelle, sim über hoch=0.55
+            ("q", "norm:AO:4"): 0.4}
+
+
+def test_policy_p1_ordering_only_keine_abstention():
+    # P1: rerank sortiert NUR; niemand fliegt (Abstention rein über den Floor).
+    assert konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                             rerank_scores=_SCORES4, policy="P1") == \
+        ["norm:AO:2", "norm:AO:4", "norm:AO:3", "norm:AO:1"]
+    # Floor wirkt weiterhin davor (0.5 wirft norm:AO:4 raus).
+    assert konfig_kandidaten(_ROH4, floor=0.5, topk=10, query="q",
+                             rerank_scores=_SCORES4, policy="P1") == \
+        ["norm:AO:2", "norm:AO:3", "norm:AO:1"]
+
+
+def test_policy_p2_oder_abstention_sim_rettet():
+    # P2: bleibt, wenn rerank>=0.10 ODER sim>=0.55 — norm:AO:1 (sim 0.9) und
+    # norm:AO:3 (sim 0.56) überleben trotz Mini-Rerank; norm:AO:4 (0.4/0.4) bleibt
+    # über die Schwelle; bei hoch=0.95 fallen die sim-Geretteten wieder.
+    assert konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                             rerank_scores=_SCORES4, schwelle=0.10,
+                             policy="P2", hoch=0.55) == \
+        ["norm:AO:2", "norm:AO:4", "norm:AO:3", "norm:AO:1"]
+    assert konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                             rerank_scores=_SCORES4, schwelle=0.10,
+                             policy="P2", hoch=0.95) == \
+        ["norm:AO:2", "norm:AO:4"]
+    with pytest.raises(ValueError):                  # P2 braucht hoch
+        konfig_kandidaten(_ROH4, floor=0.0, topk=5, query="q",
+                          rerank_scores=_SCORES4, schwelle=0.10, policy="P2")
+
+
+def test_policy_p3_top1_rescue_nur_der_sim_staerkste():
+    # P3: wie P0, aber der sim-STÄRKSTE (norm:AO:1, sim 0.9>=hoch) bleibt immer —
+    # norm:AO:3 (auch unter Schwelle, sim 0.56) wird NICHT gerettet (kein Top-1).
+    assert konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                             rerank_scores=_SCORES4, schwelle=0.10,
+                             policy="P3", hoch=0.55) == \
+        ["norm:AO:2", "norm:AO:4", "norm:AO:1"]
+    # hoch über dem Top-sim ⇒ exakt P0-Verhalten.
+    assert konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                             rerank_scores=_SCORES4, schwelle=0.10,
+                             policy="P3", hoch=0.95) == \
+        konfig_kandidaten(_ROH4, floor=0.0, topk=10, query="q",
+                          rerank_scores=_SCORES4, schwelle=0.10)
+    with pytest.raises(ValueError):                  # unbekannte Policy
+        konfig_kandidaten(_ROH4, floor=0.0, topk=5, query="q",
+                          rerank_scores=_SCORES4, schwelle=0.10, policy="P9")
+
+
+# --- RRF-Fusion (Experiment 3) ------------------------------------------------------
+
+def test_rrf_scores_handverifiziert():
+    # Listen ["a","b","c"] und ["b","d"], k=60:
+    #   a=1/61, b=1/62+1/61, c=1/63, d=1/62 — b > a > d > c.
+    s = rrf_scores([["a", "b", "c"], ["b", "d"]], k_rrf=60)
+    assert s["a"] == pytest.approx(1 / 61)
+    assert s["b"] == pytest.approx(1 / 62 + 1 / 61)
+    assert s["c"] == pytest.approx(1 / 63)
+    assert s["d"] == pytest.approx(1 / 62)
+    # k=20 gewichtet Spitzenränge stärker (1/21 statt 1/61) — gleiche Mathematik.
+    s20 = rrf_scores([["a", "b", "c"], ["b", "d"]], k_rrf=20)
+    assert s20["b"] == pytest.approx(1 / 22 + 1 / 21)
+    assert rrf_scores([], k_rrf=60) == {}
+
+
+def test_fusioniere_treffer_ordnung_sim_und_tiebreak():
+    dense = [{"norm_id": "a", "sim": 0.8}, {"norm_id": "b", "sim": 0.7},
+             {"norm_id": "c", "sim": 0.6}]
+    fused = fusioniere_treffer(dense, ["b", "d"], k_rrf=60)
+    assert [t["norm_id"] for t in fused] == ["b", "a", "d", "c"]
+    # Dense-sim bleibt erhalten; Trigger-only-Kandidat trägt sim=0.0.
+    by_id = {t["norm_id"]: t for t in fused}
+    assert by_id["a"]["sim"] == 0.8 and by_id["d"]["sim"] == 0.0
+    assert by_id["b"]["rrf"] == pytest.approx(1 / 62 + 1 / 61, abs=1e-6)
+    # Gleichstand (beide Rang 1 in je einer Liste) ⇒ deterministisch per norm_id.
+    fused2 = fusioniere_treffer([{"norm_id": "y", "sim": 0.9}], ["x"], k_rrf=60)
+    assert [t["norm_id"] for t in fused2] == ["x", "y"]
+
+
+def test_konfig_kandidaten_fusion_mit_und_ohne_rerank():
+    dense = [{"norm_id": "norm:AO:1", "sim": 0.9},
+             {"norm_id": "norm:AO:2", "sim": 0.8}]
+    # fusion-ohne-rerank: RRF-Topliste direkt (Trigger-Treffer rückt rein).
+    assert konfig_kandidaten(dense, floor=0.0, topk=3, trigger_ids=["norm:AO:9"],
+                             k_rrf=60) == \
+        ["norm:AO:1", "norm:AO:9", "norm:AO:2"]
+    # fusion-vor-rerank: die FUSIONIERTE Topliste geht in den Reranker; der
+    # Trigger-only-Kandidat (sim=0.0) kann per Score gewinnen oder rausfallen.
+    scores = {("q", "norm:AO:1"): 0.2, ("q", "norm:AO:2"): 0.05,
+              ("q", "norm:AO:9"): 0.8}
+    assert konfig_kandidaten(dense, floor=0.0, topk=3, query="q",
+                             rerank_scores=scores, schwelle=0.10,
+                             trigger_ids=["norm:AO:9"], k_rrf=60) == \
+        ["norm:AO:9", "norm:AO:1"]
+    # P2 rettet den Trigger-only-Kandidaten NICHT über sim (sim=0.0 < hoch).
+    scores2 = {**scores, ("q", "norm:AO:9"): 0.01}
+    assert konfig_kandidaten(dense, floor=0.0, topk=3, query="q",
+                             rerank_scores=scores2, schwelle=0.10,
+                             policy="P2", hoch=0.55,
+                             trigger_ids=["norm:AO:9"], k_rrf=60) == \
+        ["norm:AO:1", "norm:AO:2"]
+
+
+# --- Negativ-Gold + Fehlvorschlagsquote (Experiment 1) ------------------------------
+
+def test_negativ_metriken_handverifiziert():
+    erg = [{"kategorie": "alltag", "n_kandidaten": 0},
+           {"kategorie": "alltag", "n_kandidaten": 3},
+           {"kategorie": "steuer_neutral", "n_kandidaten": 5},
+           {"kategorie": "steuer_neutral", "n_kandidaten": 0}]
+    m = negativ_metriken(erg)
+    assert m["n"] == 4
+    assert m["fehlvorschlagsquote"] == pytest.approx(2 / 4)
+    assert m["mittlere_kandidaten"] == pytest.approx(8 / 4)
+    assert m["pro_kategorie"] == {"alltag": 0.5, "steuer_neutral": 0.5}
+    assert negativ_metriken([]) == {"n": 0}
+    # Volle Abstention = perfekte Präzision.
+    perfekt = negativ_metriken([{"kategorie": "alltag", "n_kandidaten": 0}])
+    assert perfekt["fehlvorschlagsquote"] == 0.0
+
+
+def test_lade_negativ_gold_format(tmp_path):
+    p = tmp_path / "neg.yaml"
+    p.write_text(
+        "gold_version: v1\nstand: '2026-06-10'\nfaelle:\n"
+        "- query: Vielen Dank für das Gespräch.\n  kategorie: alltag\n"
+        "- query: Die Voranmeldung wurde übermittelt.\n  kategorie: steuer_neutral\n"
+        "- query: ''\n  kategorie: alltag\n"          # leer → fliegt raus
+        "- query: Ohne Kategorie geht auch.\n",       # → 'unkategorisiert'
+        encoding="utf-8")
+    g = lade_negativ_gold(p)
+    assert g["name"] == "neg.yaml" and g["version"] == "v1"
+    assert g["faelle"] == [
+        ("Vielen Dank für das Gespräch.", "alltag"),
+        ("Die Voranmeldung wurde übermittelt.", "steuer_neutral"),
+        ("Ohne Kategorie geht auch.", "unkategorisiert")]
+    assert len(lade_negativ_gold(p, max_faelle=1)["faelle"]) == 1
+    leer = tmp_path / "leer.yaml"
+    leer.write_text("faelle: []\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        lade_negativ_gold(leer)
+
+
+def test_negativ_gold_fixture_eingefroren():
+    """Das echte Negativ-Gold v1: 25–35 Sätze, keine Duplikate, nur die drei
+    definierten Kategorien — Schutz gegen versehentliches Zerlegen des Golds."""
+    pfad = Path(__file__).resolve().parent.parent / "fixtures/gold/negativ_v1.yaml"
+    g = lade_negativ_gold(pfad)
+    assert g["version"] == "v1"
+    queries = [q for q, _ in g["faelle"]]
+    assert 25 <= len(queries) <= 35
+    assert len(set(queries)) == len(queries)
+    assert {k for _, k in g["faelle"]} == \
+        {"alltag", "juristisch_neutral", "steuer_neutral"}
+
+
 # --- Gold-Lader --------------------------------------------------------------------
 
 def test_lade_gold_format_und_max_faelle(tmp_path):
@@ -239,11 +409,12 @@ def test_bericht_schema_vollstaendig_und_serialisierbar(tmp_path):
         zeitstempel="2026-06-10T12:00:00")
     # Pflicht-Felder des Berichts-Vertrags (Konfiguration + Gold-Versionen +
     # Encoder + Index-Fingerprint + Zeitstempel):
-    assert bericht["harness"] == "eval_harness/1"
+    assert bericht["harness"] == "eval_harness/2"
     assert bericht["erstellt_am"] == "2026-06-10T12:00:00"
     assert bericht["encoder"] == enc.name and bericht["reranker"] is None
     assert bericht["gold"]["mini_a.yaml"] == \
         {"version": "v1", "stand": "2026-01-01", "n": 2}
+    assert bericht["negativ_gold"] is None            # ohne --negativ-gold
     assert bericht["index"]["n_vektoren"] == len(idx.ids)
     assert bericht["index"]["graph_fingerprint"] == idx.graph_fingerprint
     assert bericht["n_faelle"] == 3
@@ -252,8 +423,11 @@ def test_bericht_schema_vollstaendig_und_serialisierbar(tmp_path):
     assert bericht["ist_default"] == [e for e in bericht["ergebnisse"] if e["ist_default"]]
     # Jedes Sweep-Ergebnis trägt params + aggregat + pro_gold mit allen Metriken.
     for e in bericht["ergebnisse"]:
-        assert set(e) == {"params", "ist_default", "aggregat", "pro_gold"}
-        assert set(e["params"]) == {"rerank", "floor", "schwelle", "topk", "rerank_topn"}
+        assert set(e) == {"params", "ist_default", "aggregat", "pro_gold", "negativ"}
+        assert set(e["params"]) == {"fusion", "k_rrf", "rerank", "policy",
+                                    "floor", "schwelle", "hoch", "topk",
+                                    "rerank_topn"}
+        assert e["negativ"] is None                   # ohne Negativ-Gold
         for m in [e["aggregat"], *e["pro_gold"].values()]:
             assert set(m) == {"n", "recall@1", "recall@5", "recall@10", "recall@50",
                               "mrr", "abstention", "median_latenz_ms"}
@@ -272,3 +446,72 @@ def test_ist_default_markierung_im_sweep(tmp_path):
     defaults = [e for e in ergebnisse if e["ist_default"]]
     assert len(defaults) == 1
     assert defaults[0]["params"]["floor"] == 0.35   # Ist-Default der Produktion
+
+
+# --- Sweep mit Negativ-Gold, Policies und RRF-Fusion (Experimente 1–3) --------------
+
+def test_sweep_negativ_und_fusion_ende_zu_ende(tmp_path):
+    idx, enc = _index(tmp_path)
+    faelle = [("g.yaml", "Schätzung von Besteuerungsgrundlagen", {"norm:AO:162"}),
+              ("g.yaml", "Quantenphysik im Weltall", {"norm:KStG:14"})]
+    negativ = [("Vielen Dank für das Gespräch.", "alltag"),
+               ("Quantenphysik im Weltall", "steuer_neutral")]
+    queries = [q for _, q, _ in faelle] + [q for q, _ in negativ]
+    roh = sammle_rohdaten(idx, enc, queries, k_roh=10)
+    # Lexikalische Stütze: Trigger findet die Schätzungs-Norm überall — auf den
+    # Negativen genau der Fehlalarm-Druck, den die Fusion sichtbar machen soll.
+    trigger_listen = {q: ["norm:AO:162"] for q in queries}
+    ergebnisse = sweep(
+        faelle, roh, topk_liste=[5], floor_liste=[0.0, 0.99],
+        rerank_modi=["aus"], schwellen_liste=[0.1],
+        fusion_modi=["aus", "rrf"], k_rrf_liste=[20, 60],
+        trigger_listen=trigger_listen, trigger_latenz={q: 1.0 for q in queries},
+        negativ_faelle=negativ)
+    # 2 Floors × (aus + rrf20 + rrf60) = 6 Zeilen, jede mit Negativ-Block.
+    assert len(ergebnisse) == 6
+    for e in ergebnisse:
+        assert set(e["negativ"]) == {"n", "fehlvorschlagsquote",
+                                     "mittlere_kandidaten", "pro_kategorie"}
+        assert e["negativ"]["n"] == 2
+    nach_params = {(e["params"]["fusion"], e["params"]["k_rrf"],
+                    e["params"]["floor"]): e for e in ergebnisse}
+    # Floor 0.99: Embedding leer — OHNE Fusion volle Abstention (Fehlvorschlag 0),
+    # MIT Fusion liefert der Trigger trotzdem (Fehlvorschlag 1.0, R@5 gerettet).
+    ohne = nach_params[("aus", None, 0.99)]
+    mit = nach_params[("rrf", 60, 0.99)]
+    assert ohne["aggregat"]["recall@5"] == 0.0
+    assert ohne["negativ"]["fehlvorschlagsquote"] == 0.0
+    assert mit["aggregat"]["recall@5"] == pytest.approx(1 / 2)
+    assert mit["negativ"]["fehlvorschlagsquote"] == 1.0
+    assert mit["negativ"]["pro_kategorie"] == {"alltag": 1.0, "steuer_neutral": 1.0}
+    # Fusion-Zeilen tragen die Trigger-Latenz oben drauf.
+    assert (mit["aggregat"]["median_latenz_ms"]
+            > ohne["aggregat"]["median_latenz_ms"])
+    # Keine Default-Zeile (floor 0.35 fehlt; Fusion ist nie Default).
+    assert not any(e["ist_default"] for e in ergebnisse)
+
+
+def test_sweep_fusion_braucht_trigger_listen(tmp_path):
+    _, _, faelle, roh, _ = _mini_lauf(tmp_path)
+    with pytest.raises(ValueError):
+        sweep(faelle, roh, topk_liste=[5], floor_liste=[0.0],
+              rerank_modi=["aus"], schwellen_liste=[0.1], fusion_modi=["rrf"])
+
+
+def test_sweep_policy_kombinationen_und_schluessel(tmp_path):
+    _, _, faelle, roh, _ = _mini_lauf(tmp_path)
+    # Scores für alle (query, kandidat)-Paare der rohen Top-10 (Pool des Sweeps).
+    scores = {(q, t["norm_id"]): 0.5
+              for q in roh for t in roh[q]["treffer"][:10]}
+    ergebnisse = sweep(
+        faelle, roh, topk_liste=[5], floor_liste=[0.0],
+        rerank_modi=["an"], schwellen_liste=[0.05, 0.10],
+        rerank_scores=scores, policies=["P0", "P1", "P2", "P3"],
+        hoch_liste=[0.55, 0.60])
+    # P0×2 Schwellen + P1×1 + (P2+P3)×2 Schwellen×2 hoch = 2+1+8 = 11 Zeilen.
+    assert len(ergebnisse) == 11
+    kombis = {(e["params"]["policy"], e["params"]["schwelle"], e["params"]["hoch"])
+              for e in ergebnisse}
+    assert ("P1", None, None) in kombis
+    assert ("P0", 0.1, None) in kombis and ("P0", 0.05, None) in kombis
+    assert ("P2", 0.05, 0.6) in kombis and ("P3", 0.1, 0.55) in kombis

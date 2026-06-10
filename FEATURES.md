@@ -83,6 +83,17 @@ neutrale Sätze leer. Gemessen (`tools/embedding_bench.py --reranker`):
 Anker-Floor *schlägt* (naiv gegen reinen Gesetzestext schadet er dagegen). fp16 auf
 der GPU macht ihn schnell (~1 s/Dok); in der Engine fest aktiv (GPU-only).
 
+**RRF-Fusion + sim-Rettung (Schicht 1.7) ✅:** Mit aktivem Reranker werden die
+Embedding-Kandidaten je Satz per **Reciprocal Rank Fusion** (`Σ 1/(60+Rang)`) mit den
+Top-20 des **Trigger-Index** vereinigt, bevor der Cross-Encoder sortiert; die Abstention
+ist eine **oder-Rettung**: ein Kandidat bleibt bei `rerank ≥ 0,10` **oder** `sim ≥ 0,55`.
+Gemessen (`benchmarks/harness-baseline.json` → `harness-fusion-policy.json`, 25 pos./30 neg.
+Gold-Fälle): **R@5 0,560 → 0,840, MRR 0,493 → 0,700** (+28 pp; Fehlvorschlag auf Negativen
+20 % → 50 % bei Ø 3,6 Kandidaten — recall-first ist der Betriebspunkt, Vorschläge tragen
+sichtbare Scores). Fusion **ohne** Reranker schadet (Trigger-Rauschen, MRR 0,405) und bleibt
+deshalb aus; ohne Reranker gilt der bisherige Embedding-only-Pfad unverändert.
+Schalter: `RISK_LAYER_FUSION=aus`, `RISK_LAYER_SIM_RETTUNG` (0 = Rettung aus).
+
 **Scope+Rerank — Zielarchitektur:** Eval-Läufe zeigen, dass globale Flat-Indizes
 bei wachsendem Ankerbestand cross-law-Verdrängung erzeugen. Der produktive Pfad ist
 deshalb scope-aware: Rechtsraum / Region bestimmen, Kandidaten innerhalb des Scopes

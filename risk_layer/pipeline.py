@@ -20,6 +20,7 @@ liegen wie die Treffer.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -33,8 +34,8 @@ from .idschema import para_level as _para_level
 from .matcher import Schicht1Matcher, entferne_lemma_dubletten
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status, Treffer
 from .muster import MusterMatcher, StreitDetektor, StreitFund, saetze_mit_offset
-from .reranker import (RERANK_TOPN, baue_norm_doc_fn, rerank_normen,
-                       rerank_schwelle)
+from .reranker import (RERANK_TOPN, baue_norm_doc_fn, filtere_mit_rettung,
+                       rerank_normen, rerank_schwelle, sim_rettung)
 from .resolver import anreichern_mit_berater, anreichern_mit_graph, resolve_alle
 from .schicht2 import KandidatenProvider, erkenne_kandidaten
 from .unknown_gate import DefinitorischProposer, UnknownGate, ist_belanglos
@@ -97,6 +98,52 @@ def _kandidaten_normen(text: str, graph: NormGraph | None, trigger: TriggerIndex
             if len(out) < max_n:
                 out.append(f"{c['zitat']} – {c['titel']}".strip(" –"))
     return out[:max_n], seen
+
+
+# --- Schicht 1.7: RRF-Fusion Embedding × Trigger-Index ----------------------
+# RRF-Konstante k (score = Σ 1/(k + rang)) — exakt der im Harness gemessene
+# Betriebspunkt (benchmarks/harness-fusion-policy.json, k_rrf=60).
+_K_RRF = 60
+
+
+def fusion_aktiviert() -> bool:
+    """Schalter der RRF-Fusion (Schicht 1.7): ``RISK_LAYER_FUSION=aus`` (auch
+    0/off/false/nein) deaktiviert das Zumischen der Trigger-Kandidaten in den
+    Rerank-Pool. Die sim-Rettung (reranker.filtere_mit_rettung) bleibt davon
+    unberührt — sie hat ihren eigenen Schalter (RISK_LAYER_SIM_RETTUNG=0)."""
+    return os.environ.get("RISK_LAYER_FUSION", "an").strip().lower() not in (
+        "aus", "0", "off", "false", "nein")
+
+
+def rrf_fusion(dense: list[dict], trigger_kandidaten: list[dict],
+               k_rrf: int = _K_RRF) -> list[dict]:
+    """Reciprocal Rank Fusion der Embedding-Trefferliste mit der lexikalischen
+    Trigger-Kandidatenliste desselben Satzes: score(d) = Σ 1/(k_rrf + rang_i(d))
+    über beide Listen (Ränge 1-basiert). Mathematik EXAKT wie im Eval-Harness
+    (tools/eval_harness.py: rrf_scores + fusioniere_treffer) — dort gegen die
+    eingefrorenen Gold-Sets bewiesen; gleiche Eingabe ⇒ gleiche Reihenfolge.
+
+    Trigger-only-Kandidaten (kein Embedding-Treffer über dem Floor) tragen
+    ``sim=None``: sie können die sim-Rettung NIE auslösen und überleben die
+    Abstention nur über den Rerank-Score (im Harness sim=0,0 — gleiche Wirkung).
+    Deterministischer Tie-Breaker bei RRF-Gleichstand: bester Einzel-Rang,
+    dann norm_id.
+    """
+    dense_ids = [n["norm_id"] for n in dense]
+    trigger_ids = [c["norm_id"] for c in trigger_kandidaten]
+    scores: dict[str, float] = {}
+    bester_rang: dict[str, int] = {}
+    for liste in (dense_ids, trigger_ids):
+        for rang, nid in enumerate(liste, start=1):
+            scores[nid] = scores.get(nid, 0.0) + 1.0 / (k_rrf + rang)
+            bester_rang[nid] = min(bester_rang.get(nid, rang), rang)
+    nach_id: dict[str, dict] = {n["norm_id"]: n for n in dense}
+    for c in trigger_kandidaten:
+        nach_id.setdefault(c["norm_id"], {
+            "norm_id": c["norm_id"], "zitat": c["zitat"], "titel": c["titel"],
+            "sim": None})
+    geordnet = sorted(scores, key=lambda n: (-scores[n], bester_rang[n], n))
+    return [{**nach_id[nid], "rrf": round(scores[nid], 6)} for nid in geordnet]
 
 
 def _karte_para_ids(karte) -> set[str]:
@@ -609,25 +656,49 @@ class Pipeline:
             # Vorschlags-Modus ist breitere Nachbarschaft ein Feature, kein Rauschen.
             # Optionaler Reranker (Schicht 1.7b): Bi-Encoder holt einen BREITEREN
             # Pool (Top-N, niedrigerer Floor), der Cross-Encoder sortiert ANKER-
-            # BEWUSST um und filtert per Schwelle (Abstention). Hebt held-out-Recall
-            # ~2x, ohne Encoder-Wechsel. Ohne Reranker: Verhalten exakt wie bisher.
+            # BEWUSST um und filtert per Abstention-Policy. Ohne Reranker:
+            # Verhalten exakt wie bisher (Floor 0,50, Top-5, KEIN Trigger-Zumisch).
+            #
+            # RRF-FUSION + RETTUNG (Governance §4 — Begründungspflicht, gemessen
+            # in benchmarks/harness-baseline.json → harness-fusion-policy.json,
+            # 25 positive + 30 negative Gold-Fälle, echte Artefakte, GPU):
+            #   * Vorher (Floor 0,35 → Reranker, Abstention rein rerank≥0,10):
+            #     R@5 0,560 / MRR 0,493 / Fehlvorschlag auf Negativen 20 % (Ø 0,5).
+            #   * Nachher (RRF-Fusion Embedding × Trigger-Top-20, k_rrf=60, VOR dem
+            #     Reranker + Rettung rerank≥Schwelle ODER sim≥0,55): R@5 0,840 /
+            #     MRR 0,700 / Fehlvorschlag 50 % (Ø 3,6) — +28 pp Recall.
+            #     Recall-first ist der erklärte Betriebspunkt (Lastenheft):
+            #     Semantik-Treffer sind VORSCHLÄGE mit sichtbaren Scores.
+            #   * Fusion OHNE Reranker ist SCHÄDLICH (Trigger-Rauschen, MRR 0,405)
+            #     → Fusion nur, wenn Reranker UND Trigger-Index verfügbar sind.
+            # Schalter: RISK_LAYER_FUSION=aus (Fusion aus, Rettung bleibt),
+            # RISK_LAYER_SIM_RETTUNG=0 (Rettung aus = alte P0-Abstention).
             rr_doc = (baue_norm_doc_fn(self.katalog, graph)
                       if (reranker is not None and graph is not None) else None)
             topn = RERANK_TOPN if rr_doc is not None else 5
             floor = 0.35 if rr_doc is not None else 0.50
             schwelle = rerank_schwelle()
+            rettung = sim_rettung()
+            fusion = (rr_doc is not None and trigger is not None
+                      and fusion_aktiviert())
             for m in embedding.kandidaten_pro_satz(text, embedding_encoder,
                                                    k=topn, min_sim=floor):
                 normen = m["normen"]
                 if rr_doc is not None:
-                    normen = rerank_normen(reranker, m["text"], normen, rr_doc, 5)
-                    # Defensiv: rerank_normen scort inzwischen JEDEN Kandidaten (auch
-                    # Einzelkandidaten, s. Docstring dort). Fehlt der Score dennoch
-                    # (künftiger score-loser Pfad), fällt der Kandidat DURCH – ein
-                    # Phantom-Default wie früher 1.0 würde die Abstention aushebeln
-                    # und ungeprüfte §§ in die Vorschläge spülen.
-                    normen = [n for n in normen
-                              if n.get("rerank", float("-inf")) >= schwelle]
+                    if fusion:
+                        # Trigger-Top-20 DESSELBEN Satzes lexikalisch zumischen;
+                        # Top-N der fusionierten Liste in den Reranker (wie Harness).
+                        normen = rrf_fusion(
+                            normen, trigger.kandidaten(m["text"], k=RERANK_TOPN),
+                        )[:RERANK_TOPN]
+                    normen = rerank_normen(reranker, m["text"], normen, rr_doc,
+                                           len(normen))
+                    # Abstention-Policy P2 (oder-Rettung): rerank≥Schwelle ODER
+                    # sim≥Rettung. Kandidaten ohne rerank-Score fallen weiterhin
+                    # DURCH (kein Phantom-Default — die Rettung greift nur über
+                    # einen ECHTEN Embedding-sim); Trigger-only (sim=None) kann
+                    # die Rettung nie auslösen. Danach Top-5 für die Anzeige.
+                    normen = filtere_mit_rettung(normen, schwelle, rettung)[:5]
                     if not normen:
                         continue                # Abstention: kein relevanter § für den Satz
                 semantik_vorschlaege.append({

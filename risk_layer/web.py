@@ -34,7 +34,8 @@ from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
 from .graph import DEFAULT_DB, graph_oeffnen
 from .models import Begriffskarte, Risikomarkierung, RunReport, Status
-from .pipeline import AnalyseOptionen, Pipeline
+from .pipeline import AnalyseOptionen, Pipeline, fusion_aktiviert
+from .reranker import sim_rettung
 from .radar import RadarFehler, lade_manifest, manifest_vorher_pfad, radar_bericht
 from .triggerindex import index_oeffnen
 from .zitate import kanonisiere_fundstelle, parse_normzitat
@@ -206,6 +207,16 @@ class Anwendung:
                     "encoder": emb_encoder_name,
                     "index_fingerprint": emb_index_fp,
                     "index_aktuell": index_aktuell,
+                    # Betriebspunkt der Schicht 1.7 (additiv, s. pipeline.py):
+                    # RRF-Fusion läuft NUR mit Reranker UND Trigger-Index (ohne
+                    # Reranker wäre sie gemessen schädlich); die sim-Rettung ist
+                    # nur mit Reranker sinnvoll — sonst null. Env-Werte werden
+                    # beim Start EINMAL gelesen (Status bleibt deterministisch).
+                    "fusion": bool(self.reranker is not None
+                                   and self.trigger is not None
+                                   and fusion_aktiviert()),
+                    "sim_rettung": (sim_rettung() if self.reranker is not None
+                                    else None),
                     "grund": emb_grund,
                 },
                 "reranker": {"aktiv": self.reranker is not None, "grund": reranker_grund},

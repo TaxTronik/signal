@@ -1,0 +1,4051 @@
+{
+  "harness": "eval_harness/2",
+  "erstellt_am": "2026-06-10T18:14:26",
+  "konfiguration": {
+    "gold": [
+      "fixtures/gold/ao_v1.yaml",
+      "fixtures/gold/organschaft_v1.yaml"
+    ],
+    "negativ_gold": "fixtures/gold/negativ_v1.yaml",
+    "corpus": "C:\\dev\\taxtronikexctract\\corpus",
+    "device": "cuda",
+    "topk_liste": [
+      50
+    ],
+    "floor_liste": [
+      0.35
+    ],
+    "rerank": "beides",
+    "rerank_schwellen_liste": [
+      0.05,
+      0.1,
+      0.2
+    ],
+    "rerank_topn": 20,
+    "k_roh": 50,
+    "policies": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "hoch_liste": [
+      0.5,
+      0.55,
+      0.6
+    ],
+    "fusion": "beides",
+    "k_rrf_liste": [
+      20,
+      60
+    ],
+    "trigger_k": 20,
+    "max_faelle": null
+  },
+  "gold": {
+    "ao_v1.yaml": {
+      "version": "v1",
+      "stand": "2026-06-06",
+      "n": 6
+    },
+    "organschaft_v1.yaml": {
+      "version": "v1",
+      "stand": "2026-06-06",
+      "n": 19
+    }
+  },
+  "negativ_gold": {
+    "name": "negativ_v1.yaml",
+    "version": "v1",
+    "stand": "2026-06-10",
+    "n": 30
+  },
+  "encoder": "bge-m3",
+  "reranker": "bge-reranker-v2-m3",
+  "index": {
+    "n_vektoren": 2905,
+    "dim": 1024,
+    "graph_fingerprint": null
+  },
+  "n_faelle": 25,
+  "ist_default": [
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "aus",
+        "policy": null,
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": null
+      },
+      "ist_default": true,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.76,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.6105,
+        "abstention": 0.0,
+        "median_latenz_ms": 21.0
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.0
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.6842,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.4875,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 50.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": true,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.56,
+        "recall@10": 0.56,
+        "recall@50": 0.56,
+        "mrr": 0.4933,
+        "abstention": 0.36,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.4211,
+          "recall@10": 0.4211,
+          "recall@50": 0.4211,
+          "mrr": 0.3333,
+          "abstention": 0.4737,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2,
+        "mittlere_kandidaten": 0.47,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.2,
+          "steuer_neutral": 0.4
+        }
+      }
+    }
+  ],
+  "ergebnisse": [
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P1",
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.92,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.7205,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.8947,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.6322,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 20.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P1",
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.92,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.7205,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.8947,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.6322,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 20.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.77,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.73,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.73,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.77,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.73,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7383,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6557,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 7.73,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P1",
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.88,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.7381,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.8421,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.6554,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 20.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7301,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6449,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 11.23,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7301,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6449,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 11.23,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.64,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.92,
+        "mrr": 0.7301,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.5263,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8947,
+          "mrr": 0.6449,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 11.23,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.63,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.57,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.53,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.63,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.57,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.84,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.6997,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7895,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.6048,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 3.53,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.8,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.693,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7368,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.5961,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 5.03,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.8,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.693,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7368,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.5961,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 4.87,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.8,
+        "recall@10": 0.88,
+        "recall@50": 0.88,
+        "mrr": 0.693,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.7368,
+          "recall@10": 0.8421,
+          "recall@50": 0.8421,
+          "mrr": 0.5961,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 4.83,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "aus",
+        "policy": null,
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": null
+      },
+      "ist_default": true,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.76,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.6105,
+        "abstention": 0.0,
+        "median_latenz_ms": 21.0
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.0
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.6842,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.4875,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 50.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.67,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 1.23,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.4,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.97,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.4,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.6,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6533,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4737,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5439,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.97,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6267,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5088,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 1.03,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6267,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5088,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.87,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6267,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5088,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 1.03,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6267,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5088,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.87,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6233,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5044,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 1.3,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.72,
+        "recall@10": 0.72,
+        "recall@50": 0.72,
+        "mrr": 0.6233,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.6316,
+          "recall@10": 0.6316,
+          "recall@50": 0.6316,
+          "mrr": 0.5044,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 1.0,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "aus",
+        "policy": null,
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": null
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.2,
+        "recall@5": 0.72,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.4047,
+        "abstention": 0.0,
+        "median_latenz_ms": 21.4
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 0.1667,
+          "recall@5": 0.8333,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 0.3875,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.5
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2105,
+          "recall@5": 0.6842,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.4102,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 50.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "aus",
+        "policy": null,
+        "floor": 0.35,
+        "schwelle": null,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": null
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.2,
+        "recall@5": 0.72,
+        "recall@10": 0.92,
+        "recall@50": 0.96,
+        "mrr": 0.4014,
+        "abstention": 0.0,
+        "median_latenz_ms": 21.4
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 0.1667,
+          "recall@5": 0.8333,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 0.3736,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.5
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2105,
+          "recall@5": 0.6842,
+          "recall@10": 0.8947,
+          "recall@50": 0.9474,
+          "mrr": 0.4102,
+          "abstention": 0.0,
+          "median_latenz_ms": 21.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 1.0,
+        "mittlere_kandidaten": 50.0,
+        "pro_kategorie": {
+          "alltag": 1.0,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.33,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.9,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.2,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.77,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.2,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.68,
+        "recall@10": 0.68,
+        "recall@50": 0.68,
+        "mrr": 0.6133,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5789,
+          "recall@10": 0.5789,
+          "recall@50": 0.5789,
+          "mrr": 0.4912,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.77,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5933,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4649,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.7,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5933,
+        "abstention": 0.16,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4649,
+          "abstention": 0.2105,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3,
+        "mittlere_kandidaten": 0.63,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.6
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P2",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5933,
+        "abstention": 0.16,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4649,
+          "abstention": 0.2105,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3,
+        "mittlere_kandidaten": 0.63,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.6
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.52,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5733,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3684,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 1.03,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.52,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5733,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3684,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 0.77,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.52,
+        "recall@5": 0.64,
+        "recall@10": 0.64,
+        "recall@50": 0.64,
+        "mrr": 0.5733,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3684,
+          "recall@5": 0.5263,
+          "recall@10": 0.5263,
+          "recall@50": 0.5263,
+          "mrr": 0.4386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3667,
+        "mittlere_kandidaten": 0.77,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 1.0,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.57,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 0.93,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.5,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.5,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.9333,
+        "mittlere_kandidaten": 0.93,
+        "pro_kategorie": {
+          "alltag": 0.8,
+          "juristisch_neutral": 1.0,
+          "steuer_neutral": 1.0
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.55,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.56,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.58,
+        "abstention": 0.0,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.4211,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.4474,
+          "abstention": 0.0,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.5,
+        "mittlere_kandidaten": 0.5,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.5,
+          "steuer_neutral": 0.9
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.7,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.57,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.57,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.32,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.4211,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2667,
+        "mittlere_kandidaten": 0.8,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.32,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.4211,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2667,
+        "mittlere_kandidaten": 0.53,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.05,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.6,
+        "recall@10": 0.6,
+        "recall@50": 0.6,
+        "mrr": 0.5333,
+        "abstention": 0.32,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.4737,
+          "recall@10": 0.4737,
+          "recall@50": 0.4737,
+          "mrr": 0.386,
+          "abstention": 0.4211,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2667,
+        "mittlere_kandidaten": 0.53,
+        "pro_kategorie": {
+          "alltag": 0.1,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": true,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.56,
+        "recall@10": 0.56,
+        "recall@50": 0.56,
+        "mrr": 0.4933,
+        "abstention": 0.36,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.4211,
+          "recall@10": 0.4211,
+          "recall@50": 0.4211,
+          "mrr": 0.3333,
+          "abstention": 0.4737,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2,
+        "mittlere_kandidaten": 0.47,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.2,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.56,
+        "recall@10": 0.56,
+        "recall@50": 0.56,
+        "mrr": 0.4933,
+        "abstention": 0.36,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.4211,
+          "recall@10": 0.4211,
+          "recall@50": 0.4211,
+          "mrr": 0.3333,
+          "abstention": 0.4737,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2,
+        "mittlere_kandidaten": 0.33,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.2,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.1,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.56,
+        "recall@10": 0.56,
+        "recall@50": 0.56,
+        "mrr": 0.4933,
+        "abstention": 0.36,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.4211,
+          "recall@10": 0.4211,
+          "recall@50": 0.4211,
+          "mrr": 0.3333,
+          "abstention": 0.4737,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.2,
+        "mittlere_kandidaten": 0.33,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.2,
+          "steuer_neutral": 0.4
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.52,
+        "recall@10": 0.52,
+        "recall@50": 0.52,
+        "mrr": 0.5,
+        "abstention": 0.12,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.3684,
+          "recall@10": 0.3684,
+          "recall@50": 0.3684,
+          "mrr": 0.3421,
+          "abstention": 0.1579,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3333,
+        "mittlere_kandidaten": 0.37,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.7
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.52,
+        "recall@10": 0.52,
+        "recall@50": 0.52,
+        "mrr": 0.5,
+        "abstention": 0.16,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.3684,
+          "recall@10": 0.3684,
+          "recall@50": 0.3684,
+          "mrr": 0.3421,
+          "abstention": 0.2105,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3,
+        "mittlere_kandidaten": 0.3,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.6
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P3",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": 0.6,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.48,
+        "recall@5": 0.52,
+        "recall@10": 0.52,
+        "recall@50": 0.52,
+        "mrr": 0.5,
+        "abstention": 0.16,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.3158,
+          "recall@5": 0.3684,
+          "recall@10": 0.3684,
+          "recall@50": 0.3684,
+          "mrr": 0.3421,
+          "abstention": 0.2105,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.3,
+        "mittlere_kandidaten": 0.3,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.3,
+          "steuer_neutral": 0.6
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "aus",
+        "k_rrf": null,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.48,
+        "recall@10": 0.48,
+        "recall@50": 0.48,
+        "mrr": 0.46,
+        "abstention": 0.36,
+        "median_latenz_ms": 80.3
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.4
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.3158,
+          "recall@10": 0.3158,
+          "recall@50": 0.3158,
+          "mrr": 0.2895,
+          "abstention": 0.4737,
+          "median_latenz_ms": 81.0
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.1,
+        "mittlere_kandidaten": 0.13,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.1,
+          "steuer_neutral": 0.2
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 20,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.48,
+        "recall@10": 0.48,
+        "recall@50": 0.48,
+        "mrr": 0.46,
+        "abstention": 0.4,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.3158,
+          "recall@10": 0.3158,
+          "recall@50": 0.3158,
+          "mrr": 0.2895,
+          "abstention": 0.5263,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.0667,
+        "mittlere_kandidaten": 0.07,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.1,
+          "steuer_neutral": 0.1
+        }
+      }
+    },
+    {
+      "params": {
+        "fusion": "rrf",
+        "k_rrf": 60,
+        "rerank": "an",
+        "policy": "P0",
+        "floor": 0.35,
+        "schwelle": 0.2,
+        "hoch": null,
+        "topk": 50,
+        "rerank_topn": 20
+      },
+      "ist_default": false,
+      "aggregat": {
+        "n": 25,
+        "recall@1": 0.44,
+        "recall@5": 0.48,
+        "recall@10": 0.48,
+        "recall@50": 0.48,
+        "mrr": 0.46,
+        "abstention": 0.4,
+        "median_latenz_ms": 80.7
+      },
+      "pro_gold": {
+        "ao_v1.yaml": {
+          "n": 6,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "recall@50": 1.0,
+          "mrr": 1.0,
+          "abstention": 0.0,
+          "median_latenz_ms": 78.7
+        },
+        "organschaft_v1.yaml": {
+          "n": 19,
+          "recall@1": 0.2632,
+          "recall@5": 0.3158,
+          "recall@10": 0.3158,
+          "recall@50": 0.3158,
+          "mrr": 0.2895,
+          "abstention": 0.5263,
+          "median_latenz_ms": 81.4
+        }
+      },
+      "negativ": {
+        "n": 30,
+        "fehlvorschlagsquote": 0.0667,
+        "mittlere_kandidaten": 0.07,
+        "pro_kategorie": {
+          "alltag": 0.0,
+          "juristisch_neutral": 0.1,
+          "steuer_neutral": 0.1
+        }
+      }
+    }
+  ]
+}

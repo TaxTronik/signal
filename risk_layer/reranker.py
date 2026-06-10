@@ -37,6 +37,27 @@ def rerank_schwelle() -> float:
         return 0.10
 
 
+# sim-Schwelle der oder-Rettung (Policy P2, s. filtere_mit_rettung): 0,55 ist der
+# auf dem Gold gemessene Betriebspunkt (benchmarks/harness-fusion-policy.json).
+SIM_RETTUNG = 0.55
+
+
+def sim_rettung() -> float:
+    """Embedding-sim, ab dem ein Kandidat die Rerank-Abstention ÜBERLEBT (Rettung).
+
+    Warum (gemessen, benchmarks/harness-baseline.json → harness-fusion-policy.json,
+    25 positive + 30 negative Gold-Fälle): die reine rerank≥Schwelle-Abstention
+    (P0) warf ECHTE Treffer mit hoher Embedding-Ähnlichkeit weg — R@5 0,560 /
+    MRR 0,493. Mit der oder-Rettung sim≥0,55 (Policy P2, zusammen mit der
+    RRF-Fusion in pipeline.py): R@5 0,840 / MRR 0,700. Per
+    ``RISK_LAYER_SIM_RETTUNG`` tunebar; 0 = Rettung aus = altes P0-Verhalten
+    (Muster wie ``rerank_schwelle``)."""
+    try:
+        return float(os.environ.get("RISK_LAYER_SIM_RETTUNG", str(SIM_RETTUNG)))
+    except ValueError:
+        return SIM_RETTUNG
+
+
 @runtime_checkable
 class Reranker(Protocol):
     name: str
@@ -225,6 +246,47 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
         return cache[pid]
 
     return doc_fn
+
+
+def filtere_mit_rettung(kandidaten: list[dict[str, Any]], schwelle: float,
+                        sim_rettung: float) -> list[dict[str, Any]]:
+    """Abstention-Policy P2 (oder-Rettung) über gescorte Kandidaten: ein Kandidat
+    überlebt, wenn ``rerank >= schwelle`` ODER ``sim >= sim_rettung``.
+
+    Warum (gemessen, benchmarks/harness-baseline.json + harness-fusion-policy.json;
+    25 positive + 30 negative Gold-Fälle, echte Artefakte): die bisherige reine
+    Rerank-Abstention (rerank≥0,10) warf echte Treffer mit hoher Embedding-
+    Ähnlichkeit weg — R@5 0,560 / MRR 0,493, Fehlvorschlag auf Negativen 20 %.
+    Mit Rettung sim≥0,55 plus RRF-Fusion: R@5 0,840 / MRR 0,700 (+28 pp Recall;
+    Fehlvorschlag 50 % bei Ø 3,6 Kandidaten). Recall-first ist der erklärte
+    Betriebspunkt (Lastenheft): Semantik-Treffer sind VORSCHLÄGE mit sichtbaren
+    Scores, keine Risiko-Marken. Die Negativ-Abwehr bleibt über die Reranker-
+    Ordnung + Schwelle erhalten.
+
+    Regeln (exakt wie Policy P2 im Eval-Harness, tools/eval_harness.py):
+      * Kandidaten OHNE sim (``sim=None``, z. B. Trigger-only aus der RRF-Fusion)
+        rettet die sim-Bedingung NIE — sie überleben nur über den Rerank-Score
+        (im Harness tragen sie sim=0,0; gleiche Wirkung).
+      * Fehlender ``rerank``-Score zählt als -inf (kein Phantom-Default, der die
+        Abstention aushebeln würde).
+      * ``sim_rettung <= 0`` schaltet die Rettung ab (= altes P0-Verhalten).
+
+    Deterministische Ordnung des Ergebnisses: rerank absteigend, dann sim
+    absteigend, dann norm_id (unabhängig von der Eingabe-Reihenfolge).
+    """
+    def _rerank(n: dict[str, Any]) -> float:
+        r = n.get("rerank")
+        return float(r) if r is not None else float("-inf")
+
+    def _sim(n: dict[str, Any]) -> float:
+        s = n.get("sim")
+        return float(s) if s is not None else float("-inf")
+
+    behalten = [n for n in kandidaten
+                if _rerank(n) >= schwelle
+                or (sim_rettung > 0 and _sim(n) >= sim_rettung)]
+    return sorted(behalten,
+                  key=lambda n: (-_rerank(n), -_sim(n), n.get("norm_id", "")))
 
 
 def rerank_normen(reranker: Reranker | None, query: str,

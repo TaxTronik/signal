@@ -148,6 +148,10 @@ def _embedding_marken():
 def test_semantik_ohne_rerank_score_wird_nicht_durchgelassen(monkeypatch, graph):
     import risk_layer.pipeline as P
     monkeypatch.delenv("RISK_LAYER_RERANK_SCHWELLE", raising=False)
+    # Rettung aus (= altes P0): hier geht es um den DEFENSIVEN Rerank-Pfad —
+    # mit aktiver Rettung würde sim 0,6 ≥ 0,55 den Kandidaten regulär halten
+    # (das prüft tests/test_fusion.py), der Phantom-Default bliebe unsichtbar.
+    monkeypatch.setenv("RISK_LAYER_SIM_RETTUNG", "0")
     # Simulierter künftiger score-loser Pfad: rerank_normen liefert KEIN "rerank".
     # Defensive Erwartung: NICHT durchlassen (kein Phantom-Default 1.0).
     monkeypatch.setattr(P, "rerank_normen",
@@ -171,15 +175,23 @@ def test_semantik_mit_rerank_score_passiert_die_schwelle(monkeypatch, graph):
     assert norm["id"] == "norm:KStG:14" and norm["rerank"] == 0.5
 
 
-def test_semantik_unter_schwelle_bleibt_abstention(monkeypatch, graph):
+def test_semantik_unter_schwelle_rettung_und_abstention(monkeypatch, graph):
     import risk_layer.pipeline as P
     monkeypatch.delenv("RISK_LAYER_RERANK_SCHWELLE", raising=False)
+    monkeypatch.delenv("RISK_LAYER_SIM_RETTUNG", raising=False)
     monkeypatch.setattr(P, "rerank_normen",
                         lambda rr, q, normen, doc_fn, k: [{**n, "rerank": 0.05} for n in normen])
-    rep = Pipeline(lade_katalog()).run(
+    lauf = lambda: Pipeline(lade_katalog()).run(  # noqa: E731
         "Ein Satz.", graph=graph, embedding=EmbeddingStub(_embedding_marken()),
         embedding_encoder=object(), reranker=object())
-    assert rep.semantik_vorschlaege == []                    # 0.05 < Schwelle 0.10
+    # 0.05 < Schwelle 0.10, ABER sim 0.6 >= Rettung 0.55: der Kandidat bleibt
+    # (oder-Rettung, s. reranker.filtere_mit_rettung — gemessen recall-first).
+    rep = lauf()
+    assert rep.semantik_vorschlaege
+    assert rep.semantik_vorschlaege[0]["normen"][0]["rerank"] == 0.05
+    # Rettung aus (= altes P0): 0.05 < Schwelle 0.10 ⇒ Abstention wie früher.
+    monkeypatch.setenv("RISK_LAYER_SIM_RETTUNG", "0")
+    assert lauf().semantik_vorschlaege == []
 
 
 # --- Regression: Streit-Block nach Extraktion unverändert -------------------

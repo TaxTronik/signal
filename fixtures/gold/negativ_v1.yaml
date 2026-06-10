@@ -1,0 +1,99 @@
+# Negativ-Gold v1 (EINGEFROREN) — Präzisions-/Abstention-Probe der Semantik-Schicht.
+#
+# ZWECK: Misst die FEHLVORSCHLAGSQUOTE — den Anteil dieser Sätze, für die eine
+# Konfiguration trotzdem ≥1 Norm-Kandidaten liefert. Für JEDEN Satz hier ist die
+# korrekte Systemantwort: ABSTINIEREN (kein Vorschlag). Gegenstück zu
+# ao_v1/organschaft_v1 (Recall auf Positiven): erst beide Seiten zusammen ergeben
+# die ehrliche Tradeoff-Tabelle Recall-Verlust vs. Fehlalarm-Abwehr — genau der
+# Zweck des Rerankers (Hub-Fehlalarm-Abwehr, s. risk_layer/reranker.py), der
+# ohne dieses Gold unmessbar war.
+#
+# KRITERIUM (objektiv, je Satz geprüft):
+#   1. Kein kuratierter Katalog-BEGRIFF wird ausgedrückt (catalog/begriffe.yaml,
+#      Begriffs-/Paraphrasen-Sinn — bloßes Teilen einzelner Wörter ist erlaubt
+#      und bei Kategorie steuer_neutral sogar gewollt).
+#   2. Kein Norm-Risiko-Kontext: der Satz beschreibt keinen Lebenssachverhalt,
+#      der eine steuerliche Würdigung/Prüfung auslöst. Steuer-VOKABULAR ist
+#      zulässig, solange es reine Sachstandsmeldung ohne Risikogehalt bleibt
+#      („fristgerecht übermittelt", „stimmt überein").
+#
+# KATEGORIEN (Schwierigkeitsgrade für die Auswertung):
+#   alltag             — Alltags-/Geschäftskorrespondenz-Boilerplate
+#   juristisch_neutral — juristisch klingende, steuerlich neutrale Sätze
+#                        (Vertragsfloskeln, Grußformeln, Terminabsprachen)
+#   steuer_neutral     — HART: Steuer-Vokabular ohne Risikogehalt (Sachstand)
+#
+# Stil-Referenz: examples/beispiel_beschreibung.txt (Negativ-Kontrolle der
+# deterministischen Schicht — tatsächliche Schilderung ohne benannte
+# Rechtsbegriffe); hier dieselbe Idee für die SEMANTIK-Schicht, satzweise.
+
+gold_version: v1
+stand: '2026-06-10'
+rolle: dev
+zweck: praezision
+quelle: Handkuratiert (Geschäftskorrespondenz-Boilerplate, Vertragsfloskeln,
+  Sachstandsmeldungen mit Steuer-Vokabular) — Kriterium s. Header.
+n: 30
+faelle:
+- query: Vielen Dank für das angenehme Gespräch am vergangenen Donnerstag.
+  kategorie: alltag
+- query: Anbei erhalten Sie das Protokoll der gestrigen Besprechung zur Durchsicht.
+  kategorie: alltag
+- query: Bitte bestätigen Sie kurz den Erhalt dieser Unterlagen.
+  kategorie: alltag
+- query: Unser Büro bleibt zwischen Weihnachten und Neujahr geschlossen.
+  kategorie: alltag
+- query: Die neue Telefonanlage wird am kommenden Montag in Betrieb genommen.
+  kategorie: alltag
+- query: Der Aufzug im Hinterhaus ist wegen Wartungsarbeiten vorübergehend außer Betrieb.
+  kategorie: alltag
+- query: Wir freuen uns, Sie zu unserem Sommerfest am 21. August begrüßen zu dürfen.
+  kategorie: alltag
+- query: Der Konferenzraum im dritten Stock ist morgen ganztägig belegt.
+  kategorie: alltag
+- query: Frau Albrecht ist kommende Woche im Urlaub und ab dem 14. wieder erreichbar.
+  kategorie: alltag
+- query: Die Parkplätze hinter dem Gebäude sind während der Bauarbeiten gesperrt.
+  kategorie: alltag
+- query: Mündliche Nebenabreden zu diesem Vertrag bestehen nicht.
+  kategorie: juristisch_neutral
+- query: Sollte eine Bestimmung dieser Vereinbarung unwirksam sein, bleibt sie im
+    Übrigen wirksam.
+  kategorie: juristisch_neutral
+- query: Gerichtsstand ist, soweit gesetzlich zulässig, der Sitz des Auftragnehmers.
+  kategorie: juristisch_neutral
+- query: Die Parteien vereinbaren Stillschweigen über den Inhalt der Verhandlungen.
+  kategorie: juristisch_neutral
+- query: Der Termin zur Vertragsunterzeichnung wird einvernehmlich auf Anfang März
+    verschoben.
+  kategorie: juristisch_neutral
+- query: Änderungen und Ergänzungen dieser Vereinbarung bedürfen der Schriftform.
+  kategorie: juristisch_neutral
+- query: Für Rückfragen steht Ihnen unser Sekretariat jederzeit gern zur Verfügung.
+  kategorie: juristisch_neutral
+- query: Mit freundlichen Grüßen und besten Wünschen für das neue Geschäftsjahr.
+  kategorie: juristisch_neutral
+- query: Die Anlage zu diesem Schreiben enthält die gegengezeichnete Empfangsbestätigung.
+  kategorie: juristisch_neutral
+- query: Wir bitten um Verständnis, dass sich unsere Rückmeldung um einige Tage verzögert.
+  kategorie: juristisch_neutral
+- query: Die Umsatzsteuervoranmeldung wurde fristgerecht übermittelt.
+  kategorie: steuer_neutral
+- query: Der Steuerbescheid für das Vorjahr ist gestern mit der Post eingegangen.
+  kategorie: steuer_neutral
+- query: Die Buchhaltungsunterlagen für das erste Quartal liegen vollständig vor.
+  kategorie: steuer_neutral
+- query: Den Besprechungstermin mit dem Finanzamt haben wir wie vereinbart wahrgenommen.
+  kategorie: steuer_neutral
+- query: Die Lohnabrechnungen für Mai wurden pünktlich an alle Mitarbeiter versandt.
+  kategorie: steuer_neutral
+- query: Der Jahresabschluss wurde fristgerecht aufgestellt und eingereicht.
+  kategorie: steuer_neutral
+- query: Die Einkommensteuererklärung wurde vollständig und elektronisch übermittelt.
+  kategorie: steuer_neutral
+- query: Unser Steuerberater hat den Eingang der Belege bestätigt.
+  kategorie: steuer_neutral
+- query: Die festgesetzte Gewerbesteuer wurde zum Fälligkeitstermin überwiesen.
+  kategorie: steuer_neutral
+- query: Die Kassenabrechnung der Filiale stimmt mit dem Kontoauszug überein.
+  kategorie: steuer_neutral
