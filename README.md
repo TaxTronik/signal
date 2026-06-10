@@ -422,7 +422,7 @@ opt-in (`mitLLM:true`); die Engine verbindet sich dann zum konfigurierten
 `--llm-url` (server-seitig, **nicht** vom Aufrufer wählbar — kein SSRF).
 
 ```bash
-risk-layer modell list                 # Empfehlungen (Default: Qwen3-14B Q5_K_M)
+risk-layer modell list                 # Empfehlungen (Default: Granite-4.1-8B Q5_K_M)
 risk-layer modell download             # lädt das GGUF (resumebar) nach ./models
 risk-layer modell start                # startet llama-server (Vulkan, alle Layer auf GPU)
 risk-layer analyse sachverhalt.txt --unknown    # --no-schicht2 schaltet ab
