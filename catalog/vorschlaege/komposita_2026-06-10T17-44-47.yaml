@@ -1,0 +1,53 @@
+# =========================================================================
+# UNGEPRÜFT — Alias-Vorschläge aus Korpus-Mining (/R40/); Übernahme nur kuratiert in begriffe.yaml; NICHT maschinell eingebunden
+# =========================================================================
+hinweis: UNGEPRÜFT — Alias-Vorschläge aus Korpus-Mining (/R40/); Übernahme nur kuratiert in begriffe.yaml;
+  NICHT maschinell eingebunden
+erstellt_am: '2026-06-10T17:44:47'
+graph: C:\dev\taxtronikexctract\corpus\graph.sqlite
+katalog_version: 0.3.0
+parameter:
+  top: 10
+  min_haeufigkeit: 2
+  auch_praefix: false
+anzahl: 4
+vorschlaege:
+- katalog_id: kst_finanzielle_eingliederung
+  alias_vorschlag: Stimmenmehrheit
+  haeufigkeit: 8
+  beleg:
+    norm_id: norm:AktG:103
+    kontext: …ptversammlung das entsandte Mitglied mit einfacher Stimmenmehrheit abberufen.
+  oberflaeche: Mehrheit der Stimmrechte
+  richtung: kopf
+  score: 1.1429
+- katalog_id: kst_schaedlicher_beteiligungserwerb
+  alias_vorschlag: Beteiligungserwerb
+  haeufigkeit: 18
+  beleg:
+    norm_id: norm:KStG:34
+    kontext: Dezember 2007 erfolgter Beteiligungserwerb die Voraussetzungen des § 8c Absatz 1a, bleibt
+      er…
+  oberflaeche: schädlicher Erwerb
+  richtung: kopf
+  score: 1.5
+- katalog_id: est_gewerbliche_taetigkeit
+  alias_vorschlag: Reisegewerbebetrieb
+  haeufigkeit: 3
+  beleg:
+    norm_id: norm:GewStDV:1
+    kontext: Stehender Gewerbebetrieb ist jeder Gewerbebetrieb, der kein Reisegewerbebetrieb im Sinne
+      des § 35a Abs.
+  oberflaeche: Gewerbebetrieb
+  richtung: kopf
+  score: 0.6
+- katalog_id: astg_hinzurechnung
+  alias_vorschlag: Zwischeneinkünfte
+  haeufigkeit: 9
+  beleg:
+    norm_id: norm:AStG:20
+    kontext: …ren die Einkünfte ungeachtet des § 8 Absatz 2 als Zwischeneinkünfte steuerpflichtig, falls
+      diese Betriebsstätte eine …
+  oberflaeche: passive Einkünfte
+  richtung: kopf
+  score: 1.125
