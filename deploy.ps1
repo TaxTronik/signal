@@ -9,6 +9,13 @@
 .PARAMETER WithEmbedding
   Zusaetzlich den semantischen BGE-M3-Index bauen (installiert sentence-transformers
   + torch, ~2 GB, und laedt das Modell beim ersten Build).
+.PARAMETER OhneNer
+  Die NER-Schicht der Anonymisierung (spaCy + de_core_news_lg, ~0,5 GB) NICHT
+  installieren. Default ist MIT: NER staerkt das Geheimnisschutz-Gate (Par. 203
+  StGB) - es faengt Personen ohne Anrede / Firmen ohne Rechtsform, die die
+  Regexe nicht sehen. Opt-out fuer schlanke/Offline-Installationen - die
+  Anonymisierung laeuft dann rein regex-basiert weiter (Laufzeit-Schalter:
+  RISK_LAYER_NER=aus).
 .PARAMETER Voll
   Breiter Steuer-Korpus (~21 Gesetze) statt nur der im Katalog referenzierten.
 .PARAMETER Modell
@@ -35,6 +42,7 @@ param(
     [switch]$SkipEngine,
     [switch]$SkipCorpus,
     [switch]$WithEmbedding,
+    [switch]$OhneNer,
     [switch]$Voll,
     [switch]$Force,
     [switch]$Start,
@@ -92,6 +100,38 @@ if (-not $SkipDeps) {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy)"
     }
 } else { Info "Deps uebersprungen (-SkipDeps)" }
+
+# --- NER-Schicht (Anonymisierung, Par. 203 StGB) -----------------------------
+# ACHTUNG Encoding: Datei ist UTF-8 OHNE BOM -> Windows PowerShell 5.1 liest sie
+# als ANSI. In STRINGS daher nur ASCII (ein Gedankenstrich wuerde als 0x94 = ”
+# gelesen und beendet die Zeichenkette!) - in Kommentaren ist er unkritisch.
+if (-not $OhneNer) {
+    Schritt "NER-Schicht der Anonymisierung (spaCy + de_core_news_lg)"
+    # Idempotent: Modell-Paket schon importierbar (lg, Fallback sm) -> ueberspringen.
+    # find_spec statt Modell-Laden: reiner Metadaten-Lookup (laedt die ~0,5 GB NICHT).
+    $nerDa = PyOk "import importlib.util,sys; sys.exit(0 if any(importlib.util.find_spec(m) for m in ('de_core_news_lg','de_core_news_sm')) else 1)"
+    if ($nerDa -and -not $Force) {
+        OkMsg "spaCy-Modell bereits installiert - uebersprungen"
+    } else {
+        # spaCy Range-basiert wie die anderen ML-Extras (bewusst nicht im Lock, siehe
+        # requirements.in); -e haelt die editierbare Kern-Installation von oben intakt
+        # (ein nicht-editierbares ".[nlp]" wuerde sie durch eine Kopie ersetzen).
+        # `spacy download` loest die zur installierten spaCy-Version passende
+        # Modellversion auf. Fehler hier sind NICHT fatal (wie der Engine-Download):
+        # die Anonymisierung degradiert auf den deterministischen Regex-Pfad.
+        Info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
+        & python -m pip install -e ".[nlp]"
+        if ($LASTEXITCODE -eq 0) { & python -m spacy download de_core_news_lg }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv," -ForegroundColor Yellow
+            Write-Host "  Engine laeuft regex-only weiter. Nachholen mit:" -ForegroundColor Yellow
+            # Nachhol-Kommando mit ';' statt '&&' — Windows PowerShell 5.1 kennt kein '&&'.
+            Write-Host '    pip install -e ".[nlp]"; python -m spacy download de_core_news_lg' -ForegroundColor Yellow
+        } else {
+            OkMsg "NER-Schicht installiert (de_core_news_lg)"
+        }
+    }
+} else { Info "NER uebersprungen (-OhneNer) - Anonymisierung laeuft regex-only" }
 
 # --- Auth-Token ------------------------------------------------------------
 Schritt "Auth-Token (.engine_token)"
@@ -192,6 +232,20 @@ if (-not $SkipCorpus) {
 # --- Status + Abschluss ----------------------------------------------------
 Schritt "Status"
 Cli @("modell", "status")
+# NER-Status nur per find_spec (Metadaten-Lookup) — das Modell wird NICHT geladen
+# (Laden waere langsam und unnoetig fuer eine reine Installations-Auskunft).
+$nerModell = (& python -c "import importlib.util; print(next((m for m in ('de_core_news_lg','de_core_news_sm') if importlib.util.find_spec(m)), ''))" 2>$null)
+if ($LASTEXITCODE -ne 0) { $nerModell = "" }
+if ($nerModell) {
+    OkMsg "NER aktiv (Modell $nerModell)"
+    if (@("aus","off","none","0") -contains ([string]$env:RISK_LAYER_NER).Trim().ToLower()) {
+        Info "Hinweis: RISK_LAYER_NER=aus ist gesetzt - Laufzeit nutzt den Regex-Pfad"
+    }
+} elseif ($OhneNer) {
+    Info 'NER inaktiv (-OhneNer) - Anonymisierung regex-only; nachholen: pip install -e ".[nlp]"; python -m spacy download de_core_news_lg'
+} else {
+    Info 'NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e ".[nlp]"; python -m spacy download de_core_news_lg'
+}
 
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
 Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow

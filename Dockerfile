@@ -5,10 +5,12 @@
 # INTEGRATION_TAXTRONIK.md). Persistiert KEINE Mandantendaten – nur Festwissen
 # (Katalog, Normgraph, Embedding-Index) als gemountete Volumes.
 #
-# Default-Build = schlank (PyYAML + numpy): deterministische Schichten 1/1b/1.5,
-# Normgraph, Zitat-Parser. Die Embedding-Schicht (Schicht 1.7, ~2,3 GB BGE-M3)
-# ist optional über das Build-Arg WITH_EMBEDDING=1 zuschaltbar – sie lädt das
-# Modell lazy zur Laufzeit; ohne sie liefert /v1/embedding/suche schlicht leer.
+# Default-Build = Kern (PyYAML + numpy: deterministische Schichten 1/1b/1.5,
+# Normgraph, Zitat-Parser) + NER-Schicht der Anonymisierung (spaCy +
+# de_core_news_lg, §203-Gate — exakt gepinnt, siehe Block unten). Die
+# Embedding-Schicht (Schicht 1.7, ~2,3 GB BGE-M3) ist optional über das
+# Build-Arg WITH_EMBEDDING=1 zuschaltbar – sie lädt das Modell lazy zur
+# Laufzeit; ohne sie liefert /v1/embedding/suche schlicht leer.
 # Schicht 2 (LLM) läuft als SEPARATER llama-server (nicht in diesem Image).
 # =============================================================================
 # Basis-Image per DIGEST gepinnt (reproduzierbare Builds): der Tag 3.12-slim
@@ -42,6 +44,22 @@ ARG WITH_EMBEDDING=0
 RUN pip install --upgrade pip \
  && pip install -r requirements-lock.txt "numpy>=1.26" \
  && if [ "$WITH_EMBEDDING" = "1" ]; then pip install "sentence-transformers>=2.7"; fi
+
+# --- NER-Schicht (Anonymisierung, §203-Gate): spaCy + de_core_news_lg -------
+# EXAKT gepinnt — anders als die Range-Extras der Host-Deploys (deploy.sh/.ps1):
+# das Image soll deterministisch sein, und `spacy download` würde die Modell-
+# version zur BUILDZEIT neu auflösen. Statt dessen das Modell-Wheel direkt aus
+# den spacy-models-Releases. Versionspaar belegt über
+#   https://raw.githubusercontent.com/explosion/spacy-models/master/compatibility.json
+# (spacy 3.8.x -> de_core_news_lg 3.8.0; geprüft 2026-06-10). Update: dort das
+# neue Paar ablesen und BEIDE Zeilen gemeinsam anheben.
+# Größe: Modell ~0,5 GB — vertretbar neben dem torch/sentence-transformers-
+# Stack (WITH_EMBEDDING). Schlankes Image gewünscht? Diesen RUN-Block
+# auskommentieren — die Engine degradiert auf den deterministischen Regex-Pfad
+# (zur Laufzeit erzwingbar per RISK_LAYER_NER=aus).
+# Eigener Layer (eigenes RUN): wird unabhängig vom Kern-Layer gecacht.
+RUN pip install "spacy==3.8.14" \
+ && pip install https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
 
 # Quellcode erst NACH den Dependencies kopieren + Paket ohne Dep-Auflösung installieren.
 COPY risk_layer ./risk_layer

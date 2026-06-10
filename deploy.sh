@@ -4,6 +4,12 @@
 # /v1-Engine: Abhaengigkeiten, LLM-Modell (GGUF) + passende llama.cpp-Engine
 # herunterladen, Normkorpus/Graph/Trigger(/Embedding) bauen, Auth-Token. Idempotent.
 #
+# NER-Schicht (Anonymisierung, §203-Gate): standardmaessig werden spaCy +
+# de_core_news_lg MIT installiert — NER staerkt das §203-Gate (faengt Personen
+# ohne Anrede / Firmen ohne Rechtsform, die die Regexe nicht sehen). Opt-out
+# fuer schlanke/Offline-Installationen: --ohne-ner; die Anonymisierung laeuft
+# dann rein regex-basiert weiter (Laufzeit-Schalter: RISK_LAYER_NER=aus).
+#
 # Engine-Backend (--backend, Default auto): NVIDIA->cuda, AMD->rocm, sonst Vulkan/CPU.
 # Auf NVIDIA-Boxen (z. B. B300/Blackwell) wird zudem ein Blackwell-faehiges torch
 # (--cuda-wheel, Default cu128) installiert, sonst nutzt sentence-transformers die GPU
@@ -16,13 +22,14 @@
 #   ./deploy.sh --backend rocm          # AMD/ROCm-Engine erzwingen
 #   ./deploy.sh --with-embedding --voll # zusaetzlich Embedding-Index + breiter Korpus
 #   ./deploy.sh --skip-engine           # Engine separat bereitstellen
+#   ./deploy.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
 #   ./deploy.sh --start                 # Setup, dann Engine starten
 #
 set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; VOLL=0; FORCE=0; START=0; SERVICE=0
+SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --skip-engine)    SKIP_ENGINE=1 ;;
     --skip-corpus)    SKIP_CORPUS=1 ;;
     --with-embedding) WITH_EMBEDDING=1 ;;
+    --ohne-ner)       OHNE_NER=1 ;;
     --voll)           VOLL=1 ;;
     --force)          FORCE=1 ;;
     --start)          START=1 ;;
@@ -41,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     --host)           BIND_HOST="${2:?--host braucht einen Wert}"; shift ;;
     --port)           PORT="${2:?--port braucht einen Wert}"; shift ;;
     --cuda-wheel)     CUDA_WHEEL="${2:?--cuda-wheel braucht einen Wert (z. B. cu128, cu124)}"; shift ;;
-    -h|--help)        sed -n '3,20p' "$0"; exit 0 ;;
+    -h|--help)        sed -n '3,27p' "$0"; exit 0 ;;
     *) echo "unbekanntes Flag: $1" >&2; exit 2 ;;
   esac
   shift
@@ -93,6 +101,32 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
     ok "Abhaengigkeiten installiert (PyYAML + numpy)"
   fi
 else info "Deps uebersprungen (--skip-deps)"; fi
+
+# --- NER-Schicht (Anonymisierung, §203-Gate) --------------------------------
+if [[ $OHNE_NER -eq 0 ]]; then
+  schritt "NER-Schicht der Anonymisierung (spaCy + de_core_news_lg)"
+  # Idempotent: Modell-Paket schon importierbar (lg, Fallback sm) -> ueberspringen.
+  # find_spec statt Modell-Laden: reiner Metadaten-Lookup (laedt die ~0,5 GB NICHT).
+  if py_ok "import importlib.util,sys; sys.exit(0 if any(importlib.util.find_spec(m) for m in ('de_core_news_lg','de_core_news_sm')) else 1)" && [[ $FORCE -eq 0 ]]; then
+    ok "spaCy-Modell bereits installiert - uebersprungen"
+  else
+    # spaCy Range-basiert wie die anderen ML-Extras (bewusst nicht im Lock, siehe
+    # requirements.in); -e haelt die editierbare Kern-Installation von oben intakt
+    # (ein nicht-editierbares ".[nlp]" wuerde sie durch eine Kopie ersetzen).
+    # `spacy download` loest die zur installierten spaCy-Version passende
+    # Modellversion auf. Fehler hier sind NICHT fatal (wie der Engine-Download):
+    # die Anonymisierung degradiert auf den deterministischen Regex-Pfad.
+    info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
+    if "$PY" -m pip install -e ".[nlp]" \
+       && "$PY" -m spacy download de_core_news_lg; then
+      ok "NER-Schicht installiert (de_core_news_lg)"
+    else
+      printf "${Y}  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv,${N}\n"
+      printf "${Y}  Engine laeuft regex-only weiter. Nachholen mit:${N}\n"
+      printf "${Y}    pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg${N}\n"
+    fi
+  fi
+else info "NER uebersprungen (--ohne-ner) - Anonymisierung laeuft regex-only"; fi
 
 # --- Auth-Token ------------------------------------------------------------
 schritt "Auth-Token (.engine_token)"
@@ -178,6 +212,19 @@ else info "Korpus uebersprungen (--skip-corpus)"; fi
 # --- Status + Abschluss ----------------------------------------------------
 schritt "Status"
 cli modell status
+# NER-Status nur per find_spec (Metadaten-Lookup) — das Modell wird NICHT geladen
+# (Laden waere langsam und unnoetig fuer eine reine Installations-Auskunft).
+NER_MODELL="$("$PY" -c "import importlib.util; print(next((m for m in ('de_core_news_lg','de_core_news_sm') if importlib.util.find_spec(m)), ''))" 2>/dev/null || true)"
+if [[ -n "$NER_MODELL" ]]; then
+  ok "NER aktiv (Modell $NER_MODELL)"
+  case "$(printf '%s' "${RISK_LAYER_NER:-}" | tr '[:upper:]' '[:lower:]')" in
+    aus|off|none|0) info "Hinweis: RISK_LAYER_NER=aus ist gesetzt - Laufzeit nutzt den Regex-Pfad" ;;
+  esac
+elif [[ $OHNE_NER -eq 1 ]]; then
+  info "NER inaktiv (--ohne-ner) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
+else
+  info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
+fi
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"

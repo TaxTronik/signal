@@ -72,7 +72,15 @@ Maschine außer dem bewusst freigegebenen Recherche-Export (s. u.).
 Voraussetzung: Python ≥ 3.11. Laufzeitabhängigkeiten: **PyYAML** (Kern) + **numpy**
 (Schicht 1.7). Nur Standardbibliothek für HTTP/CLI — kein FastAPI, kein Node, kein
 Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semantik),
-`llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (breitere Lemmatisierung).
+`llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (NER-Anonymisierung +
+breitere Lemmatisierung).
+
+Komplett-Setup übernimmt das Deploy-Skript (`./deploy.sh` Linux, `./deploy.ps1`
+Windows). Es provisioniert die NER-Schicht der Anonymisierung (spaCy +
+`de_core_news_lg`) automatisch mit — sie stärkt das §203-Gate. Opt-out für
+schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallback:
+`pip install -e ".[nlp]"` + `python -m spacy download de_core_news_lg`. Zur
+Laufzeit erzwingt `RISK_LAYER_NER=aus` den deterministischen Regex-Pfad.
 
 ```bash
 pip install pyyaml numpy
@@ -124,7 +132,8 @@ ein Nicht-Loopback-Bind ohne Token wird abgelehnt.
 
 **Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth bei Netz-Bind),
 `RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook, SSRF),
-`RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`).
+`RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
+`RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER).
 
 ---
 
@@ -479,9 +488,10 @@ python -m pytest -q          # 185 Tests: /AB10/–/AB60/, Parser /T10/–/T40/,
 
 ### Optionale Robustheit: spaCy-Lemmatisierung (/LF50/)
 
-Der Matcher ist ohne spaCy bereits morphologie-tolerant. Für breitere
-Kompositazerlegung kann `pip install ".[nlp]"` + `python -m spacy download
-de_core_news_lg` ergänzt werden — **ohne** das deterministische Verhalten zu ändern.
+Der Matcher ist ohne spaCy bereits morphologie-tolerant. Das Deploy-Skript
+installiert spaCy + `de_core_news_lg` standardmäßig mit (Opt-out: `--ohne-ner`
+bzw. `-OhneNer`); manueller Fallback: `pip install -e ".[nlp]"` + `python -m
+spacy download de_core_news_lg` — **ohne** das deterministische Verhalten zu ändern.
 
 ---
 
