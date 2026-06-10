@@ -4,9 +4,17 @@ Die deploy-Skripte bauen vollständig auf den CLI-Kommandos auf; diese Tests
 laufen über ``main([...])`` ohne Netz und ohne LLM (--no-schicht2).
 """
 
+import json
+import shutil
+from pathlib import Path
+
 import pytest
 
+from risk_layer import radar
+from risk_layer.berater import BeraterStore
 from risk_layer.cli import build_parser, main
+from risk_layer.gii import NormKnoten
+from risk_layer.graph import NormGraph
 
 # Enthält einen Katalog-Treffer MIT Definitionsquelle und einen OHNE (→ Lücke:
 # "Gesamtwürdigung der tatsächlichen Verhältnisse" hat keine Quelle im Katalog).
@@ -131,6 +139,111 @@ def test_definiere_warnt_nicht_audit_pfad_auf_stderr(tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Host-Audit" in captured.err and "/v1/katalog/" in captured.err
     assert "definiert:" in captured.out             # Erfolgsausgabe unverändert
+
+
+# -- radar (Norm-Änderungs-Radar) + Manifest-Rotation beim graph build ---------
+
+def _baue_graph(tmp_path, name: str, text: str) -> Path:
+    """Mini-Graph mit EINEM Knoten – zwei Stände entstehen durch Textänderung."""
+    db = tmp_path / f"{name}.sqlite"
+    NormGraph.build([NormKnoten(id="norm:AO:162", law="AO", para="162",
+                                titel="Schätzung", text=text)], db)
+    return db
+
+
+def test_radar_ohne_vergleichsstand_exit_0(tmp_path, capsys):
+    """Kein Vorher-Manifest ist KEIN Fehler (Normalzustand vor dem zweiten
+    'graph build') – verständliche Meldung statt Exit 2."""
+    db = _baue_graph(tmp_path, "g", "Die Finanzbehörde schätzt.")
+    assert main(["radar", "--graph", str(db)]) == 0
+    out = capsys.readouterr().out
+    assert "Kein Vergleichsstand" in out and "graph build" in out
+
+
+def test_radar_fehlender_graph_exit_2(tmp_path, capsys):
+    assert main(["radar", "--graph", str(tmp_path / "fehlt.sqlite")]) == 2
+    assert "Kein Graph" in capsys.readouterr().err
+
+
+def test_radar_korruptes_manifest_exit_2(tmp_path, capsys):
+    db = _baue_graph(tmp_path, "g", "Text.")
+    alt = tmp_path / "alt.json"
+    alt.write_text("{kaputt", encoding="utf-8")
+    assert main(["radar", "--graph", str(db), "--alt", str(alt)]) == 2
+    assert "Radar-Fehler" in capsys.readouterr().err
+
+
+def test_radar_mit_befund_json_und_fail_flag(tmp_path, capsys):
+    # Vorher-Stand aus Korpus v1, aktueller Graph mit GEÄNDERTEM Normtext
+    alt_db = _baue_graph(tmp_path, "alt", "Alter Wortlaut.")
+    from risk_layer.graph import graph_oeffnen
+    alt_pfad = tmp_path / "vorher.json"
+    radar.speichere_manifest(alt_pfad, radar.erstelle_manifest(
+        graph_oeffnen(alt_db), erstellt_am="2026-01-01T00:00:00"))
+    db = _baue_graph(tmp_path, "neu", "NEUER Wortlaut nach Rebuild.")
+    berater_dir = tmp_path / "berater"
+    BeraterStore(berater_dir).definiere(
+        "Schätzungsrisiko", "…", autor="rey", datum="d", norm_anker=("§ 162 AO",))
+
+    # --json: maschinenlesbarer Bericht auf stdout (parsebar, volle Form)
+    rc = main(["radar", "--graph", str(db), "--berater", str(berater_dir),
+               "--alt", str(alt_pfad), "--json", "--zeitstempel", "2026-06-10T12:00:00"])
+    assert rc == 0                                   # Befund allein ist kein Fehler
+    bericht = json.loads(capsys.readouterr().out)
+    assert bericht["ok"] is True
+    assert bericht["normen"]["geaendert"] == ["norm:AO:162"]
+    assert bericht["stand_neu"]["erstellt_am"] == "2026-06-10T12:00:00"
+    assert any(t["typ"] == "berater" and t["id"] == "schaetzungsrisiko"
+               and t["aenderung"] == "geaendert" for t in bericht["betroffen"])
+
+    # --fail-bei-befund: Exit 1 für Skripte/CI; Menschtext mit Abschlusszeile
+    rc = main(["radar", "--graph", str(db), "--berater", str(berater_dir),
+               "--alt", str(alt_pfad), "--fail-bei-befund"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "Anker betroffen" in out and "Review empfohlen" in out
+
+
+def test_radar_ohne_befund_fail_flag_exit_0(tmp_path, capsys):
+    # identischer Korpus-Stand → kein Befund → auch mit --fail-bei-befund Exit 0
+    db = _baue_graph(tmp_path, "g", "Unverändert.")
+    from risk_layer.graph import graph_oeffnen
+    alt_pfad = tmp_path / "vorher.json"
+    radar.speichere_manifest(alt_pfad, radar.erstelle_manifest(
+        graph_oeffnen(db), erstellt_am="2026-01-01T00:00:00"))
+    rc = main(["radar", "--graph", str(db), "--alt", str(alt_pfad), "--fail-bei-befund"])
+    assert rc == 0
+    assert "Keine betroffenen Anker" in capsys.readouterr().out
+
+
+def test_graph_build_rotiert_manifest(tmp_path, capsys):
+    """Erster Build schreibt das Manifest, der zweite rotiert es zum
+    Vorher-Stand (os.replace) – die Grundlage des Radar-Vergleichs."""
+    gii_dir = tmp_path / "gii"
+    gii_dir.mkdir()
+    shutil.copy(Path(__file__).parent / "fixtures" / "mini_gii.xml",
+                gii_dir / "mini.xml")
+    db = tmp_path / "graph.sqlite"
+    m_pfad = radar.manifest_pfad(db)
+    v_pfad = radar.manifest_vorher_pfad(db)
+
+    assert main(["graph", "build", "--dir", str(tmp_path), "--db", str(db)]) == 0
+    assert "Norm-Manifest geschrieben" in capsys.readouterr().out
+    assert m_pfad.exists() and not v_pfad.exists()
+    erster = json.loads(m_pfad.read_text(encoding="utf-8"))
+
+    assert main(["graph", "build", "--dir", str(tmp_path), "--db", str(db)]) == 0
+    assert "Vergleichsstand rotiert" in capsys.readouterr().out
+    assert v_pfad.exists()
+    # der ERSTE Stand liegt jetzt als Vorher-Manifest; gleicher Korpus ⇒
+    # gleiche Knoten-Hashes in beiden Ständen
+    vorher = json.loads(v_pfad.read_text(encoding="utf-8"))
+    aktuell = json.loads(m_pfad.read_text(encoding="utf-8"))
+    assert vorher["knoten"] == erster["knoten"] == aktuell["knoten"]
+    assert vorher["fingerprint"] == aktuell["fingerprint"]
+
+    # Radar gegen den rotierten Default-Vergleichsstand: kein Befund, Exit 0
+    assert main(["radar", "--graph", str(db), "--fail-bei-befund"]) == 0
 
 
 def test_definiere_hat_kein_override_flag():

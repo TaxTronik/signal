@@ -240,24 +240,45 @@ class NormGraph:
         )
         return [dict(r) for r in rows]
 
+    def knoten_hashes(self) -> dict[str, str]:
+        """Inhalts-Hashes ALLER Knoten: ``{id: sha256(text)-Hex}``.
+
+        Grundbaustein der Staleness-/Änderungs-Erkennung: ``fingerprint()``
+        verdichtet diese Paare zu EINEM Korpus-Hash (Embedding-Index); das
+        Norm-Änderungs-Radar (``radar.py``) persistiert sie als Manifest und
+        kann nach einem Rebuild benennen, WELCHE Knoten sich geändert haben –
+        der eine Fingerprint sagt nur, DASS sich etwas geändert hat.
+
+        ORDER BY id (SQLite-BINARY-Kollation): deterministische Reihenfolge
+        über Builds hinweg – die Insert-Reihenfolge der Knoten darf variieren;
+        Python-Dicts bewahren die Einfüge-Reihenfolge.
+        """
+        return {
+            r["id"]: hashlib.sha256((r["text"] or "").encode("utf-8")).hexdigest()
+            for r in self._query("SELECT id, text FROM knoten ORDER BY id")
+        }
+
     def fingerprint(self) -> str:
         """Inhalts-Fingerprint des Korpus (sha256-Hex) – dient der Staleness-
         Erkennung abgeleiteter Artefakte (z. B. Embedding-Index, vgl.
         ``embedding.pruefe_aktualitaet``).
 
         Gehasht werden die deterministisch sortierten ``(id, sha256(text))``-
-        Paare ALLER Knoten. Ein einziger SQL-Scan, NUR bei Aufruf – bewusst kein
-        Auto-Lauf beim Öffnen: der Voll-Scan ist für jeden Request zu teuer,
-        aber billig genug für Server-Start und Build-Schritte.
+        Paare ALLER Knoten (aus ``knoten_hashes()``). Ein einziger SQL-Scan,
+        NUR bei Aufruf – bewusst kein Auto-Lauf beim Öffnen: der Voll-Scan ist
+        für jeden Request zu teuer, aber billig genug für Server-Start und
+        Build-Schritte.
+
+        ACHTUNG Stabilitäts-Kontrakt: das Hash-Layout (``id \\x00 texthash
+        \\x00`` in id-Reihenfolge) muss BYTE-IDENTISCH bleiben – der Wert ist
+        in gebauten Embedding-Indizes (meta.json) eingebrannt; eine Änderung
+        meldete JEDEN bestehenden Index fälschlich als veraltet.
         """
         h = hashlib.sha256()
-        # ORDER BY id (SQLite-BINARY-Kollation): deterministische Reihenfolge
-        # über Builds hinweg – die Insert-Reihenfolge der Knoten darf variieren.
-        for r in self._query("SELECT id, text FROM knoten ORDER BY id"):
-            text_hash = hashlib.sha256((r["text"] or "").encode("utf-8")).hexdigest()
+        for nid, text_hash in self.knoten_hashes().items():
             # NUL-Trenner: kommt in IDs/Hex-Hashes nie vor ⇒ keine Kollision
             # durch Konkatenation (z. B. "a"+"bc" vs. "ab"+"c").
-            h.update(r["id"].encode("utf-8") + b"\x00" + text_hash.encode("ascii") + b"\x00")
+            h.update(nid.encode("utf-8") + b"\x00" + text_hash.encode("ascii") + b"\x00")
         return h.hexdigest()
 
     def stats(self) -> dict[str, Any]:

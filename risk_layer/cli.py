@@ -175,6 +175,25 @@ def _cmd_graph(args: argparse.Namespace) -> int:
         g = graphmod.NormGraph.build(knoten, args.db)
         print(f"Graph gebaut: {args.db}")
         print(f"  {g.stats()}")
+        # Manifest-Rotation (Norm-Änderungs-Radar, radar.py): der bisherige
+        # Stand wird zum Vorher-Manifest – ohne diese Rotation gäbe es nach
+        # einem Rebuild keinen Vergleichsstand und Festwissens-Anker veralteten
+        # weiter still. erstellt_am via Aufrufer-Uhr NUR hier (CLI = Rand),
+        # der Funktionskern in radar.py bleibt uhrfrei/deterministisch.
+        from datetime import datetime
+        from . import radar
+        m_pfad = radar.manifest_pfad(args.db)
+        v_pfad = radar.manifest_vorher_pfad(args.db)
+        if m_pfad.exists():
+            os.replace(m_pfad, v_pfad)
+            print(f"  Vergleichsstand rotiert: {v_pfad}")
+        radar.speichere_manifest(m_pfad, radar.erstelle_manifest(
+            g, erstellt_am=datetime.now().isoformat(timespec="seconds")))
+        print(f"  Norm-Manifest geschrieben: {m_pfad} (Prüfung: risk-layer radar)")
+        # Verbindung DETERMINISTISCH schließen (nicht auf GC verlassen): unter
+        # Windows blockiert ein offenes Handle sonst das unlink() des NÄCHSTEN
+        # Builds auf dieselbe Datei (WinError 32).
+        g.close()
         return 0
     g = graphmod.graph_oeffnen(args.db)
     if g is None:
@@ -192,6 +211,82 @@ def _cmd_graph(args: argparse.Namespace) -> int:
         print(f"{r['verwendet']}  ({r.get('titel','')})")
         print(r["text"][:600])
         print("verweist_auf:", r["verweist_auf"][:10])
+    return 0
+
+
+def _cmd_radar(args: argparse.Namespace) -> int:
+    """Norm-Änderungs-Radar: Vorher-Manifest gegen den aktuellen Graphen prüfen.
+
+    Exit-Codes: 0 = ok (auch: kein Vergleichsstand), 1 = Befund bei
+    --fail-bei-befund (Skripte/CI), 2 = Fehler (Konvention dieser CLI).
+    """
+    import json as _json
+    from datetime import datetime
+    from . import radar
+
+    g = graph_oeffnen(args.graph)
+    if g is None:
+        print(f"Kein Graph unter {args.graph} – erst 'graph build'.", file=sys.stderr)
+        return 2
+
+    alt_pfad = Path(args.alt) if args.alt else radar.manifest_vorher_pfad(args.graph)
+    try:
+        alt = radar.lade_manifest(alt_pfad)
+    except radar.RadarFehler as exc:
+        print(f"Radar-Fehler: {exc}", file=sys.stderr)
+        return 2
+    if alt is None:
+        # KEIN Fehler: vor dem zweiten 'graph build' existiert schlicht kein
+        # Vorher-Stand (die Rotation erzeugt ihn) – verständlich melden, Exit 0.
+        print(f"Kein Vergleichsstand unter {alt_pfad} – der nächste "
+              "'graph build' rotiert den aktuellen Stand dorthin.")
+        return 0
+
+    try:
+        katalog = lade_katalog(args.katalog)
+    except KatalogFehler as exc:
+        print(f"Katalogfehler: {exc}", file=sys.stderr)
+        return 2
+    berater = None
+    if args.berater:
+        try:
+            berater = BeraterStore(args.berater)
+        except BeraterFehler as exc:
+            print(f"Berater-Store-Fehler: {exc}", file=sys.stderr)
+            return 2
+
+    bericht = radar.radar_bericht(
+        alt, g, berater, katalog,
+        erstellt_am=args.zeitstempel or datetime.now().isoformat(timespec="seconds"))
+
+    if args.json:
+        # Maschinenlesbar: NUR der Bericht auf stdout (sortierte Keys –
+        # deterministisch diffbar), Meldungen blieben oben auf stderr.
+        print(_json.dumps(bericht, ensure_ascii=False, sort_keys=True))
+    else:
+        n = bericht["anzahl"]
+        alt_s, neu_s = bericht["stand_alt"], bericht["stand_neu"]
+        print("Norm-Änderungs-Radar")
+        print(f"  alt: {alt_s['erstellt_am'] or '?'}  fingerprint {str(alt_s['fingerprint'])[:12]}…")
+        print(f"  neu: {neu_s['erstellt_am']}  fingerprint {neu_s['fingerprint'][:12]}…")
+        print(f"  Normen: {n['geaendert']} geändert, {n['neu']} neu, {n['entfallen']} entfallen")
+        for h in bericht["hinweise"]:
+            print(f"  Hinweis: {h}")
+        if bericht["betroffen"]:
+            print("\n  Betroffene Anker (nach Review-Dringlichkeit):")
+            for t in bericht["betroffen"]:
+                status = t["review_status"] or t["aktion"] or "-"
+                print(f"    [{t['typ']:<11}] {t['id']}"
+                      f"  ({t['begriff'] or '—'}, {t['scope'] or '-'}/{status})"
+                      f"  Anker {t['norm_id']} ← {t['ausloeser']} [{t['aenderung']}]")
+        if n["betroffen"]:
+            print(f"\n{n['betroffen']} Anker betroffen, davon "
+                  f"{n['freigegeben']} freigegeben — Review empfohlen.")
+        else:
+            print("\nKeine betroffenen Anker.")
+
+    if args.fail_bei_befund and bericht["anzahl"]["betroffen"]:
+        return 1
     return 0
 
 
@@ -445,6 +540,7 @@ def _cmd_zitat(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     from . import modell as M  # Default-Modell aus der Registry (Help-Text stale-sicher)
+    from . import radar as radar_mod  # Manifest-Namen für den Help-Text (stale-sicher)
     p = argparse.ArgumentParser(
         prog="risk-layer",
         description="Schlüsselbegriff-Assistenz – deterministische Schicht-1-Auswertung.",
@@ -522,6 +618,26 @@ def build_parser() -> argparse.ArgumentParser:
     gr.add_argument("--db", default="corpus/graph.sqlite", help="SQLite-Pfad")
     gr.add_argument("--limit", type=int, default=30, help="max. Dangling-Einträge")
     gr.set_defaults(func=_cmd_graph)
+
+    ra = sub.add_parser(
+        "radar",
+        help="Norm-Änderungs-Radar: geänderte Normen + betroffene Festwissens-Anker melden",
+        description="Vergleicht den aktuellen Normgraphen mit dem beim letzten "
+                    "'graph build' rotierten Vorher-Manifest und meldet, welche "
+                    "Festwissens-Anker (Berater-Definitionen, Norm-Kuratierungen, "
+                    "Katalog) von Norm-Änderungen betroffen sind. Berichtet NUR – "
+                    "setzt keinen Review-Status zurück (Nur-vorwärts-Invariante).")
+    ra.add_argument("--graph", default="corpus/graph.sqlite",
+                    help="Pfad zur Normgraph-SQLite (Default: corpus/graph.sqlite)")
+    ra.add_argument("--berater", help="Verzeichnis mit Berater-Definitionen (personal/geteilt)")
+    ra.add_argument("--alt", help=f"Vorher-Manifest (Default: {radar_mod.MANIFEST_VORHER_NAME} "
+                                  "neben der Graph-Datei)")
+    ra.add_argument("--zeitstempel", help="Fester ISO-Zeitstempel (für reproduzierbare Läufe)")
+    ra.add_argument("--json", action="store_true",
+                    help="maschinenlesbarer Bericht auf stdout statt Menschtext")
+    ra.add_argument("--fail-bei-befund", action="store_true",
+                    help="Exit-Code 1, wenn Anker betroffen sind (für Skripte/CI)")
+    ra.set_defaults(func=_cmd_radar)
 
     m = sub.add_parser("modell", help="LLM-Modell (GGUF) verwalten und llama-server starten")
     m.add_argument("aktion", choices=["list", "download", "engine", "status", "start"])

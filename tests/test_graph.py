@@ -144,6 +144,40 @@ def test_fingerprint_aendert_sich_bei_textaenderung(tmp_path):
     assert g1.fingerprint() != g2.fingerprint()
 
 
+def test_knoten_hashes_form_und_inhalt(tmp_path):
+    import hashlib
+    from risk_layer.gii import NormKnoten
+    knoten = [
+        NormKnoten(id="norm:AO:162", law="AO", para="162", titel="Schätzung",
+                   text="Die Finanzbehörde schätzt."),
+        NormKnoten(id="norm:AO:146", law="AO", para="146", titel="Ordnung", text=""),
+    ]
+    g = NormGraph.build(knoten, tmp_path / "kh.sqlite")
+    hashes = g.knoten_hashes()
+    assert set(hashes) == {"norm:AO:146", "norm:AO:162"}
+    # Hash = sha256 über den UTF-8-Normtext; leerer Text hasht den Leerstring
+    assert hashes["norm:AO:162"] == hashlib.sha256(
+        "Die Finanzbehörde schätzt.".encode("utf-8")).hexdigest()
+    assert hashes["norm:AO:146"] == hashlib.sha256(b"").hexdigest()
+    # deterministische Reihenfolge (ORDER BY id) – das Radar-Manifest und der
+    # Fingerprint hängen daran
+    assert list(hashes) == sorted(hashes)
+
+
+def test_fingerprint_byte_identisch_zum_alt_algorithmus(tmp_path):
+    # KONTRAKT: fingerprint() baut jetzt auf knoten_hashes() auf, muss aber
+    # BYTE-IDENTISCH zum historischen Algorithmus bleiben – der Wert ist in
+    # gebauten Embedding-Indizes (meta.json) eingebrannt; eine Abweichung
+    # meldete jeden bestehenden Index fälschlich als veraltet.
+    import hashlib
+    g = NormGraph.build(gii.parse_datei(FIXTURE), tmp_path / "fp.sqlite")
+    h = hashlib.sha256()
+    for r in g._query("SELECT id, text FROM knoten ORDER BY id"):
+        text_hash = hashlib.sha256((r["text"] or "").encode("utf-8")).hexdigest()
+        h.update(r["id"].encode("utf-8") + b"\x00" + text_hash.encode("ascii") + b"\x00")
+    assert g.fingerprint() == h.hexdigest()
+
+
 def test_graph_query_aus_anderem_thread(graph):
     # Regression: der Web-Server bedient Requests in Worker-Threads; die
     # SQLite-Verbindung muss thread-übergreifend lesbar sein (check_same_thread).
