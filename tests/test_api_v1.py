@@ -574,6 +574,8 @@ def test_los_ziehen_csprng_fertig_form(app, tmp_path):
 def test_los_ziehen_simulator_laeuft_echt(app):
     """Der Simulator-Pfad läuft ECHT (qiskit-aer, gleicher Schaltkreis wie die
     QPU) — und der Nachweis sagt selbst laut, dass er keine Attestierung hat."""
+    pytest.importorskip("qiskit")
+    pytest.importorskip("qiskit_aer")
     code, obj = dispatch(app, "POST", "/v1/los/ziehen",
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "simulator"}, {})
     assert code == 200 and obj["status"] == "fertig"

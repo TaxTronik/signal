@@ -493,10 +493,10 @@ class SimulatorQuelle(EntropieQuelle):
     def hole_bits(self, commitment: str, min_bits: int = MIN_ROH_BITS) -> EntropieErgebnis:
         try:
             from qiskit_aer import AerSimulator
+            schaltkreis = _baue_schaltkreis(commitment, self._n_qubits)
         except ImportError as exc:
             raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
         shots = max(self._shots or 512, math.ceil(min_bits / self._n_qubits))
-        schaltkreis = _baue_schaltkreis(commitment, self._n_qubits)
         sim = AerSimulator(seed_simulator=self._seed)
         counts = dict(sim.run(schaltkreis, shots=shots).result().get_counts())
         roh = _kanonische_counts_bytes(counts)
