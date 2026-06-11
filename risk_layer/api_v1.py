@@ -30,7 +30,14 @@ from .berater import REVIEW_REIHENFOLGE
 # wurde diese Analyse erstellt? Der Host legt den Block mit dem Ergebnis in
 # seiner Audit-Chain ab). Ein paralleles Feature ergänzt in DERSELBEN Version
 # zusätzlich GET /v1/radar. Keine bestehende Antwort geändert.
-V1_VERSION = "1.2.0"
+# 1.3.0: additiv – neue Routen POST /v1/los/{ziehen,abholen,pruefen}
+# (Quantenlos: beweisbar blinde Stichprobe als Engine-Dienst; der Host baut
+# den Rahmen aus seiner Chain, legt den Nachweis IN die Chain und erzeugt die
+# Prüf-Aufgaben aus der Stichprobe). Auch hier zustandslos: KEIN Job-Registry —
+# /v1/los/abholen rekonstruiert die Ziehung aus job_id+rahmen+k, die Bindung
+# Job↔Rahmen sichern die Commitment-Tags des IBM-Jobs. Keine bestehende
+# Antwort geändert.
+V1_VERSION = "1.3.0"
 
 
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -266,6 +273,132 @@ def _radar(app) -> tuple[int, dict[str, Any]]:
     return (503 if app.graph is None else 500), {**res, "engineVersion": V1_VERSION}
 
 
+# --- /v1/los/* (Quantenlos — beweisbar blinde Stichprobe, seit 1.3.0) --------
+
+_LOS_BACKENDS = ("qpu", "simulator", "csprng")
+
+
+def _los_rahmen(payload: dict[str, Any]) -> tuple[list[str] | None,
+                                                  tuple[int, dict[str, Any]] | None]:
+    """Form-Validierung des Prüf-Rahmens (alle drei /v1/los/*-Routen).
+
+    Der Rahmen ist eine nicht-leere Liste von ID-/Hash-Strings (NIE Inhalte,
+    § 203 — der Host baut sie aus seiner Chain). Alles andere ist ein 400,
+    BEVOR Quantenlos-Code läuft (Muster _katalog_definiere/norm_anker)."""
+    rahmen = payload.get("rahmen")
+    if (not isinstance(rahmen, list) or not rahmen
+            or not all(isinstance(x, str) and x.strip() for x in rahmen)):
+        return None, (400, {"error": "Feld 'rahmen' muss ein nicht-leeres "
+                                     "Array von ID-Strings sein"})
+    return rahmen, None
+
+
+def _los_k(payload: dict[str, Any],
+           rahmen: list[str]) -> tuple[int | None, tuple[int, dict[str, Any]] | None]:
+    """k validieren: Ganzzahl >= 1 (400), k <= n (422 — Form ok, aber mehr
+    ziehen als der Rahmen hergibt ist semantisch unerfüllbar). n zählt
+    EINDEUTIGE Items, exakt wie quantenlos.rahmen_normalisieren dedupliziert."""
+    k = payload.get("k")
+    # bool ist int-Subtyp: {"k": true} wäre sonst still k=1.
+    if isinstance(k, bool) or not isinstance(k, int) or k < 1:
+        return None, (400, {"error": "Feld 'k' muss eine Ganzzahl >= 1 sein"})
+    n = len({x.strip() for x in rahmen})
+    if k > n:
+        return None, (422, {"error": f"k ({k}) übersteigt den Rahmen "
+                                     f"(n={n} eindeutige Items)"})
+    return k, None
+
+
+def _los_ziehen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/los/ziehen – beweisbar blinde Stichprobe (Quantenlos, Protokoll v1).
+
+    Body: {rahmen: [str,…], k: int, backend: "qpu"|"simulator"|"csprng"}.
+    ``backend`` ist PFLICHT — der Host entscheidet die Entropie-Quelle bewusst
+    (kein stiller Default: wer Attestierung will, sagt qpu; wer lokal würfelt,
+    sagt es laut). Antworten:
+      * simulator/csprng → 200 {ok, status:"fertig", nachweis, roh_bits_hex}
+      * qpu → 200 {ok, status:"wartet", job_id, backend, commitment, k}
+        (Job läuft in der IBM-Queue — Abholen über POST /v1/los/abholen)
+      * 400 (rahmen/k/backend-Form), 422 (k>n), 503 {ok:false, fehler}
+        (Quanten-Extras fehlen bzw. qpu ohne IBM-Credentials).
+    Zustandslos: die Engine archiviert weder Nachweis noch Roh-Bits — beides
+    legt der Host in seine Chain (roh_bits_hex macht die volle Ableitungskette
+    später offline nachrechenbar, s. /v1/los/pruefen)."""
+    rahmen, fehler = _los_rahmen(payload)
+    if fehler:
+        return fehler
+    k, fehler = _los_k(payload, rahmen)
+    if fehler:
+        return fehler
+    backend = payload.get("backend")
+    if backend not in _LOS_BACKENDS:
+        return 400, {"error": "Feld 'backend' muss qpu|simulator|csprng sein "
+                              "(Pflicht — der Host wählt die Entropie-Quelle "
+                              "bewusst, kein stiller Default)"}
+    res = app.los_ziehen(rahmen, k, backend)
+    # ok:false hat hier genau eine Klasse: fehlende Betriebsvoraussetzung
+    # (Quanten-Extras/IBM-Credentials) → 503 (Muster /v1/radar ohne Graph).
+    return (200 if res.get("ok") else 503), {**res, "engineVersion": V1_VERSION}
+
+
+def _los_abholen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/los/abholen – eingereichten qpu-Job abholen (zustandslos).
+
+    Body: {job_id: str, rahmen: [str,…], k: int} — exakt die Werte, die der
+    Host seit /v1/los/ziehen selbst trägt; die Engine hält kein Job-Registry,
+    sondern REKONSTRUIERT die Ziehung (Commitment aus dem Rahmen, Counts über
+    die IBM-Job-API) und prüft die Tag-Bindung Job↔Rahmen hart. Antworten:
+    fertig-/wartet-Form wie /v1/los/ziehen; 400 (Form bzw. Job gehört nicht zu
+    diesem Rahmen — ``bindung_verletzt:true``), 422 (k>n), 503 (Extras/
+    Credentials fehlen)."""
+    job_id = str(payload.get("job_id") or "").strip()
+    if not job_id:
+        return 400, {"error": "Feld 'job_id' fehlt"}
+    rahmen, fehler = _los_rahmen(payload)
+    if fehler:
+        return fehler
+    k, fehler = _los_k(payload, rahmen)
+    if fehler:
+        return fehler
+    res = app.los_abholen(job_id, rahmen, k)
+    if res.get("ok"):
+        return 200, {**res, "engineVersion": V1_VERSION}
+    # bindung_verletzt = Client-Fehler (falscher job_id↔rahmen-Mix) → 400;
+    # sonst fehlende Betriebsvoraussetzung → 503. Strukturelles Feld statt
+    # Fehlertext-Parsing (Muster-Begründung wie bei _radar).
+    return (400 if res.get("bindung_verletzt") else 503), {**res, "engineVersion": V1_VERSION}
+
+
+def _los_pruefen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/los/pruefen – Nachweis gegen die Rahmenliste nachrechnen.
+
+    Body: {nachweis: {…}, rahmen: [str,…], online?: bool, roh_bits_hex?: str}.
+    Offline immer: Commitment, n, Stichprobe⊆Rahmen. Mit ``roh_bits_hex``
+    (vom Host neben dem Nachweis archiviert) oder ``online:true`` (Counts via
+    IBM-Job-ID erneut abrufen) zusätzlich die volle Ableitungskette.
+    → 200 {ok:true, gueltig: bool, geprueft: […], hinweise: […]} — ein
+    WIDERSPRUCH ist gueltig:false (die Prüfung fand statt), kein HTTP-Fehler;
+    eine nicht durchführbare Online-Prüfung ist per Protokoll-Semantik ein
+    Hinweis, kein Fehlschlag. 400 nur für Form-Fehler des Requests."""
+    nachweis = payload.get("nachweis")
+    if not isinstance(nachweis, dict) or not nachweis:
+        return 400, {"error": "Feld 'nachweis' muss ein JSON-Objekt sein "
+                              "(die Antwort von /v1/los/ziehen|abholen)"}
+    rahmen, fehler = _los_rahmen(payload)
+    if fehler:
+        return fehler
+    roh_bits = None
+    roh_hex = payload.get("roh_bits_hex")
+    if roh_hex:
+        try:
+            roh_bits = bytes.fromhex(str(roh_hex).strip())
+        except ValueError:
+            return 400, {"error": "Feld 'roh_bits_hex' ist kein gültiger Hex-String"}
+    erg = app.los_pruefen(nachweis, rahmen, roh_bits=roh_bits,
+                          online=bool(payload.get("online", False)))
+    return 200, {"ok": True, **erg, "engineVersion": V1_VERSION}
+
+
 def _llm_status(app) -> tuple[int, dict[str, Any]]:
     """GET /v1/llm/status – Erreichbarkeit + Modell/Engine + **Queue** (Slot-/
     Auslastungszustand) des llama-server. Damit kann das Host-System entscheiden,
@@ -299,6 +432,7 @@ _GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/radar", "/v1/katalog",
                         "/v1/katalog/kuratierung", "/v1/llm/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
                          "/v1/katalog/review", "/v1/embedding/suche",
+                         "/v1/los/ziehen", "/v1/los/abholen", "/v1/los/pruefen",
                          "/v1/llm/start", "/v1/llm/stop"})
 
 
@@ -344,6 +478,12 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _katalog_review(app, payload)
         if pfad == "/v1/embedding/suche":
             return _embedding_suche(app, payload)
+        if pfad == "/v1/los/ziehen":
+            return _los_ziehen(app, payload)
+        if pfad == "/v1/los/abholen":
+            return _los_abholen(app, payload)
+        if pfad == "/v1/los/pruefen":
+            return _los_pruefen(app, payload)
         if pfad == "/v1/llm/start":
             return _llm_start(app)
         if pfad == "/v1/llm/stop":

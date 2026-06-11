@@ -6,9 +6,11 @@ Sie laufen gegen ``dispatch`` direkt (ohne HTTP-Server), mit einer echten
 """
 
 import hashlib
+import sys
 
 import pytest
 
+from risk_layer import quantenlos as QM
 from risk_layer import radar
 from risk_layer.api_v1 import dispatch, V1_VERSION
 from risk_layer.berater import BeraterStore
@@ -531,3 +533,298 @@ def test_v1_radar_post_405(app):
     """POST auf die GET-Route → 405 mit allow-Feld (Muster aller Routen)."""
     code, obj = dispatch(app, "POST", "/v1/radar", {}, {})
     assert code == 405 and obj["allow"] == "GET"
+
+
+# --- POST /v1/los/* (Quantenlos — beweisbar blinde Stichprobe, seit 1.3.0) ----
+# Vertragstests: exakte Antwortformen (fertig/wartet/Fehler), backend ist
+# PFLICHT (kein stiller Default), 422 bei k>n, 503 bei fehlender Betriebs-
+# voraussetzung (Quanten-Extras/IBM-Credentials). Der QPU-Pfad läuft komplett
+# über die quantenlos-Seams (_qpu_job_einreichen/_qpu_job_holen) gemockt —
+# Kanonisierung, Nachweisbau und Bindungs-Check bleiben der ECHTE Code;
+# simulator/csprng laufen real (qiskit-aer ist in der Test-Umgebung da).
+
+_LOS_RAHMEN = [f"text_hash:{i:04d}" for i in range(12)]
+
+_NACHWEIS_KEYS = {"protokoll_version", "gezogen_am", "rahmen", "k",
+                  "stichprobe", "entropie", "ableitung"}
+
+
+def test_los_ziehen_csprng_fertig_form(app, tmp_path):
+    """fertig-Form des Vertrags + Zustandslosigkeit (kein Nachweis-Archiv)."""
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "csprng"}, {})
+    assert code == 200 and obj["ok"] is True and obj["status"] == "fertig"
+    assert obj["engineVersion"] == V1_VERSION
+    n = obj["nachweis"]
+    assert set(n) == _NACHWEIS_KEYS
+    assert n["protokoll_version"] == QM.PROTOKOLL_VERSION
+    assert n["rahmen"] == {"commitment": QM.rahmen_commitment(_LOS_RAHMEN), "n": 12}
+    assert n["k"] == 5 and len(n["stichprobe"]) == 5
+    assert set(n["stichprobe"]) <= set(_LOS_RAHMEN)
+    assert n["entropie"]["quelle_klasse"] == "csprng_fallback"
+    # roh_bits_hex (additiv): der Host archiviert die Roh-Bits NEBEN dem
+    # Nachweis — die Engine hebt nichts auf.
+    assert n["entropie"]["roh_counts_sha256"] == hashlib.sha256(
+        bytes.fromhex(obj["roh_bits_hex"])).hexdigest()
+    # ZUSTANDSLOS: weder Nachweis noch Job-Registry auf der Platte
+    assert list(tmp_path.rglob("*")) == []
+
+
+def test_los_ziehen_simulator_laeuft_echt(app):
+    """Der Simulator-Pfad läuft ECHT (qiskit-aer, gleicher Schaltkreis wie die
+    QPU) — und der Nachweis sagt selbst laut, dass er keine Attestierung hat."""
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "simulator"}, {})
+    assert code == 200 and obj["status"] == "fertig"
+    e = obj["nachweis"]["entropie"]
+    assert e["quelle_klasse"] == "simulator" and e["backend"] == "aer_simulator"
+    assert "SIMULATOR" in e["hinweis"]
+
+
+def test_los_ziehen_form_validierung_400(app):
+    """rahmen (fehlend/kein Array/leer/leeres Item) und k (fehlend/kein int/
+    bool/<1) sind 400er — BEVOR Quantenlos-Code läuft."""
+    for body in ({"k": 1, "backend": "csprng"},
+                 {"rahmen": "x", "k": 1, "backend": "csprng"},
+                 {"rahmen": [], "k": 1, "backend": "csprng"},
+                 {"rahmen": ["a", "  "], "k": 1, "backend": "csprng"},
+                 {"rahmen": ["a", 7], "k": 1, "backend": "csprng"}):
+        code, obj = dispatch(app, "POST", "/v1/los/ziehen", body, {})
+        assert code == 400 and "rahmen" in obj["error"], body
+    for k in (None, "3", 1.5, 0, -2, True):
+        code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                             {"rahmen": ["a", "b"], "k": k, "backend": "csprng"}, {})
+        assert code == 400 and "'k'" in obj["error"], k
+
+
+def test_los_ziehen_backend_ist_pflicht_400(app):
+    """backend ist PFLICHT — der Host wählt die Entropie-Quelle bewusst, es
+    gibt keinen stillen Default (Attestierungs-Anspruch des Quantenlos)."""
+    for body in ({"rahmen": ["a", "b"], "k": 1},
+                 {"rahmen": ["a", "b"], "k": 1, "backend": ""},
+                 {"rahmen": ["a", "b"], "k": 1, "backend": "drand"}):
+        code, obj = dispatch(app, "POST", "/v1/los/ziehen", body, {})
+        assert code == 400 and "backend" in obj["error"], body
+
+
+def test_los_ziehen_k_groesser_n_422(app):
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": ["a", "b", "c"], "k": 4, "backend": "csprng"}, {})
+    assert code == 422 and "k" in obj["error"]
+    # n zählt EINDEUTIGE Items (rahmen_normalisieren dedupliziert): drei
+    # Einträge, aber n=2 → k=3 ist schon unerfüllbar.
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": ["a", "b", "a"], "k": 3, "backend": "csprng"}, {})
+    assert code == 422
+
+
+def test_los_ziehen_qpu_ohne_credentials_503(app, monkeypatch):
+    """qpu ohne IBM-Zugang: lauter 503 mit Anleitung — bewusst KEINE stille
+    Degradation auf lokalen Zufall (Muster der CLI, Exit 2)."""
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: False)
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
+    assert code == 503 and obj["ok"] is False
+    assert "IBM" in obj["fehler"] and "Credentials" in obj["fehler"]
+    assert "pip install" in obj["fehler"] and "[quanten]" in obj["fehler"]
+    assert obj["engineVersion"] == V1_VERSION
+
+
+def test_los_ziehen_ohne_quanten_extras_503(app, monkeypatch):
+    """Fehlendes qiskit = fehlende Betriebsvoraussetzung (503) mit Install-
+    Hinweis (sys.modules-Block simuliert die schlanke Installation)."""
+    for modul in ("qiskit", "qiskit_aer", "qiskit_ibm_runtime"):
+        monkeypatch.setitem(sys.modules, modul, None)
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "simulator"}, {})
+    assert code == 503 and obj["ok"] is False
+    assert "pip install" in obj["fehler"] and "[quanten]" in obj["fehler"]
+
+
+class _FakeQpuSeite:
+    """Fake NUR der IBM-Seite über die quantenlos-Seams (einreichen/holen) —
+    Kanonisierung, Nachweisbau und Bindungs-Check bleiben der echte Code."""
+
+    def __init__(self):
+        self.fertig = True
+        self.commitments: dict[str, str] = {}
+
+    def counts(self, commitment):
+        basis = hashlib.sha256(commitment.encode()).hexdigest()
+        return {bin(i)[2:].zfill(8): int(basis[i], 16) + 1 for i in range(8)}
+
+    def einreichen(self, *, commitment, n_qubits, shots, backend_name=None, service=None):
+        assert shots * n_qubits >= 512          # MIN_ROH_BITS-Untergrenze gilt auch hier
+        job_id = f"fake-job-{len(self.commitments)}"
+        self.commitments[job_id] = commitment
+        return {"job_id": job_id, "backend": "fake_torino",
+                "tags": ["quantenlos", commitment[:32]]}
+
+    def holen(self, job_id, *, service=None):
+        if not self.fertig:
+            return {"fertig": False, "status": "QUEUED", "backend": "fake_torino"}
+        c = self.commitments[job_id]
+        return {"fertig": True, "status": "DONE", "counts": self.counts(c),
+                "tags": ["quantenlos", c[:32]], "backend": "fake_torino",
+                "creation_date": "2026-06-11T12:00:00+00:00"}
+
+
+@pytest.fixture()
+def fake_qpu(monkeypatch):
+    fake = _FakeQpuSeite()
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: True)
+    monkeypatch.setattr(QM, "_qpu_job_einreichen", fake.einreichen)
+    monkeypatch.setattr(QM, "_qpu_job_holen", fake.holen)
+    return fake
+
+
+def test_los_ziehen_qpu_wartet_form_exakt(app, fake_qpu):
+    """qpu reicht nur ein → wartet-Form EXAKT wie im Vertrag (der TS-Adapter
+    typisiert dagegen): {ok, status, job_id, backend, commitment, k}."""
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "qpu"}, {})
+    assert code == 200
+    assert obj == {"ok": True, "status": "wartet", "job_id": "fake-job-0",
+                   "backend": "fake_torino",
+                   "commitment": QM.rahmen_commitment(_LOS_RAHMEN), "k": 5,
+                   "engineVersion": V1_VERSION}
+
+
+def test_los_abholen_wartet_solange_job_in_queue(app, fake_qpu):
+    fake_qpu.fertig = False
+    _, start = dispatch(app, "POST", "/v1/los/ziehen",
+                        {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "qpu"}, {})
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": start["job_id"], "rahmen": _LOS_RAHMEN, "k": 5}, {})
+    assert code == 200 and obj["ok"] is True and obj["status"] == "wartet"
+    assert obj["job_id"] == start["job_id"] and obj["k"] == 5
+    assert obj["commitment"] == start["commitment"]
+    assert obj["engineVersion"] == V1_VERSION
+
+
+def test_los_abholen_fertig_rekonstruiert_und_prueft_roundtrip(app, fake_qpu):
+    """Voller qpu-Durchstich: ziehen (wartet) → abholen (fertig — Nachweis
+    REKONSTRUIERT aus job_id+rahmen+k, kein Job-Registry) → pruefen gültig
+    inkl. voller Ableitungskette über roh_bits_hex."""
+    _, start = dispatch(app, "POST", "/v1/los/ziehen",
+                        {"rahmen": _LOS_RAHMEN, "k": 4, "backend": "qpu"}, {})
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": start["job_id"], "rahmen": _LOS_RAHMEN, "k": 4}, {})
+    assert code == 200 and obj["ok"] is True and obj["status"] == "fertig"
+    n = obj["nachweis"]
+    assert set(n) == _NACHWEIS_KEYS
+    assert n["rahmen"]["commitment"] == start["commitment"] and n["k"] == 4
+    e = n["entropie"]
+    assert e["quelle_klasse"] == "qpu" and e["job_id"] == start["job_id"]
+    assert e["job_tags"] == ["quantenlos", start["commitment"][:32]]
+    # Roundtrip über die API: gleicher Rahmen → gültig, volle Kette
+    code, erg = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": n, "rahmen": _LOS_RAHMEN,
+                          "roh_bits_hex": obj["roh_bits_hex"]}, {})
+    assert code == 200 and erg["ok"] is True and erg["gueltig"] is True
+    assert {"rahmen_commitment", "roh_bits_hash", "ableitungskette"} <= set(erg["geprueft"])
+
+
+def test_los_abholen_fremder_job_bindung_400(app, fake_qpu):
+    """Tag-Bindung HART: ein Job, dessen Tags nicht das Commitment DIESES
+    Rahmens tragen, wird nie zum Nachweis — 400 (Client-Fehler), kein
+    nachträglich 'passender' Fremd-Job."""
+    _, start = dispatch(app, "POST", "/v1/los/ziehen",
+                        {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": start["job_id"],
+                          "rahmen": ["x:1", "x:2", "x:3", "x:4"], "k": 3}, {})
+    assert code == 400 and obj["ok"] is False
+    assert obj["bindung_verletzt"] is True and "Commitment" in obj["fehler"]
+
+
+def test_los_abholen_form_und_credentials(app, monkeypatch):
+    # job_id fehlt → 400 (vor allem anderen)
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"rahmen": ["a", "b"], "k": 1}, {})
+    assert code == 400 and "job_id" in obj["error"]
+    # ohne IBM-Credentials kann nichts abgeholt werden → 503
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: False)
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": "j1", "rahmen": ["a", "b"], "k": 1}, {})
+    assert code == 503 and obj["ok"] is False and "Credentials" in obj["fehler"]
+
+
+def test_los_pruefen_roundtrip_und_manipulierter_rahmen(app):
+    """Kern-Vertrag: ziehen → pruefen gültig (Commitment ist ordnungs-
+    invariant); EIN getauschtes Rahmen-Item → gueltig:false, benannt."""
+    _, zug = dispatch(app, "POST", "/v1/los/ziehen",
+                      {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "csprng"}, {})
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": zug["nachweis"],
+                          "rahmen": list(reversed(_LOS_RAHMEN))}, {})
+    assert code == 200 and obj["ok"] is True and obj["gueltig"] is True
+    assert "rahmen_commitment" in obj["geprueft"]
+    assert obj["engineVersion"] == V1_VERSION
+
+    boese = _LOS_RAHMEN[:-1] + ["text_hash:9999"]
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": zug["nachweis"], "rahmen": boese}, {})
+    assert code == 200 and obj["ok"] is True and obj["gueltig"] is False
+    assert any("rahmen_commitment" in h for h in obj["hinweise"])
+
+
+def test_los_pruefen_volle_kette_mit_roh_bits_hex(app):
+    """roh_bits_hex (vom Host neben dem Nachweis archiviert) macht die VOLLE
+    Ableitungskette offline nachrechenbar — eine untergeschobene, im Rahmen
+    liegende Stichprobe fällt erst HIER auf."""
+    import copy
+    _, zug = dispatch(app, "POST", "/v1/los/ziehen",
+                      {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "csprng"}, {})
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": zug["nachweis"], "rahmen": _LOS_RAHMEN,
+                          "roh_bits_hex": zug["roh_bits_hex"]}, {})
+    assert code == 200 and obj["gueltig"] is True
+    assert "ableitungskette" in obj["geprueft"]
+
+    manipuliert = copy.deepcopy(zug["nachweis"])
+    ersatz = next(i for i in _LOS_RAHMEN if i not in manipuliert["stichprobe"])
+    manipuliert["stichprobe"][0] = ersatz
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": manipuliert, "rahmen": _LOS_RAHMEN,
+                          "roh_bits_hex": zug["roh_bits_hex"]}, {})
+    assert code == 200 and obj["gueltig"] is False
+    assert any("ableitungskette" in h for h in obj["hinweise"])
+
+
+def test_los_pruefen_online_mit_gemocktem_refetch(app, fake_qpu, monkeypatch):
+    """online:true nutzt den Refetch-Seam (_qpu_job_abrufen): frisch geholte
+    Counts + Tag-Check fließen in die Prüfung ein (volle Kette ohne Archiv)."""
+    _, start = dispatch(app, "POST", "/v1/los/ziehen",
+                        {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
+    _, abh = dispatch(app, "POST", "/v1/los/abholen",
+                      {"job_id": start["job_id"], "rahmen": _LOS_RAHMEN, "k": 3}, {})
+    monkeypatch.setattr(QM, "_qpu_job_abrufen", lambda job_id, **kw: {
+        "counts": fake_qpu.counts(start["commitment"]),
+        "tags": ["quantenlos", start["commitment"][:32]],
+        "backend": "fake_torino", "creation_date": "2026-06-11T12:00:00+00:00"})
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": abh["nachweis"], "rahmen": _LOS_RAHMEN,
+                          "online": True}, {})
+    assert code == 200 and obj["gueltig"] is True
+    assert {"online_counts_hash", "online_job_tags",
+            "ableitungskette"} <= set(obj["geprueft"])
+
+
+def test_los_pruefen_form_validierung_400(app):
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen", {"rahmen": ["a"]}, {})
+    assert code == 400 and "nachweis" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": {"x": 1}, "rahmen": []}, {})
+    assert code == 400 and "rahmen" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": {"x": 1}, "rahmen": ["a"],
+                          "roh_bits_hex": "zz"}, {})
+    assert code == 400 and "roh_bits_hex" in obj["error"]
+
+
+def test_los_routen_falsche_methode_405(app):
+    """GET auf die drei POST-Routen → 405 mit allow-Feld (Muster aller Routen)."""
+    for pfad in ("/v1/los/ziehen", "/v1/los/abholen", "/v1/los/pruefen"):
+        code, obj = dispatch(app, "GET", pfad, {}, {})
+        assert code == 405 and obj["allow"] == "POST", pfad

@@ -147,10 +147,11 @@ schließen); Token-Werte erscheinen nie im Log.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.2.0`
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.3.0`
 (additiv zu `1.1.0` = `POST /v1/katalog/review`; `1.2.0` ergänzt
 `GET /v1/status` + den `engine_status`-Block in `/v1/analyse` sowie — parallel
-entwickelt — `GET /v1/radar`).
+entwickelt — `GET /v1/radar`; `1.3.0` ergänzt `POST /v1/los/{ziehen,abholen,pruefen}`
+= Quantenlos, beweisbar blinde Stichprobe).
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
@@ -383,6 +384,89 @@ aus der Engine-Config (`--llm-model`/`--llm-bin`/`RISK_LAYER`-Default), also kei
 Injection-Vektor. Idempotent (`{ok:true, hinweis:"läuft bereits"}`, falls schon
 erreichbar); blockiert **nicht** bis fertig → Bereitschaft über `GET /v1/llm/status`
 (`verfuegbar`) pollen. → `{ok, startet?, modell?, url?, fehler?}`.
+
+### `POST /v1/los/ziehen` · `/v1/los/abholen` · `/v1/los/pruefen`  (Quantenlos — beweisbar blinde Stichprobe, seit `1.3.0`)
+
+**Zweck:** Compliance-Reviews (QS-Stichproben über Analysen, Definitions-Reviews,
+Radar-Befunde) brauchen Stichproben, denen niemand „cherry-picking" vorwerfen
+kann. Das Quantenlos (`risk_layer/quantenlos.py`, Nachweis-**Protokoll v1**)
+zieht nachrechenbar blind: Merkle-**Commitment über den Prüf-Rahmen, BEVOR
+Entropie existiert** → frische Entropie (beim IBM-Quantenrechner an das
+Commitment gebunden: Job-Tags `["quantenlos", commitment[:32]]` + RZ-Schicht im
+Schaltkreis) → HMAC-Konditionierung → deterministisches Fisher-Yates. Jeder
+Schritt ist aus dem Nachweis nachrechenbar (`/v1/los/pruefen`), die Engine
+bleibt auch hier **zustandslos**: kein Nachweis-Archiv, **kein Job-Registry**.
+
+**Ehrlichkeits-Rahmen (gehört so in die Akte):** Der Quantenrechner ist
+**Entropie-Notar, KEIN Rechenvorteil**. Er liefert genau (a) **Frische** (die
+Bits existierten vor dem Job nicht — keine vordatierte Ziehung), (b)
+**Dritt-Attestierung** (die IBM-Job-ID ist von jedem mit IBM-Account abrufbar,
+samt Zeitstempel/Backend/Tags; IBM kennt weder Rahmen noch Reviewer) und (c)
+**physikalische Entropie**. Es ist ausdrücklich NICHT „certified randomness"
+gegen böswillige Hardware (Aaronson–Hung). `simulator` und `csprng` sagen in
+ihrem Nachweis selbst laut, dass sie **keine** Attestierung liefern — und
+genau deshalb ist `backend` **Pflicht**: der Host entscheidet die
+Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
+
+**Ablauf Host (TaxTronik):**
+1. **Rahmen aus der eigenen Chain bauen**: Liste von IDs/Hashes
+   (`RiskAnalysis.textHash`, Definition-IDs, Radar-Anker) — **nie Inhalte**
+   (§ 203; der Rahmen verlässt die Engine-Antwort auch nicht: der Nachweis
+   trägt nur Commitment + Stichprobe). Reihenfolge/Duplikate sind egal
+   (Commitment ist ordnungs-invariant, n zählt eindeutige Items).
+2. `POST /v1/los/ziehen` `{rahmen, k, backend}` — `simulator|csprng` antworten
+   sofort `fertig`; `qpu` reicht den Job nur ein und antwortet `wartet` +
+   `job_id` (IBM-Queue: Minuten). Dann `POST /v1/los/abholen`
+   `{job_id, rahmen, k}` pollen, bis `fertig` kommt — die Engine merkt sich
+   nichts, der Host trägt `job_id`+`rahmen`+`k` selbst; die Bindung Job↔Rahmen
+   prüfen die Commitment-Tags des IBM-Jobs (fremder Job → 400).
+3. **Nachweis IN DIE CHAIN legen** (AuditLog/`rawResult`-Muster), das
+   `roh_bits_hex` daneben archivieren (macht die volle Ableitungskette später
+   **offline** nachrechenbar, ohne IBM-Refetch).
+4. **Aufgaben aus `stichprobe` erzeugen**: je Item ein `Request`/`WorkflowItem`
+   (§ 3C) — die Engine erzeugt keine Aufgaben und auditiert nicht.
+5. `POST /v1/los/pruefen` **jederzeit** (auch Jahre später, auch durch Dritte):
+   `{nachweis, rahmen}` offline; `+ roh_bits_hex` = volle Kette;
+   `+ online:true` = Counts via IBM-Job-ID frisch abrufen + Tag-Bindung prüfen.
+
+```jsonc
+// POST /v1/los/ziehen  {"rahmen": ["text_hash:…", …], "k": 5, "backend": "qpu"}
+//   backend PFLICHT: "qpu" | "simulator" | "csprng" — kein stiller Default.
+// fertig (simulator/csprng sofort; qpu nach /v1/los/abholen):
+{ "ok": true, "status": "fertig", "engineVersion": "1.3.0",
+  "roh_bits_hex": "7b22…",                      // Host archiviert NEBEN dem Nachweis
+  "nachweis": {                                  // Protokoll v1 — in die Audit-Chain
+    "protokoll_version": 1, "gezogen_am": "2026-06-11T12:00:00",
+    "rahmen": { "commitment": "3f9c…", "n": 240 },   // Merkle-Root, NIE die Items
+    "k": 5, "stichprobe": ["text_hash:…", …],
+    "entropie": { "quelle_klasse": "qpu|simulator|csprng_fallback",
+                  "backend": "ibm_torino", "job_id": "cxk…",   // qpu: öffentlich abrufbar
+                  "job_tags": ["quantenlos", "3f9c…"],          // Bindung Job↔Rahmen
+                  "creation_date": "…", "roh_counts_sha256": "…",
+                  "hinweis": "nur simulator/csprng: sagt LAUT, dass keine Attestierung" },
+    "ableitung": { "extraktor": "hmac-sha256", "drbg": "sha256-ctr" } } }
+// qpu direkt nach ziehen (Job in der IBM-Queue):
+{ "ok": true, "status": "wartet", "job_id": "cxk…", "backend": "ibm_torino",
+  "commitment": "3f9c…", "k": 5, "engineVersion": "1.3.0" }
+// POST /v1/los/abholen {"job_id": "cxk…", "rahmen": [...], "k": 5}
+//   → fertig-Form (oben) oder wartet-Form (weiter pollen)
+// POST /v1/los/pruefen {"nachweis": {…}, "rahmen": [...], "online": false}
+{ "ok": true, "gueltig": true, "engineVersion": "1.3.0",
+  "geprueft": ["protokoll_version", "rahmen_commitment", "rahmen_n",
+               "stichprobe_im_rahmen", "roh_bits_hash", "ableitungskette"],
+  "hinweise": [] }                               // Widerspruch ⇒ gueltig:false (kein HTTP-Fehler)
+```
+
+**Fehlerfälle:** `400` (rahmen leer/kein String-Array, `k` keine Ganzzahl ≥ 1,
+`backend` fehlt/unbekannt, `job_id` fehlt, Job gehört nicht zu diesem Rahmen —
+`bindung_verletzt: true`); `422` (`k` > n eindeutige Items); `503`
+`{ok:false, fehler}` als fehlende Betriebsvoraussetzung: Quanten-Extras nicht
+installiert (`pip install "risk-layer[quanten]"`) bzw. `backend:"qpu"` ohne
+IBM-Credentials (`~/.qiskit/qiskit-ibm.json` oder `QISKIT_IBM_TOKEN`) — der
+`fehler`-Text nennt die Abhilfe. Eine **nicht durchführbare** Online-Prüfung
+(Netz/Token weg) ist dagegen bewusst nur ein `hinweise[]`-Eintrag, kein
+Fehlschlag — ein **Widerspruch** in einer durchgeführten Prüfung ist
+`gueltig:false`.
 
 **Vollständig entfernt** (macht alles TaxTronik): die GUI (`/static`, `/api/*`),
 die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Service

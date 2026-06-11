@@ -76,6 +76,16 @@ class QuantenlosFehler(ValueError):
     """Bedien-/Zustandsfehler des Quantenlos-Protokolls (CLI: Exit 2)."""
 
 
+class QuantenlosBindungsFehler(QuantenlosFehler):
+    """Job ↔ Rahmen-Bindung verletzt (Commitment-Tag fehlt am Job).
+
+    Eigener Typ, damit die Engine-API (api_v1 /v1/los/abholen) den Fall als
+    Client-Fehler (400: falscher job_id↔rahmen-Mix) von fehlenden Betriebs-
+    voraussetzungen (503: Pakete/Credentials) unterscheiden kann, ohne
+    Fehlertexte zu parsen.
+    """
+
+
 # --- 1. Rahmen-Commitment (Merkle-Root) ---------------------------------------
 
 def _blatt_hash(item: str) -> bytes:
@@ -253,12 +263,14 @@ def _sampler_counts(ergebnis) -> dict[str, int]:
     return dict(feld.get_counts())
 
 
-def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
+def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
                         backend_name: str | None = None, service=None) -> dict[str, Any]:
-    """Reicht den Bindungs-Schaltkreis bei IBM Quantum ein und wartet auf Counts.
+    """Reicht den Bindungs-Schaltkreis bei IBM Quantum ein, OHNE zu warten.
 
-    Liefert {"counts", "job_id", "backend", "tags", "creation_date"} — die
-    einzige Stelle mit qiskit-ibm-runtime-Imports (Tests injizieren hier).
+    Liefert {"job", "job_id", "backend", "tags"} — der Submit-Teil von
+    ``_qpu_job_ausfuehren``, separat, damit die zustandslose Job-Abholen-API
+    (``qpu_los_starten``/``qpu_los_abholen``) den Job-Submit vom Job-Warten
+    trennen kann. Tests injizieren hier (Seam wie ``_qpu_job_ausfuehren``).
     """
     try:
         from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
@@ -278,13 +290,73 @@ def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
     tags = ["quantenlos", commitment[:32]]
     sampler.options.environment.job_tags = tags
     job = sampler.run([isa], shots=shots)
+    return {
+        "job": job,
+        "job_id": job.job_id(),
+        "backend": getattr(backend, "name", str(backend)),
+        "tags": tags,
+    }
+
+
+def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
+                        backend_name: str | None = None, service=None) -> dict[str, Any]:
+    """Reicht den Bindungs-Schaltkreis bei IBM Quantum ein und wartet auf Counts.
+
+    Liefert {"counts", "job_id", "backend", "tags", "creation_date"} —
+    Submit über ``_qpu_job_einreichen``, dann blockierendes ``job.result()``
+    (synchroner CLI-/QPUQuelle-Pfad; Tests injizieren hier).
+    """
+    lauf = _qpu_job_einreichen(commitment=commitment, n_qubits=n_qubits, shots=shots,
+                               backend_name=backend_name, service=service)
+    job = lauf["job"]
     ergebnis = job.result()
     creation = getattr(job, "creation_date", None)
     return {
         "counts": _sampler_counts(ergebnis),
-        "job_id": job.job_id(),
-        "backend": getattr(backend, "name", str(backend)),
-        "tags": tags,
+        "job_id": lauf["job_id"],
+        "backend": lauf["backend"],
+        "tags": lauf["tags"],
+        "creation_date": str(creation) if creation else None,
+    }
+
+
+def _qpu_job_holen(job_id: str, *, service=None) -> dict[str, Any]:
+    """NICHT-blockierender Job-Abruf (zustandslose Abhol-API, /v1/los/abholen).
+
+    Anders als ``_qpu_job_abrufen`` (Prüfpfad: wartet via ``job.result()``)
+    kommt diese Funktion sofort zurück: solange der Job in der IBM-Queue
+    liegt → ``{"fertig": False, "status": …}``; erst DONE liefert Counts/Tags.
+    Fehl-Endzustände (ERROR/CANCELLED) sind LAUTE Fehler — neu ziehen, statt
+    still einen halben Nachweis zu bauen.
+    """
+    try:
+        from qiskit_ibm_runtime import QiskitRuntimeService
+    except ImportError as exc:
+        raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
+    service = service or QiskitRuntimeService()
+    job = service.job(job_id)
+    roh_status = job.status()
+    # RuntimeJobV2 liefert str, ältere Versionen ein JobStatus-Enum — beides
+    # robust auf den Namen normalisieren.
+    status = str(getattr(roh_status, "name", roh_status)).upper()
+    backend = None
+    try:
+        backend = job.backend().name
+    except Exception:  # noqa: BLE001 — Backend-Name ist informativ, nie Show-Stopper
+        pass
+    if status in ("ERROR", "CANCELLED", "FAILED"):
+        raise QuantenlosFehler(f"IBM-Job {job_id} endete als {status} — "
+                               "Ziehung neu starten (die Bits dieses Jobs gibt es nicht).")
+    if status != "DONE":
+        return {"fertig": False, "status": status, "backend": backend}
+    ergebnis = job.result()
+    creation = getattr(job, "creation_date", None)
+    return {
+        "fertig": True,
+        "status": status,
+        "counts": _sampler_counts(ergebnis),
+        "tags": list(getattr(job, "tags", None) or []),
+        "backend": backend,
         "creation_date": str(creation) if creation else None,
     }
 
@@ -508,7 +580,20 @@ def ziehe(rahmen_items: Sequence[str], k: int, quelle: EntropieQuelle, *,
 
     commitment = rahmen_commitment(eindeutig)
     ergebnis = quelle.hole_bits(commitment, min_bits)
-    seed = konditioniere(commitment, ergebnis.roh_bits)
+    return _nachweis_bauen(eindeutig, k_eff, commitment, ergebnis.roh_bits,
+                           ergebnis.entropie, gezogen_am)
+
+
+def _nachweis_bauen(eindeutig: list[str], k_eff: int, commitment: str,
+                    roh_bits: bytes, entropie: dict[str, Any],
+                    gezogen_am: str | None) -> dict[str, Any]:
+    """Ableitungskette Roh-Bits → Seed → Fisher-Yates → Nachweis-Dict (v1).
+
+    Gemeinsamer Schlussschritt von ``ziehe`` (synchron) und ``qpu_los_abholen``
+    (Job-Abholen-API): beide MÜSSEN bit-identische Nachweise bauen — sonst
+    hinge das Los davon ab, ob synchron gewartet oder später abgeholt wurde.
+    """
+    seed = konditioniere(commitment, roh_bits)
     stichprobe = mische_deterministisch(eindeutig, seed)[:k_eff]
 
     if gezogen_am is None:
@@ -521,9 +606,88 @@ def ziehe(rahmen_items: Sequence[str], k: int, quelle: EntropieQuelle, *,
         "rahmen": {"commitment": commitment, "n": len(eindeutig)},
         "k": k_eff,
         "stichprobe": stichprobe,
-        "entropie": dict(ergebnis.entropie),
+        "entropie": dict(entropie),
         "ableitung": {"extraktor": "hmac-sha256", "drbg": "sha256-ctr"},
     }
+
+
+# --- 4b. Ziehung über die Job-Abholen-API (zustandslos, QPU) --------------------
+# Die Engine-API (/v1/los/*) wartet nicht minutenlang auf die IBM-Queue und
+# hält KEIN Job-Registry: ``qpu_los_starten`` reicht nur ein, ``qpu_los_abholen``
+# rekonstruiert die komplette Ziehung aus job_id + rahmen + k. Möglich, weil
+# das Protokoll deterministisch ist: Commitment kommt aus dem Rahmen, Roh-Bits
+# kommen über die IBM-Job-API, der Rest ist nachrechenbare Ableitung — ein
+# später abgeholter Nachweis ist bit-identisch zu einem synchron gewarteten.
+
+def qpu_los_starten(rahmen_items: Sequence[str], k: int, *, n_qubits: int = 8,
+                    shots: int | None = None, backend_name: str | None = None,
+                    service=None,
+                    job_einreichen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Reicht den QPU-Job einer Ziehung ein, OHNE auf Counts zu warten.
+
+    Validierung/Commitment/Shots exakt wie der synchrone Pfad (``ziehe`` mit
+    ``QPUQuelle``); die Bindung Job↔Rahmen bleibt unverändert: Tags
+    ``["quantenlos", commitment[:32]]`` + RZ-Schicht im Schaltkreis.
+    Liefert {"job_id", "backend", "commitment", "k"} — alles, was der
+    Aufrufer zum späteren Abholen braucht, trägt er selbst (kein Engine-State).
+    """
+    eindeutig = rahmen_normalisieren(rahmen_items)
+    if k < 1:
+        raise QuantenlosFehler(f"k muss >= 1 sein (bekommen: {k}).")
+    commitment = rahmen_commitment(eindeutig)
+    shots_eff = max(shots or 4096, math.ceil(MIN_ROH_BITS / n_qubits))
+    lauf = (job_einreichen or _qpu_job_einreichen)(
+        commitment=commitment, n_qubits=n_qubits, shots=shots_eff,
+        backend_name=backend_name, service=service)
+    return {"job_id": lauf["job_id"], "backend": lauf.get("backend"),
+            "commitment": commitment, "k": min(k, len(eindeutig))}
+
+
+def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
+                    gezogen_am: str | None = None, service=None,
+                    job_holen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Holt einen eingereichten QPU-Job ab und REKONSTRUIERT die Ziehung.
+
+    Zustandslos: Commitment und Stichprobe entstehen komplett neu aus
+    job_id + rahmen + k — die Engine hat sich nichts gemerkt. Läuft der Job
+    noch → ``{"status": "wartet", …}``; ist er fertig → ``{"status": "fertig",
+    "nachweis": …, "roh_bits_hex": …}`` (Nachweis bit-identisch zum synchronen
+    Pfad, s. ``_nachweis_bauen``).
+
+    Die Tag-Bindung wird HART geprüft: ein Job, dessen Tags nicht das
+    Commitment DIESES Rahmens tragen, wird nie zum Nachweis
+    (``QuantenlosBindungsFehler``) — sonst könnte ein Aufrufer nachträglich
+    einen „passenderen" fremden Job unterschieben.
+    """
+    eindeutig = rahmen_normalisieren(rahmen_items)
+    if k < 1:
+        raise QuantenlosFehler(f"k muss >= 1 sein (bekommen: {k}).")
+    k_eff = min(k, len(eindeutig))
+    commitment = rahmen_commitment(eindeutig)
+
+    lauf = (job_holen or _qpu_job_holen)(job_id, service=service)
+    if not lauf.get("fertig"):
+        return {"status": "wartet", "job_id": job_id, "backend": lauf.get("backend"),
+                "commitment": commitment, "k": k_eff}
+
+    if commitment[:32] not in (lauf.get("tags") or []):
+        raise QuantenlosBindungsFehler(
+            f"IBM-Job {job_id} trägt nicht das Commitment-Tag dieses Rahmens — "
+            "der Job gehört zu einem anderen (oder veränderten) Rahmen.")
+
+    roh = _kanonische_counts_bytes(lauf["counts"])
+    entropie = {
+        "quelle_klasse": QPUQuelle.quelle_klasse,
+        "backend": lauf.get("backend"),
+        "job_id": job_id,
+        "job_tags": list(lauf.get("tags") or []),
+        "creation_date": lauf.get("creation_date"),
+        "roh_counts_sha256": _sha256_hex(roh),
+    }
+    return {"status": "fertig",
+            "nachweis": _nachweis_bauen(eindeutig, k_eff, commitment, roh,
+                                        entropie, gezogen_am),
+            "roh_bits_hex": roh.hex()}
 
 
 # --- 5. Prüfung ----------------------------------------------------------------

@@ -91,6 +91,18 @@ def _llm_url_anzeige(url: str | None) -> str | None:
     return f"{u.hostname}:{u.port}" if u.port else u.hostname
 
 
+# Fehlertext für /v1/los/* mit backend=qpu ohne IBM-Zugang (503): nennt beide
+# Abhilfen (Credentials hinterlegen ODER bewusst anderes Backend) UND den
+# Install-Hinweis — bewusst KEINE stille Degradation auf lokalen Zufall
+# (Attestierungs-Anspruch des Quantenlos, s. quantenlos.py-Docstring).
+_IBM_CREDENTIALS_FEHLEN = (
+    "backend=qpu braucht IBM-Quantum-Credentials (~/.qiskit/qiskit-ibm.json oder "
+    "QISKIT_IBM_TOKEN) — Zugang hinterlegen (QiskitRuntimeService.save_account) "
+    "oder das Backend bewusst anders wählen (simulator|csprng); stille Degradation "
+    "auf lokalen Zufall gibt es nicht. Quanten-Extras: "
+    'pip install "risk-layer[quanten]".')
+
+
 # ---------------------------------------------------------------------------
 # Serverzustand
 # ---------------------------------------------------------------------------
@@ -435,6 +447,79 @@ class Anwendung:
         bericht = radar_bericht(alt, self.graph, store, self.katalog,
                                 erstellt_am=datetime.now().isoformat(timespec="seconds"))
         return {**bericht, "vergleichsstand": True}
+
+    # -- Quantenlos (über /v1/los/*): beweisbar blinde Stichprobe -----------
+    def los_ziehen(self, rahmen: list[str], k: int, backend: str) -> dict[str, Any]:
+        """Quantenlos-Ziehung (quantenlos.ziehe): zustandslos — der Nachweis
+        geht an den Host (der ihn in SEINE Audit-Chain legt), die Engine merkt
+        sich NICHTS (kein Nachweis-Archiv, kein Job-Registry).
+
+        ``backend`` kommt validiert aus api_v1 und ist dort PFLICHT: der Host
+        wählt die Entropie-Quelle bewusst (Attestierungs-Anspruch, s.
+        quantenlos-Modul-Docstring — stille Degradation qpu→csprng gibt es
+        nicht). qpu reicht den Job nur EIN (→ status:wartet + job_id; Abholen
+        über ``los_abholen``); simulator/csprng liefern sofort status:fertig.
+
+        ``roh_bits_hex`` liegt der fertig-Antwort additiv bei: der Host
+        archiviert die Roh-Bits NEBEN dem Nachweis (wie die CLI ihre
+        ``.rohbits.hex``) und kann die volle Ableitungskette später offline
+        nachrechnen (``los_pruefen`` mit roh_bits) — die Engine hebt nichts auf.
+
+        Fehlerform ``{"ok": False, "fehler": …}``: fehlende Quanten-Extras
+        bzw. backend=qpu ohne IBM-Credentials — api_v1 mappt das auf 503
+        (fehlende Betriebsvoraussetzung, Muster /v1/radar ohne Graph)."""
+        from . import quantenlos as Q
+        try:
+            if backend == "qpu":
+                if not Q.ibm_credentials_vorhanden():
+                    return {"ok": False, "fehler": _IBM_CREDENTIALS_FEHLEN}
+                start = Q.qpu_los_starten(rahmen, k)
+                return {"ok": True, "status": "wartet", **start}
+            quelle: Q.EntropieQuelle = (Q.SimulatorQuelle() if backend == "simulator"
+                                        else Q.CsprngQuelle())
+            nachweis = Q.ziehe(rahmen, k, quelle)
+        except Q.QuantenlosFehler as exc:
+            # Nach der api_v1-Form-Validierung (rahmen/k/backend) bleibt hier
+            # nur eine Fehlerquelle: Quanten-Extras nicht installiert → 503.
+            return {"ok": False, "fehler": str(exc)}
+        return {"ok": True, "status": "fertig", "nachweis": nachweis,
+                "roh_bits_hex": (quelle.letzte_roh_bits or b"").hex()}
+
+    def los_abholen(self, job_id: str, rahmen: list[str], k: int) -> dict[str, Any]:
+        """Holt eine qpu-Ziehung ab — REKONSTRUIERT statt nachgeschlagen.
+
+        Kein Job-Registry (Zustandslosigkeit): quantenlos.qpu_los_abholen baut
+        Commitment + Stichprobe komplett neu aus job_id + rahmen + k; die
+        Bindung Job↔Rahmen sichern die Commitment-Tags des IBM-Jobs. Läuft der
+        Job noch → status:wartet (Host pollt erneut), fertig → status:fertig
+        mit Nachweis (bit-identisch zum synchronen Pfad) + roh_bits_hex.
+
+        Fehlerformen: ``bindung_verletzt: true`` = der Job gehört nicht zu
+        diesem Rahmen (Client-Fehler → api_v1: 400, strukturell statt
+        Fehlertext-Parsing); sonst fehlende Betriebsvoraussetzung → 503."""
+        from . import quantenlos as Q
+        if not Q.ibm_credentials_vorhanden():
+            return {"ok": False, "fehler": _IBM_CREDENTIALS_FEHLEN}
+        try:
+            res = Q.qpu_los_abholen(job_id, rahmen, k)
+        except Q.QuantenlosBindungsFehler as exc:
+            return {"ok": False, "fehler": str(exc), "bindung_verletzt": True}
+        except Q.QuantenlosFehler as exc:
+            return {"ok": False, "fehler": str(exc)}
+        return {"ok": True, **res}
+
+    def los_pruefen(self, nachweis: dict[str, Any], rahmen: list[str], *,
+                    roh_bits: bytes | None = None,
+                    online: bool = False) -> dict[str, Any]:
+        """Nachweis gegen die Rahmenliste nachrechnen (quantenlos.pruefe).
+
+        Wirft nie für widersprüchliche Nachweise — ein Widerspruch ist
+        ``gueltig: false`` mit benannten Befunden, kein HTTP-Fehler (die
+        Prüfung HAT stattgefunden). ``online=True`` holt die Job-Counts über
+        die IBM-Job-ID erneut; eine NICHT durchführbare Online-Prüfung (kein
+        Token/Netz) ist per Protokoll-Semantik ein Hinweis, kein Fehlschlag."""
+        from . import quantenlos as Q
+        return Q.pruefe(nachweis, rahmen, roh_bits, online=online)
 
     # -- Schicht-2-LLM-Steuerung (über /v1/llm/*) ---------------------------
     def _modell_pfad(self) -> str | None:

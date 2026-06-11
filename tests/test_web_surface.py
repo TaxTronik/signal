@@ -32,6 +32,18 @@ def _get(url, token=None):
         return e.code, e.read()
 
 
+def _post(url, body: bytes, token=None):
+    req = urllib.request.Request(url, data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
 def test_ist_loopback():
     assert _ist_loopback("127.0.0.1") and _ist_loopback("localhost") and _ist_loopback("::1")
     assert _ist_loopback("127.0.0.5")        # ganzes 127.0.0.0/8
@@ -258,6 +270,33 @@ def test_neuer_token_loggt_kein_rotationsfenster(tmp_path, monkeypatch, caplog):
         with caplog.at_level(logging.INFO, logger="risk_layer.web"):
             assert _get(f"{base}/v1/health", token="neu")[0] == 200
         assert not any("Rotationsfenster" in r.getMessage() for r in caplog.records)
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+# -- /v1/los/* (Quantenlos): auth-pflichtig + echter HTTP-Roundtrip ----------
+
+def test_v1_los_braucht_token_und_liefert_nachweis(tmp_path, monkeypatch):
+    # /v1/los/* sind auth-pflichtig wie ALLE /v1-Routen (der Nachweis steuert,
+    # WAS geprüft wird — kein anonymer Zugriff). Mit Token läuft der
+    # csprng-Pfad als ECHTER HTTP-Roundtrip durch (Vertrag: fertig-Form),
+    # und der Server legt dabei nichts ab (zustandslos, kein Job-Registry).
+    import json as _json
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        body = _json.dumps({"rahmen": ["a", "b", "c", "d"], "k": 2,
+                            "backend": "csprng"}).encode("utf-8")
+        assert _post(f"{base}/v1/los/ziehen", body)[0] == 401           # ohne Token
+        assert _post(f"{base}/v1/los/abholen", body, token="falsch")[0] == 401
+        assert _post(f"{base}/v1/los/pruefen", body, token="falsch")[0] == 401
+        status, antwort = _post(f"{base}/v1/los/ziehen", body, token="geheim")
+        assert status == 200
+        obj = _json.loads(antwort.decode("utf-8"))
+        assert obj["ok"] is True and obj["status"] == "fertig"
+        assert obj["nachweis"]["k"] == 2 and len(obj["nachweis"]["stichprobe"]) == 2
+        assert list(tmp_path.rglob("*")) == []      # nichts persistiert
     finally:
         httpd.shutdown()
         httpd.server_close()
