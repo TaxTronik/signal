@@ -175,9 +175,10 @@ class FakeSampler:
     def __init__(self):
         self.auftraege = []
 
-    def lauf(self, *, commitment, n_qubits, shots, backend_name=None, service=None):
+    def lauf(self, *, commitment, n_qubits, shots, backend_name=None,
+             service=None, token=None):
         self.auftraege.append({"commitment": commitment, "shots": shots,
-                               "n_qubits": n_qubits})
+                               "n_qubits": n_qubits, "token": token})
         # counts deterministisch ans Commitment gebunden, wie ein echter Job
         basis = hashlib.sha256(commitment.encode()).hexdigest()
         counts = {bin(i)[2:].zfill(n_qubits): int(basis[i], 16) + 1 for i in range(8)}
@@ -210,14 +211,16 @@ def test_pruefe_online_mit_gemocktem_refetch():
     nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
     lauf = fake.lauf(commitment=nachweis["rahmen"]["commitment"], n_qubits=8, shots=64)
 
-    erg = Q.pruefe(nachweis, RAHMEN, online=True, job_abrufen=lambda job_id: lauf)
+    erg = Q.pruefe(nachweis, RAHMEN, online=True,
+                   job_abrufen=lambda job_id, token=None: lauf)
     assert erg["gueltig"] is True
     # Online-Refetch liefert die Roh-Bits → volle Kette inklusive
     assert {"online_counts_hash", "online_job_tags", "ableitungskette"} <= set(erg["geprueft"])
 
     # gefälschte Counts beim Refetch → Hash-Widerspruch → ungültig
     boese = dict(lauf, counts={"00000000": 1})
-    erg = Q.pruefe(nachweis, RAHMEN, online=True, job_abrufen=lambda job_id: boese)
+    erg = Q.pruefe(nachweis, RAHMEN, online=True,
+                   job_abrufen=lambda job_id, token=None: boese)
     assert erg["gueltig"] is False
 
 
@@ -232,7 +235,7 @@ def test_pruefe_online_nicht_moeglich_ist_hinweis():
     fake = FakeSampler()
     nachweis = Q.ziehe(RAHMEN, 5, Q.QPUQuelle(job_ausfuehren=fake.lauf), gezogen_am="t")
 
-    def kaputt(job_id):
+    def kaputt(job_id, token=None):
         raise OSError("Netz weg")
     erg = Q.pruefe(nachweis, RAHMEN, online=True, job_abrufen=kaputt)
     assert erg["gueltig"] is True
@@ -248,6 +251,44 @@ def test_quellen_import_guard_nennt_install_extra(monkeypatch):
         Q.SimulatorQuelle().hole_bits("c0ffee")
     with pytest.raises(Q.QuantenlosFehler, match=r"risk-layer\[quanten\]"):
         Q.QPUQuelle().hole_bits("c0ffee")
+
+
+def test_ibm_credentials_vorhanden_mit_request_token(tmp_path, monkeypatch):
+    """Ein pro Request mitgereichter Token zählt als Zugang — unabhängig von
+    Env und gespeichertem Konto (Maschine hier bewusst 'leer')."""
+    monkeypatch.delenv("QISKIT_IBM_TOKEN", raising=False)
+    monkeypatch.setattr(Q.Path, "home", staticmethod(lambda: tmp_path))
+    assert Q.ibm_credentials_vorhanden() is False
+    assert Q.ibm_credentials_vorhanden("ibm-tok") is True
+    assert Q.ibm_credentials_vorhanden("") is False     # leer = nicht gesetzt
+
+
+def test_runtime_service_mit_token_setzt_channel(monkeypatch):
+    """_runtime_service: expliziter Token → QiskitRuntimeService(channel,
+    token) OHNE save_account; ohne Token → Default-Auflösung (keine Args)."""
+    aufrufe = []
+
+    class FakeService:
+        def __init__(self, **kw):
+            aufrufe.append(kw)
+
+    import types
+    fake_modul = types.SimpleNamespace(QiskitRuntimeService=FakeService)
+    monkeypatch.setitem(sys.modules, "qiskit_ibm_runtime", fake_modul)
+    Q._runtime_service("ibm-tok")
+    Q._runtime_service(None)
+    assert aufrufe == [{"channel": "ibm_quantum_platform", "token": "ibm-tok"}, {}]
+
+
+def test_qpu_quelle_reicht_token_an_ibm_seite_durch():
+    """Token-Threading des synchronen Pfads: QPUQuelle(token=…) erreicht den
+    job_ausfuehren-Seam — von dort baut _runtime_service den Service."""
+    fake = FakeSampler()
+    quelle = Q.QPUQuelle(job_ausfuehren=fake.lauf, token="ibm-tok")
+    nachweis = Q.ziehe(RAHMEN, 3, quelle, gezogen_am="t")
+    assert fake.auftraege[0]["token"] == "ibm-tok"
+    # und der Token steht NIRGENDS im Nachweis (er ist kein Herkunftsdatum)
+    assert "ibm-tok" not in json.dumps(nachweis)
 
 
 def test_drand_quelle_gemockt():
@@ -314,7 +355,7 @@ def test_cli_los_default_backend_ohne_credentials_exit_2(tmp_path, capsys, monke
     """Ohne --backend UND ohne IBM-Credentials: lauter Abbruch mit Anleitung —
     bewusst KEIN stiller Fallback auf lokalen Zufall."""
     import risk_layer.quantenlos as QM
-    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: False)
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: False)
     rc = main(["los", "ziehen", "--rahmen", _rahmen_datei(tmp_path), "--k", "3"])
     assert rc == 2
     err = capsys.readouterr().err
@@ -323,7 +364,7 @@ def test_cli_los_default_backend_ohne_credentials_exit_2(tmp_path, capsys, monke
 
 def test_cli_los_default_backend_mit_credentials_waehlt_qpu(tmp_path, capsys, monkeypatch):
     import risk_layer.quantenlos as QM
-    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: True)
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: True)
     fake = FakeSampler()
     monkeypatch.setattr(QM, "_qpu_job_ausfuehren", fake.lauf)
     rc = main(["los", "ziehen", "--rahmen", _rahmen_datei(tmp_path),

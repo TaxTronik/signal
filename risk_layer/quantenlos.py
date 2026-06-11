@@ -50,6 +50,12 @@ darf nicht leise lokal würfeln. Fehlende Pakete/Credentials sind laute Fehler
 (Install-Hinweis: ``pip install "risk-layer[quanten]"``); die Quelle steht im
 Nachweis (``quelle_klasse``), und Simulator/CSPRNG sagen dort selbst laut,
 dass sie keine Dritt-Attestierung liefern.
+
+IBM-Zugang: entweder pro Aufruf mitgereichter Token (Host-verwaltet, z. B.
+zentral in der Konsolen-Config des Hosts — ``_runtime_service``) oder die
+Maschinen-Auflösung (``QISKIT_IBM_TOKEN`` / gespeichertes Konto). Ein
+mitgereichter Token wird NIE persistiert (kein ``save_account``) und taucht
+in keinem Nachweis, Log oder Fehlertext auf.
 """
 
 from __future__ import annotations
@@ -263,8 +269,26 @@ def _sampler_counts(ergebnis) -> dict[str, int]:
     return dict(feld.get_counts())
 
 
+def _runtime_service(token: str | None = None):
+    """QiskitRuntimeService bauen — mit explizitem Token (pro Request vom Host
+    verwaltet, z. B. zentral in dessen Konsolen-Config) oder über die
+    Default-Auflösung (``QISKIT_IBM_TOKEN`` / gespeichertes Konto).
+
+    Der Token wird NIE persistiert (kein ``save_account``) und wandert nie in
+    Nachweis, Logs oder Fehlertexte — die Engine bleibt zustandslos.
+    """
+    try:
+        from qiskit_ibm_runtime import QiskitRuntimeService
+    except ImportError as exc:
+        raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
+    if token:
+        return QiskitRuntimeService(channel="ibm_quantum_platform", token=token)
+    return QiskitRuntimeService()
+
+
 def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
-                        backend_name: str | None = None, service=None) -> dict[str, Any]:
+                        backend_name: str | None = None, service=None,
+                        token: str | None = None) -> dict[str, Any]:
     """Reicht den Bindungs-Schaltkreis bei IBM Quantum ein, OHNE zu warten.
 
     Liefert {"job", "job_id", "backend", "tags"} — der Submit-Teil von
@@ -274,11 +298,11 @@ def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
     """
     try:
         from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-        from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2
+        from qiskit_ibm_runtime import SamplerV2
     except ImportError as exc:
         raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
 
-    service = service or QiskitRuntimeService()
+    service = service or _runtime_service(token)
     backend = (service.backend(backend_name) if backend_name
                else service.least_busy(operational=True, simulator=False))
     schaltkreis = _baue_schaltkreis(commitment, n_qubits)
@@ -299,7 +323,8 @@ def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
 
 
 def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
-                        backend_name: str | None = None, service=None) -> dict[str, Any]:
+                        backend_name: str | None = None, service=None,
+                        token: str | None = None) -> dict[str, Any]:
     """Reicht den Bindungs-Schaltkreis bei IBM Quantum ein und wartet auf Counts.
 
     Liefert {"counts", "job_id", "backend", "tags", "creation_date"} —
@@ -307,7 +332,7 @@ def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
     (synchroner CLI-/QPUQuelle-Pfad; Tests injizieren hier).
     """
     lauf = _qpu_job_einreichen(commitment=commitment, n_qubits=n_qubits, shots=shots,
-                               backend_name=backend_name, service=service)
+                               backend_name=backend_name, service=service, token=token)
     job = lauf["job"]
     ergebnis = job.result()
     creation = getattr(job, "creation_date", None)
@@ -320,7 +345,8 @@ def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
     }
 
 
-def _qpu_job_holen(job_id: str, *, service=None) -> dict[str, Any]:
+def _qpu_job_holen(job_id: str, *, service=None,
+                   token: str | None = None) -> dict[str, Any]:
     """NICHT-blockierender Job-Abruf (zustandslose Abhol-API, /v1/los/abholen).
 
     Anders als ``_qpu_job_abrufen`` (Prüfpfad: wartet via ``job.result()``)
@@ -329,11 +355,7 @@ def _qpu_job_holen(job_id: str, *, service=None) -> dict[str, Any]:
     Fehl-Endzustände (ERROR/CANCELLED) sind LAUTE Fehler — neu ziehen, statt
     still einen halben Nachweis zu bauen.
     """
-    try:
-        from qiskit_ibm_runtime import QiskitRuntimeService
-    except ImportError as exc:
-        raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
-    service = service or QiskitRuntimeService()
+    service = service or _runtime_service(token)
     job = service.job(job_id)
     roh_status = job.status()
     # RuntimeJobV2 liefert str, ältere Versionen ein JobStatus-Enum — beides
@@ -361,13 +383,10 @@ def _qpu_job_holen(job_id: str, *, service=None) -> dict[str, Any]:
     }
 
 
-def _qpu_job_abrufen(job_id: str, *, service=None) -> dict[str, Any]:
+def _qpu_job_abrufen(job_id: str, *, service=None,
+                     token: str | None = None) -> dict[str, Any]:
     """Holt einen abgeschlossenen IBM-Job erneut (Online-Prüfpfad von ``pruefe``)."""
-    try:
-        from qiskit_ibm_runtime import QiskitRuntimeService
-    except ImportError as exc:
-        raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
-    service = service or QiskitRuntimeService()
+    service = service or _runtime_service(token)
     job = service.job(job_id)
     ergebnis = job.result()
     backend = None
@@ -426,12 +445,14 @@ class QPUQuelle(EntropieQuelle):
 
     def __init__(self, backend_name: str | None = None, n_qubits: int = 8,
                  shots: int | None = None, service=None,
-                 job_ausfuehren: Callable[..., dict[str, Any]] | None = None):
+                 job_ausfuehren: Callable[..., dict[str, Any]] | None = None,
+                 token: str | None = None):
         super().__init__()
         self._backend_name = backend_name
         self._n_qubits = n_qubits
         self._shots = shots
         self._service = service
+        self._token = token
         # Injektionspunkt für Tests (Fake-Sampler): ersetzt NUR die IBM-Seite,
         # Kanonisierung/Nachweisbau bleiben der echte Code.
         self._job_ausfuehren = job_ausfuehren or _qpu_job_ausfuehren
@@ -440,7 +461,7 @@ class QPUQuelle(EntropieQuelle):
         shots = max(self._shots or 4096, math.ceil(min_bits / self._n_qubits))
         lauf = self._job_ausfuehren(commitment=commitment, n_qubits=self._n_qubits,
                                     shots=shots, backend_name=self._backend_name,
-                                    service=self._service)
+                                    service=self._service, token=self._token)
         roh = _kanonische_counts_bytes(lauf["counts"])
         return self._merke(EntropieErgebnis(roh, {
             "quelle_klasse": self.quelle_klasse,
@@ -547,9 +568,13 @@ class DrandQuelle(EntropieQuelle):
         }))
 
 
-def ibm_credentials_vorhanden() -> bool:
-    """IBM-Quantum-Zugang konfiguriert? (Env ``QISKIT_IBM_TOKEN`` oder
-    gespeicherte Credentials ``~/.qiskit/qiskit-ibm.json``)."""
+def ibm_credentials_vorhanden(token: str | None = None) -> bool:
+    """IBM-Quantum-Zugang konfiguriert? Ein pro Request mitgegebener ``token``
+    (Host-verwaltet, s. ``_runtime_service``) zählt; sonst die
+    Maschinen-Auflösung: Env ``QISKIT_IBM_TOKEN`` oder gespeicherte
+    Credentials ``~/.qiskit/qiskit-ibm.json``."""
+    if token:
+        return True
     if os.environ.get("QISKIT_IBM_TOKEN"):
         return True
     return (Path.home() / ".qiskit" / "qiskit-ibm.json").exists()
@@ -621,7 +646,7 @@ def _nachweis_bauen(eindeutig: list[str], k_eff: int, commitment: str,
 
 def qpu_los_starten(rahmen_items: Sequence[str], k: int, *, n_qubits: int = 8,
                     shots: int | None = None, backend_name: str | None = None,
-                    service=None,
+                    service=None, token: str | None = None,
                     job_einreichen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """Reicht den QPU-Job einer Ziehung ein, OHNE auf Counts zu warten.
 
@@ -638,13 +663,14 @@ def qpu_los_starten(rahmen_items: Sequence[str], k: int, *, n_qubits: int = 8,
     shots_eff = max(shots or 4096, math.ceil(MIN_ROH_BITS / n_qubits))
     lauf = (job_einreichen or _qpu_job_einreichen)(
         commitment=commitment, n_qubits=n_qubits, shots=shots_eff,
-        backend_name=backend_name, service=service)
+        backend_name=backend_name, service=service, token=token)
     return {"job_id": lauf["job_id"], "backend": lauf.get("backend"),
             "commitment": commitment, "k": min(k, len(eindeutig))}
 
 
 def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
                     gezogen_am: str | None = None, service=None,
+                    token: str | None = None,
                     job_holen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """Holt einen eingereichten QPU-Job ab und REKONSTRUIERT die Ziehung.
 
@@ -665,7 +691,7 @@ def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
     k_eff = min(k, len(eindeutig))
     commitment = rahmen_commitment(eindeutig)
 
-    lauf = (job_holen or _qpu_job_holen)(job_id, service=service)
+    lauf = (job_holen or _qpu_job_holen)(job_id, service=service, token=token)
     if not lauf.get("fertig"):
         return {"status": "wartet", "job_id": job_id, "backend": lauf.get("backend"),
                 "commitment": commitment, "k": k_eff}
@@ -694,13 +720,17 @@ def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
 
 def pruefe(nachweis: dict[str, Any], rahmen_items: Sequence[str],
            roh_bits: bytes | None = None, *, online: bool = False,
+           token: str | None = None,
            job_abrufen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """Rechnet einen Nachweis gegen die Rahmenliste nach.
 
     Offline immer: Commitment, n, Stichprobe ⊆ Rahmen. Mit ``roh_bits`` (vom
     Aufrufer archiviert) ODER ``online=True`` (Counts via IBM-Job-ID erneut
     abrufen, Hash vergleichen) zusätzlich die volle Ableitungskette
-    Seed → Fisher-Yates → Stichprobe. Eine NICHT durchführbare Online-Prüfung
+    Seed → Fisher-Yates → Stichprobe. ``token`` gibt dem Online-Refetch
+    optional einen IBM-Token pro Aufruf mit (Host-verwaltet, s.
+    ``_runtime_service``); ohne ihn gilt die Maschinen-Auflösung.
+    Eine NICHT durchführbare Online-Prüfung
     (kein Token, Paket fehlt, Netz weg) ist ein Hinweis, kein Fehlschlag —
     ein WIDERSPRUCH in einer durchgeführten Prüfung schlägt fehl.
 
@@ -749,7 +779,7 @@ def pruefe(nachweis: dict[str, Any], rahmen_items: Sequence[str],
                             f"(Quelle: {entropie.get('quelle_klasse')!r}).")
         else:
             try:
-                lauf = (job_abrufen or _qpu_job_abrufen)(job_id)
+                lauf = (job_abrufen or _qpu_job_abrufen)(job_id, token=token)
             except Exception as exc:  # noqa: BLE001 — Netz/Token/Paket: Hinweis, kein Fehlschlag
                 hinweise.append(f"Online-Prüfung nicht möglich ({exc}) — kein Fehlschlag.")
             else:

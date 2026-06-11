@@ -37,7 +37,7 @@ from .berater import REVIEW_REIHENFOLGE
 # /v1/los/abholen rekonstruiert die Ziehung aus job_id+rahmen+k, die Bindung
 # Job↔Rahmen sichern die Commitment-Tags des IBM-Jobs. Keine bestehende
 # Antwort geändert.
-V1_VERSION = "1.3.0"
+V1_VERSION = "1.3.1"
 
 
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -309,13 +309,33 @@ def _los_k(payload: dict[str, Any],
     return k, None
 
 
+def _los_ibm_token(payload: dict[str, Any]) -> tuple[str | None,
+                                                     tuple[int, dict[str, Any]] | None]:
+    """Optionaler IBM-Token pro Request (``ibm_token``, seit 1.3.1).
+
+    Der Host verwaltet den Token zentral (z. B. verschlüsselt in seiner
+    Konsolen-Config) und reicht ihn mit — die Engine bleibt zustandslos:
+    nie gespeichert (kein ``save_account``), nie geloggt, nie in der Antwort.
+    Fehlt das Feld (oder ist leer), gilt die Maschinen-Auflösung
+    (``QISKIT_IBM_TOKEN`` / gespeichertes Konto). Falscher Typ → 400."""
+    token = payload.get("ibm_token")
+    if token is None:
+        return None, None
+    if not isinstance(token, str):
+        return None, (400, {"error": "Feld 'ibm_token' muss ein String sein "
+                                     "(optional — fehlt er, gilt der "
+                                     "Maschinen-Zugang der Engine)"})
+    return token.strip() or None, None
+
+
 def _los_ziehen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/los/ziehen – beweisbar blinde Stichprobe (Quantenlos, Protokoll v1).
 
-    Body: {rahmen: [str,…], k: int, backend: "qpu"|"simulator"|"csprng"}.
-    ``backend`` ist PFLICHT — der Host entscheidet die Entropie-Quelle bewusst
-    (kein stiller Default: wer Attestierung will, sagt qpu; wer lokal würfelt,
-    sagt es laut). Antworten:
+    Body: {rahmen: [str,…], k: int, backend: "qpu"|"simulator"|"csprng",
+    ibm_token?: str}. ``backend`` ist PFLICHT — der Host entscheidet die
+    Entropie-Quelle bewusst (kein stiller Default: wer Attestierung will, sagt
+    qpu; wer lokal würfelt, sagt es laut). ``ibm_token`` ist der optionale,
+    zentral vom Host verwaltete IBM-Zugang (s. ``_los_ibm_token``). Antworten:
       * simulator/csprng → 200 {ok, status:"fertig", nachweis, roh_bits_hex}
       * qpu → 200 {ok, status:"wartet", job_id, backend, commitment, k}
         (Job läuft in der IBM-Queue — Abholen über POST /v1/los/abholen)
@@ -335,7 +355,10 @@ def _los_ziehen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         return 400, {"error": "Feld 'backend' muss qpu|simulator|csprng sein "
                               "(Pflicht — der Host wählt die Entropie-Quelle "
                               "bewusst, kein stiller Default)"}
-    res = app.los_ziehen(rahmen, k, backend)
+    ibm_token, fehler = _los_ibm_token(payload)
+    if fehler:
+        return fehler
+    res = app.los_ziehen(rahmen, k, backend, ibm_token=ibm_token)
     # ok:false hat hier genau eine Klasse: fehlende Betriebsvoraussetzung
     # (Quanten-Extras/IBM-Credentials) → 503 (Muster /v1/radar ohne Graph).
     return (200 if res.get("ok") else 503), {**res, "engineVersion": V1_VERSION}
@@ -344,8 +367,9 @@ def _los_ziehen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 def _los_abholen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/los/abholen – eingereichten qpu-Job abholen (zustandslos).
 
-    Body: {job_id: str, rahmen: [str,…], k: int} — exakt die Werte, die der
-    Host seit /v1/los/ziehen selbst trägt; die Engine hält kein Job-Registry,
+    Body: {job_id: str, rahmen: [str,…], k: int, ibm_token?: str} — exakt die
+    Werte, die der Host seit /v1/los/ziehen selbst trägt (``ibm_token``
+    optional, s. ``_los_ibm_token``); die Engine hält kein Job-Registry,
     sondern REKONSTRUIERT die Ziehung (Commitment aus dem Rahmen, Counts über
     die IBM-Job-API) und prüft die Tag-Bindung Job↔Rahmen hart. Antworten:
     fertig-/wartet-Form wie /v1/los/ziehen; 400 (Form bzw. Job gehört nicht zu
@@ -360,7 +384,10 @@ def _los_abholen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     k, fehler = _los_k(payload, rahmen)
     if fehler:
         return fehler
-    res = app.los_abholen(job_id, rahmen, k)
+    ibm_token, fehler = _los_ibm_token(payload)
+    if fehler:
+        return fehler
+    res = app.los_abholen(job_id, rahmen, k, ibm_token=ibm_token)
     if res.get("ok"):
         return 200, {**res, "engineVersion": V1_VERSION}
     # bindung_verletzt = Client-Fehler (falscher job_id↔rahmen-Mix) → 400;
@@ -372,10 +399,11 @@ def _los_abholen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 def _los_pruefen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/los/pruefen – Nachweis gegen die Rahmenliste nachrechnen.
 
-    Body: {nachweis: {…}, rahmen: [str,…], online?: bool, roh_bits_hex?: str}.
-    Offline immer: Commitment, n, Stichprobe⊆Rahmen. Mit ``roh_bits_hex``
-    (vom Host neben dem Nachweis archiviert) oder ``online:true`` (Counts via
-    IBM-Job-ID erneut abrufen) zusätzlich die volle Ableitungskette.
+    Body: {nachweis: {…}, rahmen: [str,…], online?: bool, roh_bits_hex?: str,
+    ibm_token?: str}. Offline immer: Commitment, n, Stichprobe⊆Rahmen. Mit
+    ``roh_bits_hex`` (vom Host neben dem Nachweis archiviert) oder
+    ``online:true`` (Counts via IBM-Job-ID erneut abrufen; ``ibm_token``
+    optional für den Refetch) zusätzlich die volle Ableitungskette.
     → 200 {ok:true, gueltig: bool, geprueft: […], hinweise: […]} — ein
     WIDERSPRUCH ist gueltig:false (die Prüfung fand statt), kein HTTP-Fehler;
     eine nicht durchführbare Online-Prüfung ist per Protokoll-Semantik ein
@@ -394,8 +422,12 @@ def _los_pruefen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
             roh_bits = bytes.fromhex(str(roh_hex).strip())
         except ValueError:
             return 400, {"error": "Feld 'roh_bits_hex' ist kein gültiger Hex-String"}
+    ibm_token, fehler = _los_ibm_token(payload)
+    if fehler:
+        return fehler
     erg = app.los_pruefen(nachweis, rahmen, roh_bits=roh_bits,
-                          online=bool(payload.get("online", False)))
+                          online=bool(payload.get("online", False)),
+                          ibm_token=ibm_token)
     return 200, {"ok": True, **erg, "engineVersion": V1_VERSION}
 
 

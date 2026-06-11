@@ -96,11 +96,18 @@ def _llm_url_anzeige(url: str | None) -> str | None:
 # Install-Hinweis — bewusst KEINE stille Degradation auf lokalen Zufall
 # (Attestierungs-Anspruch des Quantenlos, s. quantenlos.py-Docstring).
 _IBM_CREDENTIALS_FEHLEN = (
-    "backend=qpu braucht IBM-Quantum-Credentials (~/.qiskit/qiskit-ibm.json oder "
-    "QISKIT_IBM_TOKEN) — Zugang hinterlegen (QiskitRuntimeService.save_account) "
-    "oder das Backend bewusst anders wählen (simulator|csprng); stille Degradation "
+    "backend=qpu braucht IBM-Quantum-Credentials: 'ibm_token' im Request "
+    "mitgeben (zentral vom Host verwaltet) ODER auf der Maschine hinterlegen "
+    "(~/.qiskit/qiskit-ibm.json bzw. QISKIT_IBM_TOKEN) — oder das Backend "
+    "bewusst anders wählen (simulator|csprng); stille Degradation "
     "auf lokalen Zufall gibt es nicht. Quanten-Extras: "
     'pip install "risk-layer[quanten]".')
+
+
+def _ohne_token(text: str, token: str | None) -> str:
+    """Defensiv: ein pro Request übergebener IBM-Token darf NIE in Fehler-
+    oder Hinweistexte durchsickern (sie landen in Logs und in der Host-Chain)."""
+    return text.replace(token, "[ibm_token]") if token else text
 
 
 # ---------------------------------------------------------------------------
@@ -449,7 +456,8 @@ class Anwendung:
         return {**bericht, "vergleichsstand": True}
 
     # -- Quantenlos (über /v1/los/*): beweisbar blinde Stichprobe -----------
-    def los_ziehen(self, rahmen: list[str], k: int, backend: str) -> dict[str, Any]:
+    def los_ziehen(self, rahmen: list[str], k: int, backend: str,
+                   ibm_token: str | None = None) -> dict[str, Any]:
         """Quantenlos-Ziehung (quantenlos.ziehe): zustandslos — der Nachweis
         geht an den Host (der ihn in SEINE Audit-Chain legt), die Engine merkt
         sich NICHTS (kein Nachweis-Archiv, kein Job-Registry).
@@ -465,15 +473,29 @@ class Anwendung:
         ``.rohbits.hex``) und kann die volle Ableitungskette später offline
         nachrechnen (``los_pruefen`` mit roh_bits) — die Engine hebt nichts auf.
 
+        ``ibm_token`` (optional) ist der pro Request mitgereichte IBM-Zugang
+        des Hosts (zentral verwaltet, z. B. Konsolen-Config) — er wird nur an
+        QiskitRuntimeService durchgereicht, nie gespeichert, nie geloggt und
+        via ``_ohne_token`` aus Fehlertexten ferngehalten.
+
         Fehlerform ``{"ok": False, "fehler": …}``: fehlende Quanten-Extras
         bzw. backend=qpu ohne IBM-Credentials — api_v1 mappt das auf 503
-        (fehlende Betriebsvoraussetzung, Muster /v1/radar ohne Graph)."""
+        (fehlende Betriebsvoraussetzung, Muster /v1/radar ohne Graph). Auch
+        Fehler der IBM-Seite selbst (Auth/Netz/SDK) werden hier zur sauberen
+        503-Form statt zum nackten 500 — mit einem Konsolen-Token ist ein
+        ungültiger Token ein erwartbarer Betriebsfall, kein Programmierfehler."""
         from . import quantenlos as Q
         try:
             if backend == "qpu":
-                if not Q.ibm_credentials_vorhanden():
+                if not Q.ibm_credentials_vorhanden(ibm_token):
                     return {"ok": False, "fehler": _IBM_CREDENTIALS_FEHLEN}
-                start = Q.qpu_los_starten(rahmen, k)
+                try:
+                    start = Q.qpu_los_starten(rahmen, k, token=ibm_token)
+                except Q.QuantenlosFehler:
+                    raise
+                except Exception as exc:  # noqa: BLE001 — IBM-Seite (Auth/Netz/SDK)
+                    return {"ok": False, "fehler": _ohne_token(
+                        f"IBM-Quantum-Zugriff fehlgeschlagen: {exc}", ibm_token)}
                 return {"ok": True, "status": "wartet", **start}
             quelle: Q.EntropieQuelle = (Q.SimulatorQuelle() if backend == "simulator"
                                         else Q.CsprngQuelle())
@@ -481,11 +503,12 @@ class Anwendung:
         except Q.QuantenlosFehler as exc:
             # Nach der api_v1-Form-Validierung (rahmen/k/backend) bleibt hier
             # nur eine Fehlerquelle: Quanten-Extras nicht installiert → 503.
-            return {"ok": False, "fehler": str(exc)}
+            return {"ok": False, "fehler": _ohne_token(str(exc), ibm_token)}
         return {"ok": True, "status": "fertig", "nachweis": nachweis,
                 "roh_bits_hex": (quelle.letzte_roh_bits or b"").hex()}
 
-    def los_abholen(self, job_id: str, rahmen: list[str], k: int) -> dict[str, Any]:
+    def los_abholen(self, job_id: str, rahmen: list[str], k: int,
+                    ibm_token: str | None = None) -> dict[str, Any]:
         """Holt eine qpu-Ziehung ab — REKONSTRUIERT statt nachgeschlagen.
 
         Kein Job-Registry (Zustandslosigkeit): quantenlos.qpu_los_abholen baut
@@ -496,30 +519,41 @@ class Anwendung:
 
         Fehlerformen: ``bindung_verletzt: true`` = der Job gehört nicht zu
         diesem Rahmen (Client-Fehler → api_v1: 400, strukturell statt
-        Fehlertext-Parsing); sonst fehlende Betriebsvoraussetzung → 503."""
+        Fehlertext-Parsing); sonst fehlende Betriebsvoraussetzung → 503.
+        ``ibm_token`` wie bei ``los_ziehen``: pro Request, nie persistiert."""
         from . import quantenlos as Q
-        if not Q.ibm_credentials_vorhanden():
+        if not Q.ibm_credentials_vorhanden(ibm_token):
             return {"ok": False, "fehler": _IBM_CREDENTIALS_FEHLEN}
         try:
-            res = Q.qpu_los_abholen(job_id, rahmen, k)
+            res = Q.qpu_los_abholen(job_id, rahmen, k, token=ibm_token)
         except Q.QuantenlosBindungsFehler as exc:
             return {"ok": False, "fehler": str(exc), "bindung_verletzt": True}
         except Q.QuantenlosFehler as exc:
-            return {"ok": False, "fehler": str(exc)}
+            return {"ok": False, "fehler": _ohne_token(str(exc), ibm_token)}
+        except Exception as exc:  # noqa: BLE001 — IBM-Seite (Auth/Netz/SDK) → 503
+            return {"ok": False, "fehler": _ohne_token(
+                f"IBM-Quantum-Zugriff fehlgeschlagen: {exc}", ibm_token)}
         return {"ok": True, **res}
 
     def los_pruefen(self, nachweis: dict[str, Any], rahmen: list[str], *,
                     roh_bits: bytes | None = None,
-                    online: bool = False) -> dict[str, Any]:
+                    online: bool = False,
+                    ibm_token: str | None = None) -> dict[str, Any]:
         """Nachweis gegen die Rahmenliste nachrechnen (quantenlos.pruefe).
 
         Wirft nie für widersprüchliche Nachweise — ein Widerspruch ist
         ``gueltig: false`` mit benannten Befunden, kein HTTP-Fehler (die
         Prüfung HAT stattgefunden). ``online=True`` holt die Job-Counts über
-        die IBM-Job-ID erneut; eine NICHT durchführbare Online-Prüfung (kein
+        die IBM-Job-ID erneut (``ibm_token`` optional pro Request, sonst
+        Maschinen-Auflösung); eine NICHT durchführbare Online-Prüfung (kein
         Token/Netz) ist per Protokoll-Semantik ein Hinweis, kein Fehlschlag."""
         from . import quantenlos as Q
-        return Q.pruefe(nachweis, rahmen, roh_bits, online=online)
+        erg = Q.pruefe(nachweis, rahmen, roh_bits, online=online, token=ibm_token)
+        if ibm_token:
+            # pruefe übernimmt Exception-Texte der IBM-Seite in hinweise[] —
+            # dieselbe Token-Hygiene wie bei den Fehlertexten.
+            erg["hinweise"] = [_ohne_token(h, ibm_token) for h in erg["hinweise"]]
+        return erg
 
     # -- Schicht-2-LLM-Steuerung (über /v1/llm/*) ---------------------------
     def _modell_pfad(self) -> str | None:

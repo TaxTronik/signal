@@ -6,6 +6,7 @@ Sie laufen gegen ``dispatch`` direkt (ohne HTTP-Server), mit einer echten
 """
 
 import hashlib
+import json
 import sys
 
 import pytest
@@ -621,7 +622,7 @@ def test_los_ziehen_k_groesser_n_422(app):
 def test_los_ziehen_qpu_ohne_credentials_503(app, monkeypatch):
     """qpu ohne IBM-Zugang: lauter 503 mit Anleitung — bewusst KEINE stille
     Degradation auf lokalen Zufall (Muster der CLI, Exit 2)."""
-    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: False)
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: False)
     code, obj = dispatch(app, "POST", "/v1/los/ziehen",
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
     assert code == 503 and obj["ok"] is False
@@ -648,19 +649,23 @@ class _FakeQpuSeite:
     def __init__(self):
         self.fertig = True
         self.commitments: dict[str, str] = {}
+        self.tokens: list[str | None] = []      # pro Seam-Aufruf gesehener ibm_token
 
     def counts(self, commitment):
         basis = hashlib.sha256(commitment.encode()).hexdigest()
         return {bin(i)[2:].zfill(8): int(basis[i], 16) + 1 for i in range(8)}
 
-    def einreichen(self, *, commitment, n_qubits, shots, backend_name=None, service=None):
+    def einreichen(self, *, commitment, n_qubits, shots, backend_name=None,
+                   service=None, token=None):
         assert shots * n_qubits >= 512          # MIN_ROH_BITS-Untergrenze gilt auch hier
+        self.tokens.append(token)
         job_id = f"fake-job-{len(self.commitments)}"
         self.commitments[job_id] = commitment
         return {"job_id": job_id, "backend": "fake_torino",
                 "tags": ["quantenlos", commitment[:32]]}
 
-    def holen(self, job_id, *, service=None):
+    def holen(self, job_id, *, service=None, token=None):
+        self.tokens.append(token)
         if not self.fertig:
             return {"fertig": False, "status": "QUEUED", "backend": "fake_torino"}
         c = self.commitments[job_id]
@@ -672,7 +677,7 @@ class _FakeQpuSeite:
 @pytest.fixture()
 def fake_qpu(monkeypatch):
     fake = _FakeQpuSeite()
-    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: True)
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: True)
     monkeypatch.setattr(QM, "_qpu_job_einreichen", fake.einreichen)
     monkeypatch.setattr(QM, "_qpu_job_holen", fake.holen)
     return fake
@@ -744,7 +749,7 @@ def test_los_abholen_form_und_credentials(app, monkeypatch):
                          {"rahmen": ["a", "b"], "k": 1}, {})
     assert code == 400 and "job_id" in obj["error"]
     # ohne IBM-Credentials kann nichts abgeholt werden → 503
-    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda: False)
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: False)
     code, obj = dispatch(app, "POST", "/v1/los/abholen",
                          {"job_id": "j1", "rahmen": ["a", "b"], "k": 1}, {})
     assert code == 503 and obj["ok"] is False and "Credentials" in obj["fehler"]
@@ -821,6 +826,79 @@ def test_los_pruefen_form_validierung_400(app):
                          {"nachweis": {"x": 1}, "rahmen": ["a"],
                           "roh_bits_hex": "zz"}, {})
     assert code == 400 and "roh_bits_hex" in obj["error"]
+
+
+def test_los_ibm_token_pro_request_wird_durchgereicht(app, fake_qpu, monkeypatch):
+    """ibm_token im Body (zentral vom Host verwaltet, seit 1.3.1): zählt als
+    Credentials AUCH ohne Maschinen-Zugang, erreicht die IBM-Seams — und
+    taucht in keiner Antwort auf (die Engine speichert/echot ihn nie)."""
+    # Maschine ohne Zugang: nur der mitgereichte Token zählt (echte Semantik
+    # von ibm_credentials_vorhanden, nicht das pauschale True der Fixture).
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: bool(token))
+    code, start = dispatch(app, "POST", "/v1/los/ziehen",
+                           {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu",
+                            "ibm_token": "ibm-tok-geheim"}, {})
+    assert code == 200 and start["status"] == "wartet"
+    assert fake_qpu.tokens == ["ibm-tok-geheim"]
+    assert "ibm-tok-geheim" not in json.dumps(start)
+
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": start["job_id"], "rahmen": _LOS_RAHMEN,
+                          "k": 3, "ibm_token": "ibm-tok-geheim"}, {})
+    assert code == 200 and obj["status"] == "fertig"
+    assert fake_qpu.tokens == ["ibm-tok-geheim"] * 2
+    assert "ibm-tok-geheim" not in json.dumps(obj)
+
+    # pruefen online: Token erreicht den Refetch-Seam (_qpu_job_abrufen)
+    gesehen = []
+
+    def abrufen(job_id, token=None):
+        gesehen.append(token)
+        return {"counts": fake_qpu.counts(start["commitment"]),
+                "tags": ["quantenlos", start["commitment"][:32]],
+                "backend": "fake_torino", "creation_date": None}
+    monkeypatch.setattr(QM, "_qpu_job_abrufen", abrufen)
+    code, erg = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": obj["nachweis"], "rahmen": _LOS_RAHMEN,
+                          "online": True, "ibm_token": "ibm-tok-geheim"}, {})
+    assert code == 200 and erg["gueltig"] is True
+    assert gesehen == ["ibm-tok-geheim"]
+    assert "ibm-tok-geheim" not in json.dumps(erg)
+
+
+def test_los_ibm_token_form(app, monkeypatch):
+    """Falscher Typ → 400; leerer String zählt als 'nicht gesetzt' (dann
+    entscheidet wie bisher der Maschinen-Zugang → ohne ihn 503)."""
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": ["a", "b"], "k": 1, "backend": "qpu",
+                          "ibm_token": 123}, {})
+    assert code == 400 and "ibm_token" in obj["error"]
+
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: bool(token))
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": ["a", "b"], "k": 1, "backend": "qpu",
+                          "ibm_token": "  "}, {})
+    assert code == 503 and obj["ok"] is False and "Credentials" in obj["fehler"]
+    # und der 503-Text nennt die neue Abhilfe (Token pro Request)
+    assert "ibm_token" in obj["fehler"]
+
+
+def test_los_ziehen_ibm_fehler_503_ohne_token_im_text(app, monkeypatch):
+    """Die IBM-Seite scheitert (z. B. ungültiger Token): saubere 503-Form
+    statt nackter 500 — und der mitgereichte Token steht NIE im Fehlertext
+    (er landet sonst in Logs und in der Audit-Chain des Hosts)."""
+    monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: True)
+
+    def kaputt(**kw):
+        raise RuntimeError(f"401 Unauthorized: token {kw.get('token')} invalid")
+    monkeypatch.setattr(QM, "_qpu_job_einreichen", kaputt)
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen",
+                         {"rahmen": _LOS_RAHMEN, "k": 2, "backend": "qpu",
+                          "ibm_token": "ibm-tok-geheim"}, {})
+    assert code == 503 and obj["ok"] is False
+    assert "IBM-Quantum-Zugriff fehlgeschlagen" in obj["fehler"]
+    assert "ibm-tok-geheim" not in json.dumps(obj)
+    assert "[ibm_token]" in obj["fehler"]
 
 
 def test_los_routen_falsche_methode_405(app):

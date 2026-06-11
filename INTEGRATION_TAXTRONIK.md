@@ -414,12 +414,19 @@ Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
    (§ 203; der Rahmen verlässt die Engine-Antwort auch nicht: der Nachweis
    trägt nur Commitment + Stichprobe). Reihenfolge/Duplikate sind egal
    (Commitment ist ordnungs-invariant, n zählt eindeutige Items).
-2. `POST /v1/los/ziehen` `{rahmen, k, backend}` — `simulator|csprng` antworten
-   sofort `fertig`; `qpu` reicht den Job nur ein und antwortet `wartet` +
+2. `POST /v1/los/ziehen` `{rahmen, k, backend, ibm_token?}` — `simulator|csprng`
+   antworten sofort `fertig`; `qpu` reicht den Job nur ein und antwortet `wartet` +
    `job_id` (IBM-Queue: Minuten). Dann `POST /v1/los/abholen`
-   `{job_id, rahmen, k}` pollen, bis `fertig` kommt — die Engine merkt sich
-   nichts, der Host trägt `job_id`+`rahmen`+`k` selbst; die Bindung Job↔Rahmen
+   `{job_id, rahmen, k, ibm_token?}` pollen, bis `fertig` kommt — die Engine merkt
+   sich nichts, der Host trägt `job_id`+`rahmen`+`k` selbst; die Bindung Job↔Rahmen
    prüfen die Commitment-Tags des IBM-Jobs (fremder Job → 400).
+   **`ibm_token` (optional, seit `1.3.1`):** der IBM-Quantum-Zugang, zentral vom
+   Host verwaltet (TaxTronik: verschlüsselt in der Konsolen-Config) und pro
+   Request mitgereicht — die Engine persistiert ihn NIE (kein `save_account`),
+   loggt ihn nie und hält ihn aus allen Fehler-/Hinweistexten heraus. Fehlt das
+   Feld, gilt die Maschinen-Auflösung der Engine (`QISKIT_IBM_TOKEN` bzw.
+   `~/.qiskit/qiskit-ibm.json`). Transport nur über den ohnehin
+   authentifizierten internen Engine-Kanal (`RISK_LAYER_TOKEN`, internes Netz).
 3. **Nachweis IN DIE CHAIN legen** (AuditLog/`rawResult`-Muster), das
    `roh_bits_hex` daneben archivieren (macht die volle Ableitungskette später
    **offline** nachrechenbar, ohne IBM-Refetch).
@@ -427,7 +434,8 @@ Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
    (§ 3C) — die Engine erzeugt keine Aufgaben und auditiert nicht.
 5. `POST /v1/los/pruefen` **jederzeit** (auch Jahre später, auch durch Dritte):
    `{nachweis, rahmen}` offline; `+ roh_bits_hex` = volle Kette;
-   `+ online:true` = Counts via IBM-Job-ID frisch abrufen + Tag-Bindung prüfen.
+   `+ online:true` = Counts via IBM-Job-ID frisch abrufen + Tag-Bindung prüfen
+   (`ibm_token?` auch hier pro Request möglich, sonst Maschinen-Zugang).
 
 ```jsonc
 // POST /v1/los/ziehen  {"rahmen": ["text_hash:…", …], "k": 5, "backend": "qpu"}
@@ -462,8 +470,11 @@ Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
 `bindung_verletzt: true`); `422` (`k` > n eindeutige Items); `503`
 `{ok:false, fehler}` als fehlende Betriebsvoraussetzung: Quanten-Extras nicht
 installiert (`pip install "risk-layer[quanten]"`) bzw. `backend:"qpu"` ohne
-IBM-Credentials (`~/.qiskit/qiskit-ibm.json` oder `QISKIT_IBM_TOKEN`) — der
-`fehler`-Text nennt die Abhilfe. Eine **nicht durchführbare** Online-Prüfung
+IBM-Credentials (weder `ibm_token` im Request noch Maschinen-Zugang
+`~/.qiskit/qiskit-ibm.json`/`QISKIT_IBM_TOKEN`) — der `fehler`-Text nennt die
+Abhilfe; auch ein Scheitern der IBM-Seite selbst (ungültiger Token, Netz) ist
+eine saubere 503-`{ok:false, fehler}`-Form, nie ein nackter 500, und der
+mitgereichte Token steht nie im Text. Eine **nicht durchführbare** Online-Prüfung
 (Netz/Token weg) ist dagegen bewusst nur ein `hinweise[]`-Eintrag, kein
 Fehlschlag — ein **Widerspruch** in einer durchgeführten Prüfung ist
 `gueltig:false`.
