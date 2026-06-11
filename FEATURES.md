@@ -314,6 +314,22 @@ RSS/Abgleich, **Radar/Manifest-Rotation**, Review-Lebenszyklus, AO-Fälle).
 
 ---
 
+## 12. Quantenlos — beweisbar blinde Stichprobe ✅
+
+Manipulationssichere Stichprobenziehung für Compliance-Reviews
+(`risk_layer/quantenlos.py`, CLI `risk-layer los ziehen|pruefen`): der
+Prüf-Rahmen (nur IDs/Hashes, § 203-sauber) wird als **Merkle-Root committet,
+bevor Entropie existiert**; ein IBM-Quantenrechner liefert frische Messbits
+(Job-Tags + RZ-Schicht binden den Job sichtbar an das Commitment), HMAC-
+Konditionierung + deterministisches Fisher-Yates machen jede Ziehung aus dem
+Nachweis-JSON **bit-genau nachrechenbar**. Ehrlichkeits-Rahmen: kein
+Rechenvorteil — der Quantenrechner liefert Frische, Dritt-Attestierung
+(IBM-Job-ID als „Entropie-Notar") und physikalische Entropie, NICHT die volle
+Aaronson-Zertifizierung gegen böswillige Hardware. Fallbacks ehrlich gelabelt
+(`simulator`, `csprng_fallback`, drand-Beacon). Extra: `pip install ".[quanten]"`.
+
+---
+
 ## Offene Punkte / Ausbau 📌
 
 - **Scope-Quelle im Produkt:** Der Zielpfad ist Scope+Rerank. Produktiv soll der

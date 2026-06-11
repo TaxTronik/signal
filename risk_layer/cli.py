@@ -610,6 +610,98 @@ def _cmd_abgleich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_los(args: argparse.Namespace) -> int:
+    """Quantenlos: beweisbar blinde Stichprobe ziehen/prüfen (s. quantenlos.py).
+
+    Exit-Codes: 0 = ok/gültig, 1 = Nachweis ungültig ('pruefen'), 2 = Fehler
+    (Konvention dieser CLI). Default-Backend 'qpu' NUR wenn IBM-Credentials
+    vorhanden — sonst lauter Abbruch statt stiller Degradation auf lokalen
+    Zufall (der Attestierungs-Anspruch des Moduls, s. Modul-Docstring).
+    """
+    import json as _json
+    from . import quantenlos as Q
+
+    try:
+        zeilen = _lies_text(args.rahmen)
+    except OSError as exc:
+        print(f"Rahmen-Fehler: {args.rahmen}: {exc}", file=sys.stderr)
+        return 2
+    items = [z.strip() for z in zeilen.splitlines() if z.strip()]
+
+    if args.aktion == "ziehen":
+        if args.k is None:
+            print("Quantenlos-Fehler: 'ziehen' braucht --k N.", file=sys.stderr)
+            return 2
+        backend = args.backend
+        if backend is None:
+            if Q.ibm_credentials_vorhanden():
+                backend = "qpu"
+            else:
+                print("Quantenlos-Fehler: keine IBM-Credentials gefunden "
+                      "(~/.qiskit/qiskit-ibm.json oder QISKIT_IBM_TOKEN). "
+                      "Entweder Zugang hinterlegen (QiskitRuntimeService."
+                      "save_account) oder Backend EXPLIZIT wählen "
+                      "(--backend simulator|csprng) — stille Degradation auf "
+                      "lokalen Zufall gibt es bewusst nicht.", file=sys.stderr)
+                return 2
+        quelle: Q.EntropieQuelle = {"qpu": Q.QPUQuelle, "simulator": Q.SimulatorQuelle,
+                                    "csprng": Q.CsprngQuelle}[backend]()
+        try:
+            nachweis = Q.ziehe(items, args.k, quelle, gezogen_am=args.zeitstempel)
+        except Q.QuantenlosFehler as exc:
+            print(f"Quantenlos-Fehler: {exc}", file=sys.stderr)
+            return 2
+        hinweis = (nachweis.get("entropie") or {}).get("hinweis")
+        if hinweis:
+            print(f"Hinweis: {hinweis}", file=sys.stderr)
+        # stdout maschinenrein: NUR der Nachweis (sortierte Keys, diffbar) —
+        # Meldungen auf stderr (Konvention wie 'radar --json').
+        nachweis_json = _json.dumps(nachweis, ensure_ascii=False, sort_keys=True, indent=2)
+        print(nachweis_json)
+        if args.nachweis_dir:
+            from .persistenz import atomar_schreiben
+            from .sicherung import zeitstempel_dateiname
+            stamm = f"quantenlos_{zeitstempel_dateiname(nachweis['gezogen_am'])}"
+            pfad = Path(args.nachweis_dir) / f"{stamm}.json"
+            atomar_schreiben(pfad, nachweis_json + "\n")
+            print(f"Nachweis: {pfad}", file=sys.stderr)
+            # Roh-Bits daneben archivieren: macht die VOLLE Kette später
+            # offline nachprüfbar (los pruefen --roh-bits), ohne IBM-Refetch.
+            if quelle.letzte_roh_bits is not None:
+                roh_pfad = Path(args.nachweis_dir) / f"{stamm}.rohbits.hex"
+                atomar_schreiben(roh_pfad, quelle.letzte_roh_bits.hex() + "\n")
+                print(f"Roh-Bits: {roh_pfad}", file=sys.stderr)
+        return 0
+
+    # pruefen
+    if not args.nachweis:
+        print("Quantenlos-Fehler: 'pruefen' braucht einen NACHWEIS-Pfad "
+              "(risk-layer los pruefen NACHWEIS --rahmen DATEI).", file=sys.stderr)
+        return 2
+    try:
+        nachweis = _json.loads(Path(args.nachweis).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"Nachweis-Fehler: {args.nachweis}: {exc}", file=sys.stderr)
+        return 2
+    roh_bits = None
+    if args.roh_bits:
+        try:
+            roh_bits = bytes.fromhex(Path(args.roh_bits).read_text(encoding="utf-8").strip())
+        except (OSError, ValueError) as exc:
+            print(f"Roh-Bits-Fehler: {args.roh_bits}: {exc}", file=sys.stderr)
+            return 2
+    try:
+        ergebnis = Q.pruefe(nachweis, items, roh_bits, online=args.online)
+    except Q.QuantenlosFehler as exc:
+        print(f"Quantenlos-Fehler: {exc}", file=sys.stderr)
+        return 2
+    print(f"gültig: {'ja' if ergebnis['gueltig'] else 'NEIN'}")
+    print(f"geprüft: {', '.join(ergebnis['geprueft']) or '—'}")
+    for h in ergebnis["hinweise"]:
+        print(f"  Hinweis: {h}")
+    return 0 if ergebnis["gueltig"] else 1
+
+
 def _cmd_zitat(args: argparse.Namespace) -> int:
     text = " ".join(args.zitat)
     if args.urteil:
@@ -698,6 +790,36 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--no-fetch", action="store_true", help="nicht ins Netz (nur Zustand)")
     ab.add_argument("--alle", action="store_true", help="auch bereits gesehene Einträge")
     ab.set_defaults(func=_cmd_abgleich)
+
+    lo = sub.add_parser(
+        "los",
+        help="Quantenlos: manipulationssichere Stichprobe ziehen/prüfen "
+             "(Quanten-Entropie als unabhängiger Notar)",
+        description="Zieht eine nachrechenbar blinde Stichprobe aus einem "
+                    "committeten Rahmen (eine ID je Zeile — IDs/Hashes, nie "
+                    "Inhalte) bzw. prüft einen Nachweis dagegen. Backend 'qpu' "
+                    "(IBM Quantum) liefert Frische + Dritt-Attestierung via "
+                    "Job-ID; 'simulator'/'csprng' sind ehrlich gelabelte "
+                    "Test-/Fallback-Pfade ohne Notar (s. risk_layer/quantenlos.py).")
+    lo.add_argument("aktion", choices=["ziehen", "pruefen"])
+    lo.add_argument("nachweis", nargs="?", help="Nachweis-JSON (nur 'pruefen')")
+    lo.add_argument("--rahmen", required=True,
+                    help="Rahmendatei (eine ID je Zeile) oder '-' für stdin")
+    lo.add_argument("--k", type=int, help="Stichprobengröße (nur 'ziehen')")
+    lo.add_argument("--backend", choices=["qpu", "simulator", "csprng"],
+                    help="Entropie-Quelle (Default: qpu, wenn IBM-Credentials "
+                         "vorhanden — sonst Abbruch statt stiller Degradation)")
+    lo.add_argument("--nachweis-dir",
+                    help="Verzeichnis für datierte Nachweis-Archive: schreibt "
+                         "quantenlos_<zeitstempel>.json + .rohbits.hex dorthin")
+    lo.add_argument("--zeitstempel", help="Fester ISO-Zeitstempel (reproduzierbare Läufe)")
+    lo.add_argument("--online", action="store_true",
+                    help="'pruefen': Job-Counts via IBM-Job-ID erneut abrufen "
+                         "und Hash/Tags vergleichen (volle Kette ohne lokale Roh-Bits)")
+    lo.add_argument("--roh-bits",
+                    help="'pruefen': Hex-Datei mit archivierten Roh-Bits "
+                         "(volle Offline-Kette ohne Netz)")
+    lo.set_defaults(func=_cmd_los)
 
     z = sub.add_parser("zitat", help="Norm-/Entscheidungszitat → kanonische ID")
     z.add_argument("zitat", nargs="+", help="z. B. '§ 2 Abs. 2 Nr. 2 UStG'")
