@@ -66,7 +66,15 @@ ok()      { printf "${G}  [ok] %s${N}\n" "$1"; }
 PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
 cli()   { printf "${D}  > %s -m risk_layer.cli %s${N}\n" "$PY" "$*"; "$PY" -m risk_layer.cli "$@"; }
 py_ok() { "$PY" -c "$1" >/dev/null 2>&1; }
+spacy_ok() { "$PY" -c "import spacy" >/dev/null 2>&1; }
 pip_ok() { "$PY" -m pip --version >/dev/null 2>&1; }
+python_abs() {
+  case "$PY" in
+    /*) printf '%s\n' "$PY" ;;
+    */*) printf '%s/%s\n' "$(pwd)" "$PY" ;;
+    *) command -v "$PY" ;;
+  esac
+}
 use_project_venv() {
   if [[ -n "${VIRTUAL_ENV:-}" ]]; then
     info "aktive virtuelle Umgebung: $VIRTUAL_ENV"
@@ -170,7 +178,8 @@ if [[ $OHNE_NER -eq 0 ]]; then
     # Modellversion auf. Fehler hier sind NICHT fatal (wie der Engine-Download):
     # die Anonymisierung degradiert auf den deterministischen Regex-Pfad.
     info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
-    if "$PY" -m pip install -e ".[nlp]" \
+    if "$PY" -m pip install --upgrade --upgrade-strategy eager -e ".[nlp]" \
+       && spacy_ok \
        && "$PY" -m spacy download de_core_news_lg; then
       ok "NER-Schicht installiert (de_core_news_lg)"
     else
@@ -289,7 +298,7 @@ printf "${Y}Als systemd-Dienst (Autostart bei Boot): ./deploy.sh --service${N}\n
 if [[ $SERVICE -eq 1 ]]; then
   schritt "systemd-Dienst einrichten (--llm-autostart, Autostart bei Boot)"
   command -v systemctl >/dev/null 2>&1 || { echo "systemctl nicht gefunden – kein systemd-System." >&2; exit 1; }
-  PYBIN="$(command -v "$PY")"
+  PYBIN="$(python_abs)"
   UNIT_SRC="deploy/risk-layer.service.in"
   [[ -f "$UNIT_SRC" ]] || { echo "Vorlage fehlt: $UNIT_SRC" >&2; exit 1; }
   # Token NICHT in die Unit rendern (/etc/systemd/system/* ist welt-lesbar, 644) —
@@ -308,12 +317,14 @@ if [[ $SERVICE -eq 1 ]]; then
   if [[ $EUID -eq 0 ]]; then
     printf '%s\n' "$RENDER" > /etc/systemd/system/risk-layer.service
     systemctl daemon-reload && systemctl enable --now risk-layer.service
+    systemctl is-active --quiet risk-layer.service || { systemctl --no-pager status risk-layer.service; exit 1; }
     ok "System-Dienst aktiv: systemctl status risk-layer"
   else
     # Ohne root: User-Unit (läuft bei Login; 'loginctl enable-linger' für Boot ohne Login)
     mkdir -p "$HOME/.config/systemd/user"
     printf '%s\n' "$RENDER" | sed '/^User=/d' > "$HOME/.config/systemd/user/risk-layer.service"
     systemctl --user daemon-reload && systemctl --user enable --now risk-layer.service
+    systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
     ok "User-Dienst aktiv: systemctl --user status risk-layer"
     info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
   fi
