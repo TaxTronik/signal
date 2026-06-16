@@ -178,7 +178,7 @@ if [[ $OHNE_NER -eq 0 ]]; then
     # Modellversion auf. Fehler hier sind NICHT fatal (wie der Engine-Download):
     # die Anonymisierung degradiert auf den deterministischen Regex-Pfad.
     info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
-    if "$PY" -m pip install --upgrade --upgrade-strategy eager -e ".[nlp]" \
+    if "$PY" -m pip install --upgrade --upgrade-strategy eager "click>=8.1" -e ".[nlp]" \
        && spacy_ok \
        && ( "$PY" -m spacy download de_core_news_lg \
             || "$PY" -m spacy download de_core_news_sm ); then
