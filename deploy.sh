@@ -66,7 +66,7 @@ ok()      { printf "${G}  [ok] %s${N}\n" "$1"; }
 PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
 cli()   { printf "${D}  > %s -m risk_layer.cli %s${N}\n" "$PY" "$*"; "$PY" -m risk_layer.cli "$@"; }
 py_ok() { "$PY" -c "$1" >/dev/null 2>&1; }
-spacy_ok() { "$PY" -c "import spacy" >/dev/null 2>&1; }
+spacy_ok() { "$PY" -c "import spacy; print(spacy.__version__)" >/dev/null; }
 pip_ok() { "$PY" -m pip --version >/dev/null 2>&1; }
 python_abs() {
   case "$PY" in
@@ -180,8 +180,13 @@ if [[ $OHNE_NER -eq 0 ]]; then
     info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
     if "$PY" -m pip install --upgrade --upgrade-strategy eager -e ".[nlp]" \
        && spacy_ok \
-       && "$PY" -m spacy download de_core_news_lg; then
-      ok "NER-Schicht installiert (de_core_news_lg)"
+       && ( "$PY" -m spacy download de_core_news_lg \
+            || "$PY" -m spacy download de_core_news_sm ); then
+      if py_ok "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)"; then
+        ok "NER-Schicht installiert (de_core_news_lg)"
+      else
+        ok "NER-Schicht installiert (de_core_news_sm)"
+      fi
     else
       printf "${Y}  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv,${N}\n"
       printf "${Y}  Engine laeuft regex-only weiter. Nachholen mit:${N}\n"
