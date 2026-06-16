@@ -31,6 +31,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
+VENV_DIR="${RISK_LAYER_VENV:-.venv}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -65,6 +66,56 @@ ok()      { printf "${G}  [ok] %s${N}\n" "$1"; }
 PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
 cli()   { printf "${D}  > %s -m risk_layer.cli %s${N}\n" "$PY" "$*"; "$PY" -m risk_layer.cli "$@"; }
 py_ok() { "$PY" -c "$1" >/dev/null 2>&1; }
+pip_ok() { "$PY" -m pip --version >/dev/null 2>&1; }
+use_project_venv() {
+  if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    info "aktive virtuelle Umgebung: $VIRTUAL_ENV"
+    return 0
+  fi
+  if [[ -x "$VENV_DIR/bin/python" ]]; then
+    PY="$VENV_DIR/bin/python"
+    ok "virtuelle Umgebung gefunden ($VENV_DIR)"
+    return 0
+  fi
+  if [[ $SKIP_DEPS -eq 1 ]]; then
+    info "keine virtuelle Umgebung gefunden; nutze System-Python (--skip-deps)"
+    return 0
+  fi
+  info "erstelle virtuelle Umgebung ($VENV_DIR)"
+  if "$PY" -m venv "$VENV_DIR"; then
+    PY="$VENV_DIR/bin/python"
+    ok "virtuelle Umgebung erstellt"
+    return 0
+  fi
+  cat >&2 <<EOF
+Virtuelle Umgebung konnte nicht erstellt werden.
+Bitte installiere venv fuer diesen Python-Interpreter und starte deploy.sh erneut.
+
+Debian/Ubuntu/WSL:
+  sudo apt-get update
+  sudo apt-get install -y python3-venv python3-full
+EOF
+  exit 1
+}
+ensure_pip() {
+  if pip_ok; then return 0; fi
+  info "pip fehlt -> versuche Bootstrap via ensurepip"
+  if "$PY" -m ensurepip --upgrade >/dev/null 2>&1 && pip_ok; then
+    ok "pip bereitgestellt"
+    return 0
+  fi
+  cat >&2 <<EOF
+pip ist fuer $PY nicht installiert und konnte nicht via ensurepip bereitgestellt werden.
+Bitte installiere pip fuer diesen Python-Interpreter und starte deploy.sh erneut.
+
+Debian/Ubuntu/WSL:
+  sudo apt-get update
+  sudo apt-get install -y python3-pip python3-venv
+
+Andere Distributionen: das Paket heisst meist python3-pip.
+EOF
+  exit 1
+}
 
 # --- Python ----------------------------------------------------------------
 schritt "Python pruefen"
@@ -73,10 +124,12 @@ PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info[:2] >= (3, 11) else 1)' \
   || { echo "Python >= 3.11 noetig (gefunden $PYV)." >&2; exit 1; }
 ok "Python $PYV"
+use_project_venv
 
 # --- Abhaengigkeiten -------------------------------------------------------
 if [[ $SKIP_DEPS -eq 0 ]]; then
   schritt "Abhaengigkeiten installieren"
+  ensure_pip
   "$PY" -m pip install --upgrade pip >/dev/null
   # Kern (PyYAML) + dev exakt aus dem Lock (deterministisch ueber die Flotte,
   # identisch zu CI/Dockerfile); das Paket selbst mit --no-deps, damit die
