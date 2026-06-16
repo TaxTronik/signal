@@ -202,8 +202,10 @@ if [[ ! -f .engine_token || $FORCE -eq 1 ]]; then
   ok "neues Token erzeugt (.engine_token, gitignored)"
 else ok ".engine_token vorhanden (wiederverwendet)"; fi
 TOKEN="$(tr -d '[:space:]' < .engine_token)"
-# Token NICHT auf die Konsole drucken (Scrollback/CI-Logs) — nur den Speicherort nennen.
-info "RISK_LAYER_TOKEN liegt in .engine_token (nicht angezeigt)"
+export RISK_LAYER_TOKEN="$TOKEN"
+ok "RISK_LAYER_TOKEN fuer diesen Deploy-Lauf gesetzt"
+printf "${Y}Bearer-Token:${N} %s\n" "$TOKEN"
+printf "${Y}Authorization-Header:${N} Authorization: Bearer %s\n" "$TOKEN"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if [[ $SKIP_MODEL -eq 0 ]]; then
@@ -295,7 +297,7 @@ fi
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
-printf "  export RISK_LAYER_TOKEN=\"\$(cat .engine_token)\"\n"
+printf "  export RISK_LAYER_TOKEN=\"%s\"\n" "$TOKEN"
 printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"
 printf "${Y}Als systemd-Dienst (Autostart bei Boot): ./deploy.sh --service${N}\n"
 
