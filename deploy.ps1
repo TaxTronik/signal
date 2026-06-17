@@ -80,7 +80,6 @@ function Detect-Implementation {
     $blob = ($names -join " ").ToLowerInvariant()
     if ($blob -match "nvidia|geforce|rtx|quadro|tesla") { return "nvidia" }
     if ($blob -match "amd|radeon|instinct") { return "amd" }
-    if ($blob -match "intel") { return "intel" }
     return "cpu"
 }
 
@@ -128,14 +127,13 @@ function Choose-Implementation {
     $default = switch ($detected) {
         "nvidia" { "1" }
         "amd" { "2" }
-        "intel" { "3" }
         default { "4" }
     }
     if (Test-Interactive) {
         Info "Erkannt: $detected. Diese Wahl betrifft llama.cpp-Engine und ML-Geraet."
         Write-Host "  1) NVIDIA/CUDA  - CUDA fuer Engine und Embeddings"
         Write-Host "  2) AMD/ROCm     - ROCm/HIP fuer Engine, torch-ROCm fuer Embeddings"
-        Write-Host "  3) Intel/Vulkan - Vulkan fuer Engine, Embeddings standardmaessig CPU"
+        Write-Host "  3) Intel/Vulkan - manuell waehlen, wenn wirklich Intel-GPU/Vulkan nutzbar ist"
         Write-Host "  4) CPU          - kein GPU-Treiber noetig, langsamer"
         $choice = Read-Host "Auswahl [$default]"
         if (-not $choice) { $choice = $default }
@@ -339,7 +337,7 @@ if ($nerModell) {
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
 $baseUrl = Client-BaseUrl
 Write-Host "Kanzleikonsole .env:" -ForegroundColor Yellow
-Write-Output "RISK_LAYER_BASE_URL=$baseUrl"
+Write-Output "RISK_LAYER_URL=$baseUrl"
 Write-Output "RISK_LAYER_TOKEN=$token"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"

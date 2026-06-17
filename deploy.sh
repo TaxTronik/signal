@@ -90,7 +90,6 @@ detected_impl() {
     blob="$(lspci 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
     if [[ "$blob" == *nvidia* || "$blob" == *geforce* || "$blob" == *" rtx "* ]]; then printf "nvidia\n"; return; fi
     if [[ "$blob" == *amd* || "$blob" == *radeon* || "$blob" == *instinct* ]]; then printf "amd\n"; return; fi
-    if [[ "$blob" == *intel* ]]; then printf "intel\n"; return; fi
   fi
   printf "cpu\n"
 }
@@ -133,7 +132,6 @@ choose_implementation() {
   case "$erkannt" in
     nvidia) default=1 ;;
     amd) default=2 ;;
-    intel) default=3 ;;
     *) default=4 ;;
   esac
 
@@ -154,7 +152,7 @@ choose_implementation() {
     info "Erkannt: $erkannt. Diese Wahl betrifft llama.cpp-Engine und ML-Geraet."
     printf "  1) NVIDIA/CUDA  - CUDA fuer Embeddings, llama.cpp ggf. Vulkan-Fallback unter Linux\n"
     printf "  2) AMD/ROCm     - ROCm/HIP fuer llama.cpp, Embeddings ueber torch-ROCm\n"
-    printf "  3) Intel/Vulkan - Vulkan fuer llama.cpp, Embeddings standardmaessig CPU\n"
+    printf "  3) Intel/Vulkan - manuell waehlen, wenn wirklich Intel-GPU/Vulkan nutzbar ist\n"
     printf "  4) CPU          - kein GPU-Treiber noetig, langsamer\n"
     printf "Auswahl [%s]: " "$default"
     IFS= read -r choice || choice="$default"
@@ -165,7 +163,6 @@ choose_implementation() {
     case "$erkannt" in
       nvidia) apply_implementation_choice 1 ;;
       amd) apply_implementation_choice 2 ;;
-      intel) apply_implementation_choice 3 ;;
       *) apply_implementation_choice 4 ;;
     esac
   fi
@@ -436,7 +433,7 @@ maybe_prompt_systemd
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Kanzleikonsole .env:${N}\n"
-printf "RISK_LAYER_BASE_URL=%s\n" "$BASE_URL"
+printf "RISK_LAYER_URL=%s\n" "$BASE_URL"
 printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
