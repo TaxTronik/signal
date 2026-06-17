@@ -869,9 +869,9 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--modell", help=f"Modell-Key (Default: {M.DEFAULT_MODELL})")
     m.add_argument("--llm-bin", help="Pfad zum llama-server-Binary")
     m.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
-    m.add_argument("--backend", choices=["auto", "cuda", "hip", "vulkan", "cpu"],
+    m.add_argument("--backend", choices=["auto", "cuda", "hip", "rocm", "vulkan", "cpu"],
                    default="auto",
-                   help="GPU-Backend für 'engine' (auto: NVIDIA→cuda, AMD→hip, sonst Vulkan/CPU)")
+                   help="GPU-Backend fuer 'engine' (auto: NVIDIA->cuda, AMD->rocm, sonst Vulkan/CPU)")
     m.add_argument("--dir", help="Modell-Verzeichnis für 'verify' (Default: models/)")
     m.add_argument("--json", action="store_true",
                    help="'verify': maschinenlesbares Ergebnis auf stdout statt Tabelle")

@@ -21,8 +21,8 @@
 .PARAMETER Modell
   Modell-Key statt des Defaults (granite-4.1-8b). Siehe 'risk-layer modell list'.
 .PARAMETER Backend
-  GPU-Backend der Engine: auto (Default; NVIDIA->cuda, AMD->hip, sonst Vulkan/CPU)
-  oder explizit cuda|hip|vulkan|cpu.
+  GPU-Backend der Engine: auto (Default; NVIDIA->cuda, AMD->rocm/hip,
+  Intel->vulkan, sonst CPU) oder explizit cuda|rocm|hip|vulkan|cpu.
 .PARAMETER Start
   Nach dem Setup die /v1-Engine starten (blockiert).
 
@@ -48,7 +48,7 @@ param(
     [switch]$Start,
     [switch]$Service,
     [string]$Modell = "",
-    [ValidateSet("auto","cuda","hip","vulkan","cpu")][string]$Backend = "auto",
+    [ValidateSet("auto","cuda","rocm","hip","vulkan","cpu")][string]$Backend = "auto",
     [string]$BindHost = "127.0.0.1",
     [int]$Port = 8000
 )
@@ -67,6 +67,94 @@ function Cli([string[]]$cmd) {
 }
 function PyOk([string]$code) { & python -c $code 2>$null; return ($LASTEXITCODE -eq 0) }
 
+function Test-Interactive {
+    return [Environment]::UserInteractive
+}
+
+function Detect-Implementation {
+    if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) { return "nvidia" }
+    $names = @()
+    try {
+        $names = @(Get-CimInstance Win32_VideoController -ErrorAction Stop | ForEach-Object { $_.Name })
+    } catch { $names = @() }
+    $blob = ($names -join " ").ToLowerInvariant()
+    if ($blob -match "nvidia|geforce|rtx|quadro|tesla") { return "nvidia" }
+    if ($blob -match "amd|radeon|instinct") { return "amd" }
+    if ($blob -match "intel") { return "intel" }
+    return "cpu"
+}
+
+function Apply-ImplementationChoice([string]$Choice) {
+    $emb = "cuda"
+    $label = "Auto"
+    switch ($Choice.ToLowerInvariant()) {
+        { $_ -in @("1","nvidia","cuda") } {
+            $script:Backend = "cuda"; $emb = "cuda"; $label = "NVIDIA/CUDA"
+            Info "NVIDIA: llama.cpp nutzt CUDA-Builds, Embeddings/Reranker laufen ueber torch CUDA."
+            break
+        }
+        { $_ -in @("2","amd","rocm","hip") } {
+            $script:Backend = "rocm"; $emb = "cuda"; $label = "AMD/ROCm"
+            Info "AMD: llama.cpp nutzt ROCm/HIP, wenn verfuegbar. PyTorch/ROCm meldet Geraete als cuda, daher bleibt RISK_LAYER_EMB_DEVICE=cuda korrekt."
+            break
+        }
+        { $_ -in @("3","intel","vulkan") } {
+            $script:Backend = "vulkan"; $emb = "cpu"; $label = "Intel/Vulkan"
+            Info "Intel/andere iGPU: llama.cpp laeuft ueber Vulkan. Embeddings bleiben standardmaessig CPU."
+            break
+        }
+        { $_ -in @("4","cpu") } {
+            $script:Backend = "cpu"; $emb = "cpu"; $label = "CPU"
+            Info "CPU: robust und ohne GPU-Treiber, aber langsamer."
+            break
+        }
+        default {
+            $script:Backend = "auto"; $emb = "cuda"; $label = "Auto"
+            Info "Auto: Vendor-Erkennung entscheidet beim Engine-Download."
+        }
+    }
+    if (-not $env:RISK_LAYER_EMB_DEVICE) { $env:RISK_LAYER_EMB_DEVICE = $emb }
+    else { Info "RISK_LAYER_EMB_DEVICE ist bereits gesetzt: $env:RISK_LAYER_EMB_DEVICE" }
+    OkMsg "Implementierung: $label (Engine-Backend: $script:Backend, Embedding-Geraet: $env:RISK_LAYER_EMB_DEVICE)"
+}
+
+function Choose-Implementation {
+    Schritt "Implementierung waehlen"
+    if ($PSBoundParameters.ContainsKey("Backend")) {
+        Apply-ImplementationChoice $Backend
+        return
+    }
+    $detected = Detect-Implementation
+    $default = switch ($detected) {
+        "nvidia" { "1" }
+        "amd" { "2" }
+        "intel" { "3" }
+        default { "4" }
+    }
+    if (Test-Interactive) {
+        Info "Erkannt: $detected. Diese Wahl betrifft llama.cpp-Engine und ML-Geraet."
+        Write-Host "  1) NVIDIA/CUDA  - CUDA fuer Engine und Embeddings"
+        Write-Host "  2) AMD/ROCm     - ROCm/HIP fuer Engine, torch-ROCm fuer Embeddings"
+        Write-Host "  3) Intel/Vulkan - Vulkan fuer Engine, Embeddings standardmaessig CPU"
+        Write-Host "  4) CPU          - kein GPU-Treiber noetig, langsamer"
+        $choice = Read-Host "Auswahl [$default]"
+        if (-not $choice) { $choice = $default }
+        Apply-ImplementationChoice $choice
+    } else {
+        Info "Nicht interaktiv: Implementierung wird automatisch erkannt (erkannt: $detected)."
+        Apply-ImplementationChoice $default
+    }
+}
+
+function Client-BaseUrl {
+    $clientHost = $BindHost
+    if (@("", "0.0.0.0", "::") -contains $clientHost) { $clientHost = "127.0.0.1" }
+    if ($clientHost.Contains(":") -and -not $clientHost.StartsWith("[")) {
+        $clientHost = "[$clientHost]"
+    }
+    return "http://${clientHost}:$Port"
+}
+
 # --- Python ----------------------------------------------------------------
 Schritt "Python pruefen"
 $pv = (& python -c "import sys; print('%d.%d' % sys.version_info[:2])")
@@ -76,6 +164,7 @@ if ([int]$maj -lt 3 -or ([int]$maj -eq 3 -and [int]$min -lt 11)) {
     throw "Python >= 3.11 noetig (gefunden $pv)."
 }
 OkMsg "Python $pv"
+Choose-Implementation
 
 # --- Abhaengigkeiten -------------------------------------------------------
 if (-not $SkipDeps) {
@@ -248,6 +337,12 @@ if ($nerModell) {
 }
 
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
+$baseUrl = Client-BaseUrl
+Write-Host "Kanzleikonsole .env:" -ForegroundColor Yellow
+Write-Output "RISK_LAYER_BASE_URL=$baseUrl"
+Write-Output "RISK_LAYER_TOKEN=$token"
+Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
+Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
 Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
 Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"

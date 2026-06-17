@@ -751,7 +751,8 @@ def make_handler(app: Anwendung):
 
         # -- Helpers ----------------------------------------------------
         def _send(self, code: int, body: bytes, content_type: str,
-                  extra_headers: dict[str, str] | None = None):
+                  extra_headers: dict[str, str] | None = None,
+                  *, write_body: bool = True):
             self.send_response(code)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
@@ -759,12 +760,15 @@ def make_handler(app: Anwendung):
             for k, v in (extra_headers or {}).items():
                 self.send_header(k, v)
             self.end_headers()
-            self.wfile.write(body)
+            if write_body and self.command != "HEAD":
+                self.wfile.write(body)
 
         def _json(self, code: int, obj: Any,
-                  extra_headers: dict[str, str] | None = None):
+                  extra_headers: dict[str, str] | None = None,
+                  *, write_body: bool = True):
             self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                       "application/json; charset=utf-8", extra_headers)
+                       "application/json; charset=utf-8", extra_headers,
+                       write_body=write_body)
 
         def _dispatch_json(self, code: int, obj: Any):
             """Antwort aus dispatch(); bei 405 wird das ``allow``-Feld als
@@ -869,6 +873,30 @@ def make_handler(app: Anwendung):
                 code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
                 self._dispatch_json(code, obj)
             except Exception as exc:  # noqa: BLE001 – einheitliche Fehlerantwort
+                self._fehler_500(exc)
+
+        def do_HEAD(self):
+            try:
+                _p = urlparse(self.path)
+                if _p.path in ("", "/"):
+                    self._send(200, b"risk-layer\n", "text/plain; charset=utf-8",
+                               write_body=False)
+                    return
+                if not _p.path.startswith("/v1/"):
+                    self._send(404, b"not found", "text/plain; charset=utf-8",
+                               write_body=False)
+                    return
+                if not self._auth_ok():
+                    _log.warning("401 unauthorized: %s %s von %s", self.command,
+                                 _p.path, self.client_address[0])
+                    self._json(401, {"error": "unauthorized"}, write_body=False)
+                    return
+                code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
+                extra = None
+                if code == 405 and isinstance(obj, dict) and obj.get("allow"):
+                    extra = {"Allow": str(obj["allow"])}
+                self._json(code, obj, extra, write_body=False)
+            except Exception as exc:  # noqa: BLE001 - einheitliche Fehlerantwort
                 self._fehler_500(exc)
 
         def do_POST(self):

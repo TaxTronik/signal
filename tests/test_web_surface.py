@@ -89,6 +89,47 @@ def test_nur_v1_erreichbar(tmp_path, monkeypatch):
         httpd.server_close()
 
 
+def test_head_root_ist_reachability_statt_501(tmp_path, monkeypatch):
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, _ = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("HEAD", "/")
+        r = c.getresponse()
+        assert r.status == 200
+        assert r.getheader("Server", "").startswith("RiskLayer/")
+        assert r.read() == b""
+        c.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_head_v1_health_nutzt_auth_und_sendet_keinen_body(tmp_path, monkeypatch):
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, _ = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("HEAD", "/v1/health")
+        r = c.getresponse()
+        assert r.status == 401
+        assert r.read() == b""
+        c.close()
+
+        c2 = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c2.request("HEAD", "/v1/health", headers={"Authorization": "Bearer geheim"})
+        r2 = c2.getresponse()
+        assert r2.status == 200
+        assert r2.getheader("Content-Type", "").startswith("application/json")
+        assert r2.read() == b""
+        c2.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
 def test_body_groesse_und_form_werden_abgewiesen(tmp_path, monkeypatch):
     # Auth läuft VOR dem Body-Read; mit gültigem Token greifen die Body-Checks.
     monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")

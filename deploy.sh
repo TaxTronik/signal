@@ -10,16 +10,16 @@
 # fuer schlanke/Offline-Installationen: --ohne-ner; die Anonymisierung laeuft
 # dann rein regex-basiert weiter (Laufzeit-Schalter: RISK_LAYER_NER=aus).
 #
-# Engine-Backend (--backend, Default auto): NVIDIA->cuda, AMD->rocm, sonst Vulkan/CPU.
-# Auf NVIDIA-Boxen (z. B. B300/Blackwell) wird zudem ein Blackwell-faehiges torch
-# (--cuda-wheel, Default cu128) installiert, sonst nutzt sentence-transformers die GPU
-# nicht. Falls kein CUDA-llama-server-Prebuilt: Discovery/LLM spricht jeden OpenAI-
-# kompatiblen /v1-Endpoint an (z. B. vLLM) via --llm-url. Ohne llama-server laufen alle
-# deterministischen Layer + /v1; nur 'mitLLM:true' ist inaktiv.
+# Beim interaktiven Deploy fragt das Skript die Implementierung ab:
+# NVIDIA/CUDA, AMD/ROCm, Intel/Vulkan oder CPU. Auf NVIDIA-Boxen (z. B.
+# B300/Blackwell) wird zudem ein Blackwell-faehiges torch (--cuda-wheel, Default
+# cu128) installiert, sonst nutzt sentence-transformers die GPU nicht. Falls kein
+# CUDA-llama-server-Prebuilt: Discovery/LLM spricht jeden OpenAI-kompatiblen
+# /v1-Endpoint an. Ohne llama-server laufen alle deterministischen Layer + /v1;
+# nur 'mitLLM:true' ist inaktiv.
 #
 # Beispiele:
 #   ./deploy.sh                         # Deps + Modell + Engine + Korpus/Graph/Trigger
-#   ./deploy.sh --backend rocm          # AMD/ROCm-Engine erzwingen
 #   ./deploy.sh --with-embedding --voll # zusaetzlich Embedding-Index + breiter Korpus
 #   ./deploy.sh --skip-engine           # Engine separat bereitstellen
 #   ./deploy.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
@@ -30,6 +30,7 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
+BACKEND_EXPLICIT=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
 VENV_DIR="${RISK_LAYER_VENV:-.venv}"
 
@@ -46,7 +47,7 @@ while [[ $# -gt 0 ]]; do
     --start)          START=1 ;;
     --service)        SERVICE=1 ;;
     --modell)         MODELL="${2:?--modell braucht einen Wert}"; shift ;;
-    --backend)        BACKEND="${2:?--backend braucht einen Wert}"; shift ;;
+    --backend)        BACKEND="${2:?--backend braucht einen Wert}"; BACKEND_EXPLICIT=1; shift ;;
     --host)           BIND_HOST="${2:?--host braucht einen Wert}"; shift ;;
     --port)           PORT="${2:?--port braucht einen Wert}"; shift ;;
     --cuda-wheel)     CUDA_WHEEL="${2:?--cuda-wheel braucht einen Wert (z. B. cu128, cu124)}"; shift ;;
@@ -62,6 +63,142 @@ else C=''; G=''; D=''; Y=''; N=''; fi
 schritt() { printf "\n${C}=== %s ===${N}\n" "$1"; }
 info()    { printf "${D}  %s${N}\n" "$1"; }
 ok()      { printf "${G}  [ok] %s${N}\n" "$1"; }
+can_prompt() { [[ -t 0 && -t 1 ]]; }
+
+ask_yes_no() {
+  local frage="$1" default="${2:-n}" prompt antwort
+  if [[ "$default" == "j" ]]; then prompt="[J/n]"; else prompt="[j/N]"; fi
+  while true; do
+    printf "%s %s " "$frage" "$prompt"
+    IFS= read -r antwort || return 1
+    antwort="${antwort:-$default}"
+    case "$(printf '%s' "$antwort" | tr '[:upper:]' '[:lower:]')" in
+      j|ja|y|yes) return 0 ;;
+      n|nein|no) return 1 ;;
+      *) printf "Bitte j oder n eingeben.\n" ;;
+    esac
+  done
+}
+
+detected_impl() {
+  if command -v nvidia-smi >/dev/null 2>&1; then printf "nvidia\n"; return; fi
+  if command -v rocminfo >/dev/null 2>&1 || command -v rocm-smi >/dev/null 2>&1 || [[ -d /opt/rocm ]]; then
+    printf "amd\n"; return
+  fi
+  if command -v lspci >/dev/null 2>&1; then
+    local blob
+    blob="$(lspci 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+    if [[ "$blob" == *nvidia* || "$blob" == *geforce* || "$blob" == *" rtx "* ]]; then printf "nvidia\n"; return; fi
+    if [[ "$blob" == *amd* || "$blob" == *radeon* || "$blob" == *instinct* ]]; then printf "amd\n"; return; fi
+    if [[ "$blob" == *intel* ]]; then printf "intel\n"; return; fi
+  fi
+  printf "cpu\n"
+}
+
+apply_implementation_choice() {
+  local choice="$1" emb="cuda" label=""
+  case "$choice" in
+    1|nvidia|cuda)
+      BACKEND="cuda"; emb="cuda"; label="NVIDIA/CUDA"
+      info "NVIDIA: Embeddings/Reranker laufen ueber torch CUDA. Unter Linux gibt es fuer llama.cpp oft kein CUDA-Prebuilt; das Skript nimmt dann Vulkan/CPU-Fallback oder nutzt eine separat bereitgestellte Engine."
+      ;;
+    2|amd|rocm|hip)
+      BACKEND="rocm"; emb="cuda"; label="AMD/ROCm"
+      info "AMD: llama.cpp nutzt ROCm/HIP, wenn ein passendes Release verfuegbar ist. PyTorch/ROCm meldet Geraete weiter als 'cuda', daher bleibt RISK_LAYER_EMB_DEVICE=cuda korrekt."
+      ;;
+    3|intel|vulkan)
+      BACKEND="vulkan"; emb="cpu"; label="Intel/Vulkan"
+      info "Intel/andere iGPU: llama.cpp laeuft ueber Vulkan. Embeddings bleiben standardmaessig auf CPU, weil torch-Intel-GPU je Host stark variiert."
+      ;;
+    4|cpu)
+      BACKEND="cpu"; emb="cpu"; label="CPU"
+      info "CPU: robust und ohne GPU-Treiber. Erwartbar langsamer, aber alle deterministischen Layer und /v1 bleiben nutzbar."
+      ;;
+    *)
+      BACKEND="auto"; label="Auto"; emb="cuda"
+      info "Auto: Vendor-Erkennung entscheidet beim Engine-Download. Bei unbekannter GPU faellt llama.cpp auf CPU zurueck."
+      ;;
+  esac
+  if [[ -z "${RISK_LAYER_EMB_DEVICE+x}" ]]; then
+    export RISK_LAYER_EMB_DEVICE="$emb"
+  else
+    info "RISK_LAYER_EMB_DEVICE ist bereits gesetzt: $RISK_LAYER_EMB_DEVICE"
+  fi
+  ok "Implementierung: $label (Engine-Backend: $BACKEND, Embedding-Geraet: ${RISK_LAYER_EMB_DEVICE:-$emb})"
+}
+
+choose_implementation() {
+  local erkannt default choice
+  erkannt="$(detected_impl)"
+  case "$erkannt" in
+    nvidia) default=1 ;;
+    amd) default=2 ;;
+    intel) default=3 ;;
+    *) default=4 ;;
+  esac
+
+  schritt "Implementierung waehlen"
+  if [[ $BACKEND_EXPLICIT -eq 1 ]]; then
+    case "$BACKEND" in
+      cuda) apply_implementation_choice 1 ;;
+      rocm|hip) apply_implementation_choice 2 ;;
+      vulkan) apply_implementation_choice 3 ;;
+      cpu) apply_implementation_choice 4 ;;
+      auto) apply_implementation_choice auto ;;
+      *) info "Unbekanntes Backend '$BACKEND' - Auto-Erkennung wird genutzt"; apply_implementation_choice auto ;;
+    esac
+    return
+  fi
+
+  if can_prompt; then
+    info "Erkannt: $erkannt. Diese Wahl betrifft llama.cpp-Engine und ML-Geraet."
+    printf "  1) NVIDIA/CUDA  - CUDA fuer Embeddings, llama.cpp ggf. Vulkan-Fallback unter Linux\n"
+    printf "  2) AMD/ROCm     - ROCm/HIP fuer llama.cpp, Embeddings ueber torch-ROCm\n"
+    printf "  3) Intel/Vulkan - Vulkan fuer llama.cpp, Embeddings standardmaessig CPU\n"
+    printf "  4) CPU          - kein GPU-Treiber noetig, langsamer\n"
+    printf "Auswahl [%s]: " "$default"
+    IFS= read -r choice || choice="$default"
+    choice="${choice:-$default}"
+    apply_implementation_choice "$choice"
+  else
+    info "Nicht interaktiv: Implementierung wird automatisch erkannt (erkannt: $erkannt)."
+    case "$erkannt" in
+      nvidia) apply_implementation_choice 1 ;;
+      amd) apply_implementation_choice 2 ;;
+      intel) apply_implementation_choice 3 ;;
+      *) apply_implementation_choice 4 ;;
+    esac
+  fi
+}
+
+client_base_url() {
+  local host="$BIND_HOST"
+  case "$host" in
+    ""|"0.0.0.0"|"::") host="127.0.0.1" ;;
+  esac
+  if [[ "$host" == *:* && "$host" != \[*\] ]]; then host="[$host]"; fi
+  printf "http://%s:%s\n" "$host" "$PORT"
+}
+
+maybe_prompt_systemd() {
+  [[ $SERVICE -eq 1 || $START -eq 1 ]] && return 0
+  if ! command -v systemctl >/dev/null 2>&1; then
+    info "systemd nicht erkannt - kein Autostart-Prompt."
+    return 0
+  fi
+  if ! can_prompt; then
+    info "systemd erkannt, aber kein interaktives Terminal - Autostart wird nicht eingerichtet."
+    return 0
+  fi
+  schritt "Autostart"
+  info "systemd startet Risk-Layer mit --llm-autostart und liest den Token aus einer chmod-600 EnvironmentFile."
+  info "Mit root wird ein Systemdienst eingerichtet; ohne root ein User-Dienst."
+  if ask_yes_no "Risk-Layer jetzt als systemd-Dienst einrichten?" "n"; then
+    SERVICE=1
+  else
+    info "kein systemd-Dienst eingerichtet"
+  fi
+}
 
 PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
 cli()   { printf "${D}  > %s -m risk_layer.cli %s${N}\n" "$PY" "$*"; "$PY" -m risk_layer.cli "$@"; }
@@ -133,6 +270,7 @@ PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
   || { echo "Python >= 3.11 noetig (gefunden $PYV)." >&2; exit 1; }
 ok "Python $PYV"
 use_project_venv
+choose_implementation
 
 # --- Abhaengigkeiten -------------------------------------------------------
 if [[ $SKIP_DEPS -eq 0 ]]; then
@@ -204,8 +342,6 @@ else ok ".engine_token vorhanden (wiederverwendet)"; fi
 TOKEN="$(tr -d '[:space:]' < .engine_token)"
 export RISK_LAYER_TOKEN="$TOKEN"
 ok "RISK_LAYER_TOKEN fuer diesen Deploy-Lauf gesetzt"
-printf "${Y}Bearer-Token:${N} %s\n" "$TOKEN"
-printf "${Y}Authorization-Header:${N} Authorization: Bearer %s\n" "$TOKEN"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if [[ $SKIP_MODEL -eq 0 ]]; then
@@ -295,11 +431,18 @@ else
   info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
 fi
 
+BASE_URL="$(client_base_url)"
+maybe_prompt_systemd
+
 printf "\n${G}Deploy abgeschlossen.${N}\n"
+printf "${Y}Kanzleikonsole .env:${N}\n"
+printf "RISK_LAYER_BASE_URL=%s\n" "$BASE_URL"
+printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
+printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
 printf "  export RISK_LAYER_TOKEN=\"%s\"\n" "$TOKEN"
 printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"
-printf "${Y}Als systemd-Dienst (Autostart bei Boot): ./deploy.sh --service${N}\n"
 
 # --- systemd-Dienst direkt einrichten (--service) --------------------------
 if [[ $SERVICE -eq 1 ]]; then
