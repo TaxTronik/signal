@@ -486,9 +486,11 @@ die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Servic
 
 ### Deployment (✅ `Dockerfile` gebaut)
 `docker build -t risk-layer .` (schlank) bzw. `--build-arg WITH_EMBEDDING=1`
-(mit BGE-M3). Bindet `0.0.0.0:8000`, Healthcheck auf `/v1/health`, Volume
-`/app/corpus` (Normgraph + Embedding-Index, mandantenfrei). LLM = separater
-llama-server, nicht im Image.
+(mit BGE-M3). Im Container lauscht die Engine auf `0.0.0.0:8000`; nach außen
+bindet `docker-compose.yml` den Port nur auf Host-Loopback, und andere
+Container sprechen die Engine ueber den Compose-Service-Namen an. Healthcheck
+auf `/v1/health`, Volume `/app/corpus` (Normgraph + Embedding-Index,
+mandantenfrei). LLM = separater llama-server, nicht im Image.
 
 ---
 

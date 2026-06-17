@@ -30,8 +30,9 @@ set -euo pipefail
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
-BACKEND_EXPLICIT=0
+BACKEND_EXPLICIT=0; HOST_EXPLICIT=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
+DOCKER_NATIVE_URL=""
 VENV_DIR="${RISK_LAYER_VENV:-.venv}"
 
 while [[ $# -gt 0 ]]; do
@@ -48,7 +49,7 @@ while [[ $# -gt 0 ]]; do
     --service)        SERVICE=1 ;;
     --modell)         MODELL="${2:?--modell braucht einen Wert}"; shift ;;
     --backend)        BACKEND="${2:?--backend braucht einen Wert}"; BACKEND_EXPLICIT=1; shift ;;
-    --host)           BIND_HOST="${2:?--host braucht einen Wert}"; shift ;;
+    --host)           BIND_HOST="${2:?--host braucht einen Wert}"; HOST_EXPLICIT=1; shift ;;
     --port)           PORT="${2:?--port braucht einen Wert}"; shift ;;
     --cuda-wheel)     CUDA_WHEEL="${2:?--cuda-wheel braucht einen Wert (z. B. cu128, cu124)}"; shift ;;
     -h|--help)        sed -n '3,27p' "$0"; exit 0 ;;
@@ -175,6 +176,60 @@ client_base_url() {
   esac
   if [[ "$host" == *:* && "$host" != \[*\] ]]; then host="[$host]"; fi
   printf "http://%s:%s\n" "$host" "$PORT"
+}
+
+docker_bridge_ip() {
+  local ip_addr=""
+  if command -v ip >/dev/null 2>&1; then
+    ip_addr="$(ip -4 addr show docker0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}')"
+  fi
+  if [[ -z "$ip_addr" ]] && command -v docker >/dev/null 2>&1; then
+    ip_addr="$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}' 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$ip_addr"
+}
+
+maybe_prompt_docker_native_bind() {
+  [[ $HOST_EXPLICIT -eq 1 ]] && return 0
+  if ! can_prompt; then return 0; fi
+
+  schritt "Docker-Zugriff"
+  info "127.0.0.1 ist nur vom Host erreichbar; im Container zeigt es auf den Container selbst."
+  info "Am saubersten: Risk-Layer als Compose-Service starten und RISK_LAYER_URL=http://risk-layer:8000 setzen."
+  if ! ask_yes_no "Soll eine Docker-App diese native Host-Engine erreichen koennen?" "n"; then
+    return 0
+  fi
+
+  if [[ "$(uname -s 2>/dev/null || true)" != Linux* ]]; then
+    DOCKER_NATIVE_URL="http://host.docker.internal:$PORT"
+    info "Docker Desktop erreicht Host-Dienste ueber host.docker.internal; Bind bleibt $BIND_HOST."
+    return 0
+  fi
+
+  local vorgeschlagen bind
+  vorgeschlagen="$(docker_bridge_ip)"
+  if [[ -z "$vorgeschlagen" ]]; then
+    info "Keine Docker-Bridge-IP gefunden; Bind bleibt $BIND_HOST."
+    info "Starte alternativ Risk-Layer im selben Compose-Netz oder setze --host auf eine konkrete Docker-Bridge-IP."
+    return 0
+  fi
+
+  while true; do
+    printf "Bind-IP fuer Docker-Zugriff [%s]: " "$vorgeschlagen"
+    IFS= read -r bind || bind="$vorgeschlagen"
+    bind="${bind:-$vorgeschlagen}"
+    case "$bind" in
+      "0.0.0.0"|"::")
+        printf "Bitte keine Wildcard-Adresse nutzen; eine konkrete Docker-Bridge-IP ist sicherer.\n"
+        ;;
+      *)
+        BIND_HOST="$bind"
+        DOCKER_NATIVE_URL="http://$BIND_HOST:$PORT"
+        ok "Docker-Zugriff aktiviert: Risk-Layer bindet an $BIND_HOST, Container nutzen $DOCKER_NATIVE_URL"
+        return 0
+        ;;
+    esac
+  done
 }
 
 maybe_prompt_systemd() {
@@ -428,15 +483,28 @@ else
   info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
 fi
 
+maybe_prompt_docker_native_bind
 BASE_URL="$(client_base_url)"
 maybe_prompt_systemd
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
-printf "${Y}Kanzleikonsole .env:${N}\n"
+printf "${Y}Kanzleikonsole .env (Host-Prozess, nicht Docker):${N}\n"
 printf "RISK_LAYER_URL=%s\n" "$BASE_URL"
 printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
+printf "${Y}Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):${N}\n"
+printf "RISK_LAYER_URL=http://risk-layer:8000\n"
+printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
+printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
+if [[ -n "$DOCKER_NATIVE_URL" ]]; then
+  printf "${Y}Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):${N}\n"
+  printf "RISK_LAYER_URL=%s\n" "$DOCKER_NATIVE_URL"
+  printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+  printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
+  printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
+fi
 printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
 printf "  export RISK_LAYER_TOKEN=\"%s\"\n" "$TOKEN"
 printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"

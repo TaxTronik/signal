@@ -88,9 +88,9 @@ pip install pyyaml numpy
 #   pip install -r requirements-lock.txt numpy
 
 # (a) Headless-Engine: bedient ausschließlich das authentifizierte /v1
-RISK_LAYER_TOKEN=<secret> python -m risk_layer.web --host 0.0.0.0
-#   ohne Token ist nur ein Loopback-Bind erlaubt (lokale Entwicklung):
 python -m risk_layer.web        # http://127.0.0.1:8000/v1/
+#   Fuer Docker-Zugriff auf eine native Host-Engine gezielt eine Docker-Bridge-IP
+#   binden, nicht 0.0.0.0. Das Deploy-Skript fragt diesen Fall interaktiv ab.
 
 # (b) CLI: Sachverhalt analysieren → Konsolen-Zusammenfassung
 python -m risk_layer.cli analyse examples/beispiel_organschaft.txt

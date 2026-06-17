@@ -153,6 +153,21 @@ function Client-BaseUrl {
     return "http://${clientHost}:$Port"
 }
 
+$script:DockerNativeUrl = ""
+function Maybe-PromptDockerNativeAccess {
+    if ($PSBoundParameters.ContainsKey("BindHost")) { return }
+    if (-not (Test-Interactive)) { return }
+
+    Schritt "Docker-Zugriff"
+    Info "127.0.0.1 ist nur vom Host erreichbar; im Container zeigt es auf den Container selbst."
+    Info "Am saubersten: Risk-Layer als Compose-Service starten und RISK_LAYER_URL=http://risk-layer:8000 setzen."
+    $antwort = Read-Host "Soll eine Docker-App diese native Host-Engine erreichen koennen? [j/N]"
+    if ($antwort.Trim().ToLowerInvariant() -notin @("j", "ja", "y", "yes")) { return }
+
+    $script:DockerNativeUrl = "http://host.docker.internal:$Port"
+    Info "Docker Desktop erreicht Host-Dienste ueber host.docker.internal; Bind bleibt $BindHost."
+}
+
 # --- Python ----------------------------------------------------------------
 Schritt "Python pruefen"
 $pv = (& python -c "import sys; print('%d.%d' % sys.version_info[:2])")
@@ -334,13 +349,26 @@ if ($nerModell) {
     Info 'NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e ".[nlp]"; python -m spacy download de_core_news_lg'
 }
 
-Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
+Maybe-PromptDockerNativeAccess
 $baseUrl = Client-BaseUrl
-Write-Host "Kanzleikonsole .env:" -ForegroundColor Yellow
+Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
+Write-Host "Kanzleikonsole .env (Host-Prozess, nicht Docker):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=$baseUrl"
 Write-Output "RISK_LAYER_TOKEN=$token"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
+Write-Host "Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):" -ForegroundColor Yellow
+Write-Output "RISK_LAYER_URL=http://risk-layer:8000"
+Write-Output "RISK_LAYER_TOKEN=$token"
+Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
+Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
+if ($script:DockerNativeUrl) {
+    Write-Host "Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):" -ForegroundColor Yellow
+    Write-Output "RISK_LAYER_URL=$script:DockerNativeUrl"
+    Write-Output "RISK_LAYER_TOKEN=$token"
+    Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
+    Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
+}
 Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
 Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
 Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"
