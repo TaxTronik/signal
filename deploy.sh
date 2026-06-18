@@ -21,6 +21,7 @@
 # Beispiele:
 #   ./deploy.sh                         # Deps + Modell + Engine + Korpus/Graph/Trigger
 #   ./deploy.sh --with-embedding --voll # zusaetzlich Embedding-Index + breiter Korpus
+#   ./deploy.sh --with-quanten          # Quantenlos-Extras fuer /v1/los/* installieren
 #   ./deploy.sh --skip-engine           # Engine separat bereitstellen
 #   ./deploy.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
 #   ./deploy.sh --start                 # Setup, dann Engine starten
@@ -29,8 +30,8 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
-BACKEND_EXPLICIT=0; HOST_EXPLICIT=0
+SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; WITH_QUANTEN=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
+BACKEND_EXPLICIT=0; HOST_EXPLICIT=0; QUANTEN_EXPLICIT=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
 DOCKER_NATIVE_URL=""
 VENV_DIR="${RISK_LAYER_VENV:-.venv}"
@@ -42,6 +43,8 @@ while [[ $# -gt 0 ]]; do
     --skip-engine)    SKIP_ENGINE=1 ;;
     --skip-corpus)    SKIP_CORPUS=1 ;;
     --with-embedding) WITH_EMBEDDING=1 ;;
+    --with-quanten)   WITH_QUANTEN=1; QUANTEN_EXPLICIT=1 ;;
+    --ohne-quanten)   WITH_QUANTEN=0; QUANTEN_EXPLICIT=1 ;;
     --ohne-ner)       OHNE_NER=1 ;;
     --voll)           VOLL=1 ;;
     --force)          FORCE=1 ;;
@@ -166,6 +169,23 @@ choose_implementation() {
       amd) apply_implementation_choice 2 ;;
       *) apply_implementation_choice 4 ;;
     esac
+  fi
+}
+
+choose_quanten_extras() {
+  [[ $SKIP_DEPS -eq 1 || $QUANTEN_EXPLICIT -eq 1 ]] && return 0
+  if ! can_prompt; then
+    info "Nicht interaktiv: Quantenlos-Extras werden nicht installiert (bei Bedarf --with-quanten)."
+    return 0
+  fi
+
+  schritt "Quantenlos"
+  info "/v1/los/* braucht fuer qpu/simulator die optionalen qiskit-Extras."
+  info "Ohne Extras liefert die Engine eine 503-Betriebsvoraussetzung; csprng bleibt lokal moeglich."
+  if ask_yes_no "Quantenlos-Extras jetzt installieren?" "j"; then
+    WITH_QUANTEN=1
+  else
+    WITH_QUANTEN=0
   fi
 }
 
@@ -378,6 +398,7 @@ PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 ok "Python $PYV"
 use_project_venv
 choose_implementation
+choose_quanten_extras
 
 # --- Abhaengigkeiten -------------------------------------------------------
 if [[ $SKIP_DEPS -eq 0 ]]; then
@@ -405,6 +426,13 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
     ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
   else
     ok "Abhaengigkeiten installiert (PyYAML + numpy)"
+  fi
+  if [[ $WITH_QUANTEN -eq 1 ]]; then
+    info "Quantenlos-Extras gewuenscht -> qiskit + qiskit-aer + qiskit-ibm-runtime"
+    "$PY" -m pip install -e ".[quanten]"
+    ok "Quantenlos-Extras installiert"
+  else
+    info "Quantenlos-Extras uebersprungen - /v1/los qpu/simulator meldet sonst fehlende Betriebsvoraussetzung"
   fi
 else info "Deps uebersprungen (--skip-deps)"; fi
 

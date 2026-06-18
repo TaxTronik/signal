@@ -9,6 +9,9 @@
 .PARAMETER WithEmbedding
   Zusaetzlich den semantischen BGE-M3-Index bauen (installiert sentence-transformers
   + torch, ~2 GB, und laedt das Modell beim ersten Build).
+.PARAMETER WithQuanten
+  Quantenlos-Extras fuer /v1/los/* installieren (qiskit, qiskit-aer,
+  qiskit-ibm-runtime).
 .PARAMETER OhneNer
   Die NER-Schicht der Anonymisierung (spaCy + de_core_news_lg, ~0,5 GB) NICHT
   installieren. Default ist MIT: NER staerkt das Geheimnisschutz-Gate (Par. 203
@@ -42,6 +45,8 @@ param(
     [switch]$SkipEngine,
     [switch]$SkipCorpus,
     [switch]$WithEmbedding,
+    [switch]$WithQuanten,
+    [switch]$OhneQuanten,
     [switch]$OhneNer,
     [switch]$Voll,
     [switch]$Force,
@@ -144,6 +149,24 @@ function Choose-Implementation {
     }
 }
 
+$script:InstallQuanten = [bool]$WithQuanten
+function Choose-QuantenExtras {
+    if ($SkipDeps -or $PSBoundParameters.ContainsKey("WithQuanten") -or $PSBoundParameters.ContainsKey("OhneQuanten")) {
+        if ($OhneQuanten) { $script:InstallQuanten = $false }
+        return
+    }
+    if (-not (Test-Interactive)) {
+        Info "Nicht interaktiv: Quantenlos-Extras werden nicht installiert (bei Bedarf -WithQuanten)."
+        return
+    }
+
+    Schritt "Quantenlos"
+    Info "/v1/los/* braucht fuer qpu/simulator die optionalen qiskit-Extras."
+    Info "Ohne Extras liefert die Engine eine 503-Betriebsvoraussetzung; csprng bleibt lokal moeglich."
+    $antwort = Read-Host "Quantenlos-Extras jetzt installieren? [J/n]"
+    $script:InstallQuanten = ($antwort.Trim().ToLowerInvariant() -notin @("n", "nein", "no"))
+}
+
 function Client-BaseUrl {
     $clientHost = $BindHost
     if (@("", "0.0.0.0", "::") -contains $clientHost) { $clientHost = "127.0.0.1" }
@@ -178,6 +201,7 @@ if ([int]$maj -lt 3 -or ([int]$maj -eq 3 -and [int]$min -lt 11)) {
 }
 OkMsg "Python $pv"
 Choose-Implementation
+Choose-QuantenExtras
 
 # --- Abhaengigkeiten -------------------------------------------------------
 if (-not $SkipDeps) {
@@ -200,6 +224,14 @@ if (-not $SkipDeps) {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
     } else {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy)"
+    }
+    if ($script:InstallQuanten) {
+        Info "Quantenlos-Extras gewuenscht -> qiskit + qiskit-aer + qiskit-ibm-runtime"
+        & python -m pip install -e ".[quanten]"
+        if ($LASTEXITCODE -ne 0) { throw "pip install Quantenlos-Extras fehlgeschlagen." }
+        OkMsg "Quantenlos-Extras installiert"
+    } else {
+        Info "Quantenlos-Extras uebersprungen - /v1/los qpu/simulator meldet sonst fehlende Betriebsvoraussetzung"
     }
 } else { Info "Deps uebersprungen (-SkipDeps)" }
 
