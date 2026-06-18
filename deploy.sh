@@ -189,6 +189,43 @@ docker_bridge_ip() {
   printf '%s\n' "$ip_addr"
 }
 
+docker_container_gateway_ip() {
+  local container="$1"
+  [[ -n "$container" ]] || return 0
+  docker inspect "$container" \
+    --format '{{range $name, $net := .NetworkSettings.Networks}}{{if $net.Gateway}}{{println $net.Gateway}}{{end}}{{end}}' \
+    2>/dev/null | awk 'NF {print; exit}'
+}
+
+docker_bind_suggestion() {
+  DOCKER_BIND_SUGGESTION=""
+  if ! command -v docker >/dev/null 2>&1; then
+    DOCKER_BIND_SUGGESTION="$(docker_bridge_ip)"
+    return
+  fi
+
+  local default_container container gateway
+  default_container="$(docker ps --format '{{.Names}}' 2>/dev/null | awk '$0=="taxtronik-app"{print; found=1; exit} END{if(!found) exit 0}')"
+  if [[ -z "$default_container" ]]; then
+    default_container="$(docker ps --format '{{.Names}}' 2>/dev/null | awk 'NF {print; exit}')"
+  fi
+
+  if [[ -n "$default_container" && -t 0 && -t 1 ]]; then
+    printf "Container fuer IP-Vorschlag [%s]: " "$default_container"
+    IFS= read -r container || container="$default_container"
+    container="${container:-$default_container}"
+    gateway="$(docker_container_gateway_ip "$container")"
+    if [[ -n "$gateway" ]]; then
+      info "Vorschlag aus Container '$container': Docker-Gateway $gateway"
+      DOCKER_BIND_SUGGESTION="$gateway"
+      return
+    fi
+    info "Container '$container' liefert kein Gateway - fallback auf Docker-Bridge."
+  fi
+
+  DOCKER_BIND_SUGGESTION="$(docker_bridge_ip)"
+}
+
 maybe_prompt_docker_native_bind() {
   [[ $HOST_EXPLICIT -eq 1 ]] && return 0
   if ! can_prompt; then return 0; fi
@@ -207,7 +244,9 @@ maybe_prompt_docker_native_bind() {
   fi
 
   local vorgeschlagen bind
-  vorgeschlagen="$(docker_bridge_ip)"
+  DOCKER_BIND_SUGGESTION=""
+  docker_bind_suggestion
+  vorgeschlagen="$DOCKER_BIND_SUGGESTION"
   if [[ -z "$vorgeschlagen" ]]; then
     info "Keine Docker-Bridge-IP gefunden; Bind bleibt $BIND_HOST."
     info "Starte alternativ Risk-Layer im selben Compose-Netz oder setze --host auf eine konkrete Docker-Bridge-IP."
@@ -250,6 +289,22 @@ maybe_prompt_systemd() {
   else
     info "kein systemd-Dienst eingerichtet"
   fi
+}
+
+run_systemctl() {
+  local beschreibung="$1"
+  local rc=0
+  shift
+  info "$beschreibung"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 45s systemctl "$@" || rc=$?
+  else
+    systemctl "$@" || rc=$?
+  fi
+  if [[ $rc -eq 124 ]]; then
+    echo "systemctl hat nach 45s nicht geantwortet: systemctl $*" >&2
+  fi
+  return "$rc"
 }
 
 PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
@@ -531,14 +586,18 @@ if [[ $SERVICE -eq 1 ]]; then
                -e "s|@PYTHON@|$PYBIN|g" -e "s|@HOST@|$BIND_HOST|g" -e "s|@PORT@|$PORT|g" "$UNIT_SRC")"
   if [[ $EUID -eq 0 ]]; then
     printf '%s\n' "$RENDER" > /etc/systemd/system/risk-layer.service
-    systemctl daemon-reload && systemctl enable --now risk-layer.service
+    run_systemctl "systemd Unit neu laden" daemon-reload
+    run_systemctl "systemd Autostart aktivieren" enable risk-layer.service
+    run_systemctl "systemd Dienst neu starten" restart risk-layer.service
     systemctl is-active --quiet risk-layer.service || { systemctl --no-pager status risk-layer.service; exit 1; }
     ok "System-Dienst aktiv: systemctl status risk-layer"
   else
     # Ohne root: User-Unit (läuft bei Login; 'loginctl enable-linger' für Boot ohne Login)
     mkdir -p "$HOME/.config/systemd/user"
     printf '%s\n' "$RENDER" | sed '/^User=/d' > "$HOME/.config/systemd/user/risk-layer.service"
-    systemctl --user daemon-reload && systemctl --user enable --now risk-layer.service
+    run_systemctl "systemd User-Unit neu laden" --user daemon-reload
+    run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
+    run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
     systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
     ok "User-Dienst aktiv: systemctl --user status risk-layer"
     info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
