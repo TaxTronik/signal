@@ -312,7 +312,7 @@ def test_ner_status_spacy_ohne_modelle(monkeypatch):
     monkeypatch.setattr(anonymize, "_find_spec",
                         lambda name: object() if name == "spacy" else None)
     st = anonymize.ner_status()
-    assert st["verfuegbar"] is False and "spacy download" in st["grund"]
+    assert st["verfuegbar"] is False and "requirements-ner-lock.txt" in st["grund"]
 
 
 def test_ner_status_kaputter_import_zaehlt_als_nicht_verfuegbar(monkeypatch):
@@ -337,4 +337,4 @@ def test_loader_warnt_einmalig_ohne_spacy(monkeypatch, caplog):
         assert _ECHTER_LOADER() is None    # zweiter Aufruf: still, aus dem Cache
     warnungen = [r for r in caplog.records if "NER-Schicht inaktiv" in r.getMessage()]
     assert len(warnungen) == 1
-    assert "pip install '.[nlp]'" in warnungen[0].getMessage()
+    assert "--require-hashes" in warnungen[0].getMessage()

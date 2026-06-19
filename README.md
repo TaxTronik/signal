@@ -79,13 +79,12 @@ Komplett-Setup übernimmt das Deploy-Skript (`./deploy.sh` Linux, `./deploy.ps1`
 Windows). Es provisioniert die NER-Schicht der Anonymisierung (spaCy +
 `de_core_news_lg`) automatisch mit — sie stärkt das §203-Gate. Opt-out für
 schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallback:
-`pip install -e ".[nlp]"` + `python -m spacy download de_core_news_lg`. Zur
+`python -m pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt`. Zur
 Laufzeit erzwingt `RISK_LAYER_NER=aus` den deterministischen Regex-Pfad.
 
 ```bash
-pip install pyyaml numpy
-#   reproduzierbar (exakt gepinnter Kern+dev, wie CI/Docker/deploy):
-#   pip install -r requirements-lock.txt numpy
+python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+python -m pip install --no-build-isolation --no-deps -e .
 
 # (a) Headless-Engine: bedient ausschließlich das authentifizierte /v1
 python -m risk_layer.web        # http://127.0.0.1:8000/v1/
@@ -491,8 +490,8 @@ Einträge werden gemerkt.
 | trainingsdaten-unabhängig | Erkennung ruht auf Korpus/Katalog, nicht Modellwissen | — |
 
 ```bash
-pip install -r requirements-lock.txt numpy   # Kern+dev exakt gepinnt (Lock, wie CI)
-pip install --no-deps -e .
+python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+python -m pip install --no-build-isolation --no-deps -e .
 python -m pytest -q          # 478 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
                              #   Surface/Auth + engine_status, Engine-Analysevertrag,
                              #   AnalyseOptionen, Graph, LLM-Mock + Norm-Vorschlag,
@@ -534,8 +533,9 @@ python -m pytest -q          # 478 Tests: /AB10/–/AB60/, Parser /T10/–/T40/,
 
 Der Matcher ist ohne spaCy bereits morphologie-tolerant. Das Deploy-Skript
 installiert spaCy + `de_core_news_lg` standardmäßig mit (Opt-out: `--ohne-ner`
-bzw. `-OhneNer`); manueller Fallback: `pip install -e ".[nlp]"` + `python -m
-spacy download de_core_news_lg` — **ohne** das deterministische Verhalten zu ändern.
+bzw. `-OhneNer`); manueller Fallback: `python -m pip install --require-hashes
+--only-binary=:all: -r requirements-ner-lock.txt` — **ohne** das deterministische
+Verhalten zu ändern.
 
 ---
 

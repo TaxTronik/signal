@@ -24,7 +24,9 @@ FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dc
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
+    PIP_NO_INPUT=1 \
     RISK_LAYER_EMB_DEVICE=cpu
 
 WORKDIR /app
@@ -32,24 +34,20 @@ WORKDIR /app
 # Nur die Projektmetadaten zuerst (Layer-Caching der Dependencies): die
 # Dependencies werden VOR dem Quellcode installiert — eine reine Code-Änderung
 # in risk_layer/ invalidiert diesen (teuren) Layer damit NICHT.
-COPY pyproject.toml README.md requirements-lock.txt ./
+COPY pyproject.toml README.md requirements-lock.txt requirements-ner-lock.txt ./
 
 ARG WITH_EMBEDDING=0
-# Kern exakt aus dem Lockfile (requirements-lock.txt, gespiegelt aus pyproject
-# [project].dependencies + dev-Extra) — deterministisch über die Flotte.
-# (Two-Step: Deps explizit, Paket später mit --no-deps — pip kann die Deps nicht
-# ohne den Quellcode auflösen.)
-# numpy + sentence-transformers bewusst ungepinnt (GPU-/Plattform-Matrix):
-# hardware-/plattformspezifische ML-Extras, siehe requirements.in.
-RUN pip install --upgrade pip \
- && pip install -r requirements-lock.txt "numpy>=1.26" \
+# Kern exakt aus dem Hash-Lockfile: --require-hashes erzwingt sha256-gepinnte
+# Artefakte; --only-binary verhindert sdist-Builds aus fremdem Code.
+# sentence-transformers bleibt optional/range-basiert (GPU-/Plattform-Matrix).
+RUN pip install --require-hashes --only-binary=:all: -r requirements-lock.txt \
  && if [ "$WITH_EMBEDDING" = "1" ]; then pip install "sentence-transformers>=2.7"; fi
 
 # --- NER-Schicht (Anonymisierung, §203-Gate): spaCy + de_core_news_lg -------
-# EXAKT gepinnt — anders als die Range-Extras der Host-Deploys (deploy.sh/.ps1):
-# das Image soll deterministisch sein, und `spacy download` würde die Modell-
-# version zur BUILDZEIT neu auflösen. Statt dessen das Modell-Wheel direkt aus
-# den spacy-models-Releases. Versionspaar belegt über
+# EXAKT gepinnt + hash-geprüft in requirements-ner-lock.txt. Das Image soll
+# deterministisch sein, und `spacy download` würde die Modellversion zur
+# BUILDZEIT neu auflösen. Statt dessen das Modell-Wheel direkt aus den
+# spacy-models-Releases. Versionspaar belegt über
 #   https://raw.githubusercontent.com/explosion/spacy-models/master/compatibility.json
 # (spacy 3.8.x -> de_core_news_lg 3.8.0; geprüft 2026-06-10). Update: dort das
 # neue Paar ablesen und BEIDE Zeilen gemeinsam anheben.
@@ -58,13 +56,12 @@ RUN pip install --upgrade pip \
 # auskommentieren — die Engine degradiert auf den deterministischen Regex-Pfad
 # (zur Laufzeit erzwingbar per RISK_LAYER_NER=aus).
 # Eigener Layer (eigenes RUN): wird unabhängig vom Kern-Layer gecacht.
-RUN pip install "spacy==3.8.14" \
- && pip install https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl
+RUN pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt
 
 # Quellcode erst NACH den Dependencies kopieren + Paket ohne Dep-Auflösung installieren.
 COPY risk_layer ./risk_layer
 COPY catalog ./catalog
-RUN pip install --no-deps .
+RUN pip install --no-build-isolation --no-deps .
 
 # Festwissen-Volumes (regenerierbar, mandantenfrei). corpus/ wird gemountet:
 #   corpus/graph.sqlite     – Normgraph (graph build)

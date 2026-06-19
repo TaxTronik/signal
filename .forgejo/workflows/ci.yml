@@ -59,24 +59,19 @@ jobs:
           cache-dependency-path: requirements-lock.txt
 
       # Dependencies BEWUSST minimal halten:
-      #   * requirements-lock.txt – Kern (PyYAML) + dev (pytest) mit EXAKTEN Pins
-      #               inkl. transitiver Deps (deterministisch über die Flotte;
-      #               regenerieren: siehe Header von requirements-lock.txt).
-      #   * numpy   – de-facto Pflicht: embedding.py importiert numpy am Modulkopf und
-      #               web.py importiert embedding. numpy steckt aber im 'embedding'-Extra,
-      #               das zusätzlich sentence-transformers + torch (~2 GB) zöge.
-      #               Die Tests brauchen torch/sentence-transformers NICHT (lazy import,
-      #               HashEncoder-Fallback) – also installieren wir sie bewusst NICHT.
-      #               numpy bewusst ungepinnt (GPU-/Plattform-Matrix, ML-Extra).
+      #   * requirements-lock.txt – Kern (PyYAML + numpy), dev (pytest) und
+      #               Build-Backend (setuptools) mit EXAKTEN Pins + sha256-Hashes.
+      #               --require-hashes erzwingt, dass kein ungeprüftes Artefakt aus
+      #               PyPI installiert wird; --only-binary verhindert sdist-Builds.
+      #               regenerieren: siehe Header von requirements-lock.txt.
       # Ebenfalls bewusst NICHT installiert: die Extras 'llm' (llama-cpp-python) und
       # 'nlp' (spacy). web.py ist reine Stdlib — es gibt kein fastapi/uvicorn-Extra.
-      # Das Paket selbst mit --no-deps: alle Deps kommen aus dem Lock, nicht aus
-      # den >=-Ranges in pyproject.toml.
-      - name: Install dependencies (Lock für Kern+dev, kein torch)
+      # Das Paket selbst mit --no-build-isolation --no-deps: alle Deps und das
+      # Build-Backend kommen aus dem Lock, nicht aus den >=-Ranges in pyproject.toml.
+      - name: Install dependencies (Hash-Lock für Kern+dev, kein torch)
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-lock.txt "numpy>=1.26"
-          python -m pip install --no-deps -e .
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
 
       # Schnelles, versionsspezifisches "parst es überhaupt?"-Gate vor dem Testlauf.
       - name: Byte-compile

@@ -32,13 +32,25 @@ jobs:
       - name: Install pip-audit
         run: python -m pip install pip-audit
 
-      # Nur die LAUFZEIT-Deps prüfen (analog zu 'pnpm audit --prod'): das, was beim
-      # produktiven Einsatz tatsächlich importiert wird. numpy ist de-facto Pflicht
-      # (s. ci.yml). Test-/Build-Tooling (pytest, pip-audit) bleibt außen vor, damit
-      # eine Advisory in einer Dev-Abhängigkeit die CI nicht grundlos rot färbt.
-      - name: Audit runtime dependencies
+      # Nur die LAUFZEIT-Deps prüfen (analog zu 'pnpm audit --prod'), aber aus
+      # dem Hash-Lock extrahiert: auditiert werden die produktiv autorisierten
+      # Versionen, nicht neu aufgeloeste >=-Ranges.
+      - name: Audit locked runtime dependencies
         run: |
-          printf 'PyYAML>=6.0\nnumpy>=1.26\n' > runtime-requirements.txt
+          python - <<'PY'
+          from pathlib import Path
+
+          keep = {"numpy", "pyyaml"}
+          locked = []
+          for line in Path("requirements-lock.txt").read_text(encoding="utf-8").splitlines():
+              if not line or line.startswith((" ", "#", "-")):
+                  continue
+              requirement = line.split("\\", 1)[0].strip()
+              name = requirement.split("==", 1)[0].lower()
+              if name in keep:
+                  locked.append(requirement)
+          Path("runtime-requirements.txt").write_text("\n".join(locked) + "\n", encoding="utf-8")
+          PY
           python -m pip_audit -r runtime-requirements.txt --desc
 
   secrets:

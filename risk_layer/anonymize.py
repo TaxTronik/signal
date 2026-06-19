@@ -194,8 +194,8 @@ _NLP: Any = _UNGELADEN   # prozessweiter Modul-Cache (None = nicht verfügbar)
 
 # Reihenfolge = Präferenz: lg (beste NER-Güte, /LF50/) vor sm (Notbehelf).
 _NER_MODELLE = ("de_core_news_lg", "de_core_news_sm")
-_NER_INSTALL_HINWEIS = ("NER-Schicht inaktiv — pip install '.[nlp]' + "
-                        "python -m spacy download de_core_news_lg")
+_NER_INSTALL_HINWEIS = ("NER-Schicht inaktiv — pip install --require-hashes "
+                        "--only-binary=:all: -r requirements-ner-lock.txt")
 # spaCy-Label → Platzhalter-Typ des _Zaehler. MISC wird bewusst NICHT ersetzt:
 # das Label ist zu unscharf (Produkte, Nationalitäten, Gesetzesnamen) – zerstörte
 # Rechtsbegriffe wären teurer als die ohnehin verpflichtende manuelle Prüfung.
@@ -248,7 +248,8 @@ def _lade_nlp() -> Any:
             continue
         if modell != _NER_MODELLE[0]:
             _log.warning("de_core_news_lg fehlt — nutze %s (geringere NER-Güte). "
-                         "Abhilfe: python -m spacy download de_core_news_lg", modell)
+                         "Abhilfe: pip install --require-hashes --only-binary=:all: "
+                         "-r requirements-ner-lock.txt", modell)
         _NLP = nlp
         return nlp
     _log.warning(_NER_INSTALL_HINWEIS)

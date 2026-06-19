@@ -164,8 +164,9 @@ Basis-Image, Healthcheck `/v1/health`, Festwissen-Volume `/app/corpus`;
 `docker-compose.yml` bindet den Port nur an Loopback), systemd
 (`deploy/risk-layer.service.in`, Token in separater EnvironmentFile mit
 `chmod 600`) oder Windows-Dienst via NSSM (`install-service.ps1`). Builds sind
-reproduzierbar (`requirements-lock.txt` mit `==`-Pins; CI, Docker und
-Deploy-Skripte installieren denselben Stand). Der HTTP-Server ist
+reproduzierbar (`requirements-lock.txt`/`requirements-ner-lock.txt` mit
+`==`-Pins und sha256-Hashes; CI, Docker und Deploy-Skripte installieren per
+`pip --require-hashes --only-binary=:all:` denselben autorisierten Stand). Der HTTP-Server ist
 Standardbibliothek; das LLM läuft als separater lokaler Prozess; GPU ist
 optional mit definierter CPU-Degradation.
 

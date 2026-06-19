@@ -302,7 +302,7 @@ die Lücke datenseitig:
 | kein Pre-Auth-/Body-DoS | Auth **vor** Body-Read + Body-Cap (8 MiB) + Socket-Timeout |
 | kein Webhook-SSRF | `webhook_url` default-deny (`RISK_LAYER_WEBHOOK_ALLOW`), keine Redirects |
 | Katalog-Schreibvorgang torn-read-frei | Berater-Store schreibt atomar (temp + `os.replace`) |
-| reproduzierbare Builds | `requirements-lock.txt` (exakt gepinnter Kern+dev, `==`-Pins) + per **Digest** gepinntes Basis-Image im Dockerfile — CI, Docker und Deploy-Skripte installieren denselben Stand |
+| reproduzierbare Builds | `requirements-lock.txt` und `requirements-ner-lock.txt` (exakte `==`-Pins + sha256-Hashes, `pip --require-hashes --only-binary=:all:`) + per **Digest** gepinntes Basis-Image im Dockerfile — CI, Docker und Deploy-Skripte installieren denselben autorisierten Stand |
 
 **Tests:** `python -m pytest -q` → **478 grün** (deterministischer Kern,
 Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth** inkl. `engine_status`/`/v1/status`,

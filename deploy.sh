@@ -404,13 +404,10 @@ choose_quanten_extras
 if [[ $SKIP_DEPS -eq 0 ]]; then
   schritt "Abhaengigkeiten installieren"
   ensure_pip
-  "$PY" -m pip install --upgrade pip >/dev/null
-  # Kern (PyYAML) + dev exakt aus dem Lock (deterministisch ueber die Flotte,
-  # identisch zu CI/Dockerfile); das Paket selbst mit --no-deps, damit die
-  # >=-Ranges aus pyproject.toml das Lock nicht ueberstimmen.
-  # numpy bewusst ungepinnt (GPU-/Plattform-Matrix, ML-Extra).
-  "$PY" -m pip install -r requirements-lock.txt "numpy>=1.26"
-  "$PY" -m pip install --no-deps -e .
+  # Kern (PyYAML + numpy), dev und Build-Backend exakt aus dem Hash-Lock
+  # (deterministisch ueber die Flotte, identisch zu CI/Dockerfile).
+  "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+  "$PY" -m pip install --no-build-isolation --no-deps -e .
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
     # NVIDIA: Blackwell-faehiges torch ZUERST aus dem CUDA-Wheel (sonst zieht
     # sentence-transformers ggf. ein zu altes/CPU-torch -> GPU ungenutzt). Default
@@ -429,7 +426,7 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
   fi
   if [[ $WITH_QUANTEN -eq 1 ]]; then
     info "Quantenlos-Extras gewuenscht -> qiskit + qiskit-aer + qiskit-ibm-runtime"
-    "$PY" -m pip install -e ".[quanten]"
+    "$PY" -m pip install --only-binary=:all: "qiskit>=1.0" "qiskit-ibm-runtime>=0.30" "qiskit-aer>=0.15"
     ok "Quantenlos-Extras installiert"
   else
     info "Quantenlos-Extras uebersprungen - /v1/los qpu/simulator meldet sonst fehlende Betriebsvoraussetzung"
@@ -444,26 +441,18 @@ if [[ $OHNE_NER -eq 0 ]]; then
   if py_ok "import importlib.util,sys; sys.exit(0 if any(importlib.util.find_spec(m) for m in ('de_core_news_lg','de_core_news_sm')) else 1)" && [[ $FORCE -eq 0 ]]; then
     ok "spaCy-Modell bereits installiert - uebersprungen"
   else
-    # spaCy Range-basiert wie die anderen ML-Extras (bewusst nicht im Lock, siehe
-    # requirements.in); -e haelt die editierbare Kern-Installation von oben intakt
-    # (ein nicht-editierbares ".[nlp]" wuerde sie durch eine Kopie ersetzen).
-    # `spacy download` loest die zur installierten spaCy-Version passende
-    # Modellversion auf. Fehler hier sind NICHT fatal (wie der Engine-Download):
+    # spaCy + Modell kommen aus dem separaten Hash-Lock. Fehler hier sind NICHT
+    # fatal (wie der Engine-Download):
     # die Anonymisierung degradiert auf den deterministischen Regex-Pfad.
     info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
-    if "$PY" -m pip install --upgrade --upgrade-strategy eager "click>=8.1" -e ".[nlp]" \
+    if "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt \
        && spacy_ok \
-       && ( "$PY" -m spacy download de_core_news_lg \
-            || "$PY" -m spacy download de_core_news_sm ); then
-      if py_ok "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)"; then
-        ok "NER-Schicht installiert (de_core_news_lg)"
-      else
-        ok "NER-Schicht installiert (de_core_news_sm)"
-      fi
+       && py_ok "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)"; then
+      ok "NER-Schicht installiert (de_core_news_lg)"
     else
       printf "${Y}  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv,${N}\n"
       printf "${Y}  Engine laeuft regex-only weiter. Nachholen mit:${N}\n"
-      printf "${Y}    pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg${N}\n"
+      printf "${Y}    pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt${N}\n"
     fi
   fi
 else info "NER uebersprungen (--ohne-ner) - Anonymisierung laeuft regex-only"; fi
@@ -561,9 +550,9 @@ if [[ -n "$NER_MODELL" ]]; then
     aus|off|none|0) info "Hinweis: RISK_LAYER_NER=aus ist gesetzt - Laufzeit nutzt den Regex-Pfad" ;;
   esac
 elif [[ $OHNE_NER -eq 1 ]]; then
-  info "NER inaktiv (--ohne-ner) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
+  info "NER inaktiv (--ohne-ner) - Anonymisierung regex-only; nachholen: pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt"
 else
-  info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install -e \".[nlp]\" && python -m spacy download de_core_news_lg"
+  info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt"
 fi
 
 maybe_prompt_docker_native_bind

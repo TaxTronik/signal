@@ -1,0 +1,15 @@
+# =============================================================================
+# Quelle fuer requirements-ner-lock.txt (pip-tools) — optionale NER-Schicht.
+#
+# Der Default-Container und die Deploy-Skripte koennen damit spaCy +
+# de_core_news_lg reproduzierbar und hash-geprueft installieren. Die Datei ist
+# bewusst getrennt vom Kern-Lock: NER ist optional und gross; der Kern muss ohne
+# dieses Dependency-Set installierbar bleiben.
+#
+# Regenerieren:
+#   python -m pip install pip-tools
+#   python -m piptools compile --generate-hashes --allow-unsafe --strip-extras --output-file=requirements-ner-lock.txt requirements-ner.in
+# =============================================================================
+spacy==3.8.14
+numpy>=1.26,<2.3
+de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl

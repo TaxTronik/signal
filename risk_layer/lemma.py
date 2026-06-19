@@ -36,8 +36,8 @@ _NLP: Any = _UNGELADEN   # prozessweiter Modul-Cache (None = nicht verfügbar)
 
 # Reihenfolge = Präferenz: lg (beste Lemma-Güte, /LF50/) vor sm (Notbehelf).
 _LEMMA_MODELLE = ("de_core_news_lg", "de_core_news_sm")
-_LEMMA_INSTALL_HINWEIS = ("Lemma-Pfad (/LF50/) inaktiv — pip install spacy + "
-                          "python -m spacy download de_core_news_lg")
+_LEMMA_INSTALL_HINWEIS = ("Lemma-Pfad (/LF50/) inaktiv — pip install --require-hashes "
+                          "--only-binary=:all: -r requirements-ner-lock.txt")
 # Nur was die Lemmatisierung braucht: der EditTree-Lemmatizer der de_core_news-
 # Modelle hängt an tok2vec/tagger/morphologizer/attribute_ruler – parser und
 # ner sind dafür unnötig und werden fürs Tempo deaktiviert (geprüft: Lemmata
@@ -87,7 +87,8 @@ def _lade_nlp() -> Any:
             continue
         if modell != _LEMMA_MODELLE[0]:
             _log.warning("de_core_news_lg fehlt — nutze %s (geringere Lemma-Güte). "
-                         "Abhilfe: python -m spacy download de_core_news_lg", modell)
+                         "Abhilfe: pip install --require-hashes --only-binary=:all: "
+                         "-r requirements-ner-lock.txt", modell)
         _NLP = nlp
         return nlp
     _log.warning(_LEMMA_INSTALL_HINWEIS)

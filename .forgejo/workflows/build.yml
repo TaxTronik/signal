@@ -27,6 +27,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+
       - name: Bash-Syntax (deploy.sh, build-release-artifact.sh)
         run: bash -n deploy.sh && bash -n build-release-artifact.sh
 
@@ -55,12 +61,12 @@ jobs:
           fi
 
       - name: Python byte-compile (Engine)
-        run: python3 -m compileall -q risk_layer
+        run: python -m compileall -q risk_layer
 
       - name: YAML + systemd-Template prüfen
         run: |
-          python3 -m pip install --quiet pyyaml
-          python3 -c "import yaml; yaml.safe_load(open('docker-compose.yml',encoding='utf-8')); print('compose ok')"
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+          python -c "import yaml; yaml.safe_load(open('docker-compose.yml',encoding='utf-8')); print('compose ok')"
           # systemd-Template: nach Render bleibt kein @PLATZHALTER@ und [Service] existiert
           sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer.service.in > /tmp/u.service
           grep -q '^\[Service\]' /tmp/u.service && ! grep -qE '@[A-Z_]+@' /tmp/u.service && echo "systemd-template ok"

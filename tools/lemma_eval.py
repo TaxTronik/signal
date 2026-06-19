@@ -74,7 +74,8 @@ def main() -> int:
     t_load = time.perf_counter() - t0
     if nlp is None:
         raise SystemExit("Kein spaCy-Modell ladbar — Eval braucht das echte Modell "
-                         "(pip install spacy + python -m spacy download de_core_news_lg).")
+                         "(pip install --require-hashes --only-binary=:all: "
+                         "-r requirements-ner-lock.txt).")
     meta = getattr(nlp, "meta", {}) or {}
     modell = f"{meta.get('lang', '?')}_{meta.get('name', '?')} {meta.get('version', '?')}"
 
