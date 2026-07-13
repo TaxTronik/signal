@@ -10,10 +10,10 @@
 # fuer schlanke/Offline-Installationen: --ohne-ner; die Anonymisierung laeuft
 # dann rein regex-basiert weiter (Laufzeit-Schalter: RISK_LAYER_NER=aus).
 #
-# Beim interaktiven Deploy fragt das Skript die Implementierung ab:
-# NVIDIA/CUDA, AMD/ROCm, Intel/Vulkan oder CPU. Auf NVIDIA-Boxen (z. B.
-# B300/Blackwell) wird zudem ein Blackwell-faehiges torch (--cuda-wheel, Default
-# cu128) installiert, sonst nutzt sentence-transformers die GPU nicht. Falls kein
+# Beim interaktiven Deploy fragt das Skript die Engine-Implementierung ab:
+# NVIDIA/CUDA, AMD/ROCm, Intel/Vulkan oder CPU. Embeddings werden beim
+# automatischen Bootstrap bewusst aus dem hash-gepinnten CPU-Lock installiert;
+# GPU-Torch braucht eine separat auditierte, betreiberseitige Umgebung. Falls kein
 # CUDA-llama-server-Prebuilt: Discovery/LLM spricht jeden OpenAI-kompatiblen
 # /v1-Endpoint an. Ohne llama-server laufen alle deterministischen Layer + /v1;
 # nur 'mitLLM:true' ist inaktiv.
@@ -32,7 +32,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; WITH_QUANTEN=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
 BACKEND_EXPLICIT=0; HOST_EXPLICIT=0; QUANTEN_EXPLICIT=0
-MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000; CUDA_WHEEL="cu128"
+MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000
 DOCKER_NATIVE_URL=""
 VENV_DIR="${RISK_LAYER_VENV:-.venv}"
 
@@ -54,7 +54,7 @@ while [[ $# -gt 0 ]]; do
     --backend)        BACKEND="${2:?--backend braucht einen Wert}"; BACKEND_EXPLICIT=1; shift ;;
     --host)           BIND_HOST="${2:?--host braucht einen Wert}"; HOST_EXPLICIT=1; shift ;;
     --port)           PORT="${2:?--port braucht einen Wert}"; shift ;;
-    --cuda-wheel)     CUDA_WHEEL="${2:?--cuda-wheel braucht einen Wert (z. B. cu128, cu124)}"; shift ;;
+    --cuda-wheel)     echo "--cuda-wheel wurde aus dem sicheren Bootstrap entfernt; GPU-Torch separat hash-gepinnt bereitstellen und --skip-deps nutzen." >&2; exit 2 ;;
     -h|--help)        sed -n '3,27p' "$0"; exit 0 ;;
     *) echo "unbekanntes Flag: $1" >&2; exit 2 ;;
   esac
@@ -99,15 +99,15 @@ detected_impl() {
 }
 
 apply_implementation_choice() {
-  local choice="$1" emb="cuda" label=""
+  local choice="$1" emb="cpu" label=""
   case "$choice" in
     1|nvidia|cuda)
-      BACKEND="cuda"; emb="cuda"; label="NVIDIA/CUDA"
-      info "NVIDIA: Embeddings/Reranker laufen ueber torch CUDA. Unter Linux gibt es fuer llama.cpp oft kein CUDA-Prebuilt; das Skript nimmt dann Vulkan/CPU-Fallback oder nutzt eine separat bereitgestellte Engine."
+      BACKEND="cuda"; emb="cpu"; label="NVIDIA/CUDA"
+      info "NVIDIA: llama.cpp nutzt CUDA. Embeddings bleiben im sicheren Bootstrap auf dem hash-gepinnten CPU-Torch; GPU-Torch nur aus einer separat auditierten Umgebung."
       ;;
     2|amd|rocm|hip)
-      BACKEND="rocm"; emb="cuda"; label="AMD/ROCm"
-      info "AMD: llama.cpp nutzt ROCm/HIP, wenn ein passendes Release verfuegbar ist. PyTorch/ROCm meldet Geraete weiter als 'cuda', daher bleibt RISK_LAYER_EMB_DEVICE=cuda korrekt."
+      BACKEND="rocm"; emb="cpu"; label="AMD/ROCm"
+      info "AMD: llama.cpp nutzt ROCm/HIP, wenn verfuegbar. Embeddings bleiben im Bootstrap auf CPU; ROCm-Torch erfordert einen eigenen zielsystemspezifischen Hash-Lock."
       ;;
     3|intel|vulkan)
       BACKEND="vulkan"; emb="cpu"; label="Intel/Vulkan"
@@ -118,7 +118,7 @@ apply_implementation_choice() {
       info "CPU: robust und ohne GPU-Treiber. Erwartbar langsamer, aber alle deterministischen Layer und /v1 bleiben nutzbar."
       ;;
     *)
-      BACKEND="auto"; label="Auto"; emb="cuda"
+      BACKEND="auto"; label="Auto"; emb="cpu"
       info "Auto: Vendor-Erkennung entscheidet beim Engine-Download. Bei unbekannter GPU faellt llama.cpp auf CPU zurueck."
       ;;
   esac
@@ -303,7 +303,12 @@ maybe_prompt_systemd() {
   fi
   schritt "Autostart"
   info "systemd startet Risk-Layer mit --llm-autostart und liest den Token aus einer chmod-600 EnvironmentFile."
-  info "Mit root wird ein Systemdienst eingerichtet; ohne root ein User-Dienst."
+  if [[ $EUID -eq 0 ]]; then
+    info "Sicherer Autostart wird nur als unprivilegierte User-Unit eingerichtet; dieses Skript laeuft als root."
+    info "Deploy als Zielbenutzer ohne sudo erneut starten."
+    return 0
+  fi
+  info "Es wird eine unprivilegierte User-Unit eingerichtet."
   if ask_yes_no "Risk-Layer jetzt als systemd-Dienst einrichten?" "n"; then
     SERVICE=1
   else
@@ -404,33 +409,30 @@ choose_quanten_extras
 if [[ $SKIP_DEPS -eq 0 ]]; then
   schritt "Abhaengigkeiten installieren"
   ensure_pip
-  # Kern (PyYAML + numpy), dev und Build-Backend exakt aus dem Hash-Lock
-  # (deterministisch ueber die Flotte, identisch zu CI/Dockerfile).
-  "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+  # Schlanker Produktionskern (PyYAML + numpy + Build-Backend), ohne pytest.
+  "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
   "$PY" -m pip install --no-build-isolation --no-deps -e .
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
-    # NVIDIA: Blackwell-faehiges torch ZUERST aus dem CUDA-Wheel (sonst zieht
-    # sentence-transformers ggf. ein zu altes/CPU-torch -> GPU ungenutzt). Default
-    # cu128 deckt Blackwell (sm_100/sm_120); per --cuda-wheel anpassbar.
-    if command -v nvidia-smi >/dev/null 2>&1; then
-      info "NVIDIA erkannt -> Blackwell-faehiges torch ($CUDA_WHEEL) vorab installieren"
-      "$PY" -m pip install torch --index-url "https://download.pytorch.org/whl/$CUDA_WHEEL" \
-        || info "torch-CUDA-Install fehlgeschlagen -> sentence-transformers waehlt torch selbst"
-    fi
-    info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
-    # bewusst ungepinnt (GPU-/Plattform-Matrix) — ML-Extras sind nicht im Lock.
-    "$PY" -m pip install "sentence-transformers>=2.7" hf_transfer
-    ok "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
+    [[ "$PYV" == "3.12" ]] || { echo "--with-embedding ist nur mit dem vorhandenen Linux/Python-3.12-Hashlock erlaubt (gefunden: $PYV)." >&2; exit 2; }
+    [[ "${RISK_LAYER_EMB_DEVICE:-cpu}" == "cpu" ]] || { echo "Der automatische Embedding-Bootstrap ist CPU-only. Fuer GPU-Torch eine separat auditierte Umgebung bereitstellen und --skip-deps nutzen." >&2; exit 2; }
+    info "Embedding+Reranker -> hash-gepinnter Linux/Python-3.12-CPU-Lock"
+    "$PY" -m pip install --require-hashes --only-binary=:all: \
+      -r requirements-embedding-linux-cpu-py312-lock.txt
+    ok "Abhaengigkeiten installiert (Runtime + sentence-transformers + CPU-Torch)"
   else
     ok "Abhaengigkeiten installiert (PyYAML + numpy)"
   fi
   if [[ $WITH_QUANTEN -eq 1 ]]; then
-    info "Quantenlos-Extras gewuenscht -> qiskit + qiskit-aer + qiskit-ibm-runtime"
-    "$PY" -m pip install --only-binary=:all: "qiskit>=1.0" "qiskit-ibm-runtime>=0.30" "qiskit-aer>=0.15"
+    [[ "$PYV" == "3.12" ]] || { echo "--with-quanten ist nur mit dem vorhandenen Linux/Python-3.12-Hashlock erlaubt (gefunden: $PYV)." >&2; exit 2; }
+    info "Quantenlos-Extras -> hash-gepinnter Linux/Python-3.12-Lock"
+    "$PY" -m pip install --require-hashes --only-binary=:all: \
+      -r requirements-quanten-linux-py312-lock.txt
     ok "Quantenlos-Extras installiert"
   else
     info "Quantenlos-Extras uebersprungen - /v1/los qpu/simulator meldet sonst fehlende Betriebsvoraussetzung"
   fi
+  "$PY" -m pip check
+  ok "Python-Abhaengigkeiten konsistent (pip check)"
 else info "Deps uebersprungen (--skip-deps)"; fi
 
 # --- NER-Schicht (Anonymisierung, §203-Gate) --------------------------------
@@ -447,7 +449,8 @@ if [[ $OHNE_NER -eq 0 ]]; then
     info "installiert spaCy (Extra nlp) + Modell de_core_news_lg ..."
     if "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt \
        && spacy_ok \
-       && py_ok "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)"; then
+       && py_ok "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)" \
+       && "$PY" -m pip check; then
       ok "NER-Schicht installiert (de_core_news_lg)"
     else
       printf "${Y}  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv,${N}\n"
@@ -459,13 +462,31 @@ else info "NER uebersprungen (--ohne-ner) - Anonymisierung laeuft regex-only"; f
 
 # --- Auth-Token ------------------------------------------------------------
 schritt "Auth-Token (.engine_token)"
-if [[ ! -f .engine_token || $FORCE -eq 1 ]]; then
-  "$PY" -c "import secrets; open('.engine_token','w').write(secrets.token_hex(32))"
-  ok "neues Token erzeugt (.engine_token, gitignored)"
-else ok ".engine_token vorhanden (wiederverwendet)"; fi
-TOKEN="$(tr -d '[:space:]' < .engine_token)"
+TOKEN_FILE=".engine_token"
+TOKEN_PATH="$(pwd)/$TOKEN_FILE"
+[[ ! -L "$TOKEN_FILE" ]] || { echo "$TOKEN_FILE darf kein symbolischer Link sein." >&2; exit 1; }
+[[ ! -e "$TOKEN_FILE" || -f "$TOKEN_FILE" ]] || { echo "$TOKEN_FILE muss eine regulaere Datei sein." >&2; exit 1; }
+if [[ ! -f "$TOKEN_FILE" || $FORCE -eq 1 ]]; then
+  # Im selben Verzeichnis mit restriktiver umask schreiben und erst nach dem
+  # vollstaendigen Write atomar auf den finalen Namen umbenennen.
+  (
+    umask 077
+    token_tmp="$(mktemp "${TOKEN_FILE}.tmp.XXXXXX")"
+    trap 'rm -f -- "$token_tmp"' EXIT
+    "$PY" -c 'import secrets,sys; sys.stdout.write(secrets.token_hex(32))' > "$token_tmp"
+    chmod 600 -- "$token_tmp"
+    mv -f -- "$token_tmp" "$TOKEN_FILE"
+    trap - EXIT
+  )
+  ok "neues Token erzeugt ($TOKEN_FILE, chmod 600, gitignored)"
+else ok "$TOKEN_FILE vorhanden (wiederverwendet)"; fi
+# Auch Dateien aus aelteren Deploy-Laeufen auf das erwartete Schutzniveau heben.
+chmod 600 -- "$TOKEN_FILE"
+TOKEN="$(tr -d '[:space:]' < "$TOKEN_FILE")"
 export RISK_LAYER_TOKEN="$TOKEN"
 ok "RISK_LAYER_TOKEN fuer diesen Deploy-Lauf gesetzt"
+info "Token gespeichert: $TOKEN_PATH (nicht angezeigt)"
+info "Bewusst anzeigen: cat -- $TOKEN_FILE"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if [[ $SKIP_MODEL -eq 0 ]]; then
@@ -520,7 +541,6 @@ if [[ $SKIP_CORPUS -eq 0 ]]; then
 
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
     schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
-    if "$PY" -c "import hf_transfer" 2>/dev/null; then export HF_HUB_ENABLE_HF_TRANSFER=1; fi
     # Bauen, wenn Index fehlt, --force, der Katalog NEUER ist (neue Paraphrasen-
     # Anker in catalog/begriffe.yaml) ODER der Graph neuer ist (Korpus-Aenderung,
     # z. B. neue Gesetze/DVs) — beides MUSS mit-eingebettet werden.
@@ -533,7 +553,7 @@ if [[ $SKIP_CORPUS -eq 0 ]]; then
     # Reranker (Schicht 1.7b) ist in der Engine fest aktiv (GPU). Modell vorab
     # cachen, sonst laedt der ERSTE Request ~600 MB nach. Nur Download, kein GPU.
     info "cacht den Reranker (bge-reranker-v2-m3, ~600 MB) ..."
-    "$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3')" \
+    "$PY" -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3', revision='953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e')" \
       && ok "Reranker gecacht" || info "Reranker-Cache fehlgeschlagen (laedt sonst beim 1. Request)"
   fi
 else info "Korpus uebersprungen (--skip-corpus)"; fi
@@ -562,63 +582,95 @@ maybe_prompt_systemd
 printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Kanzleikonsole .env (Host-Prozess, nicht Docker):${N}\n"
 printf "RISK_LAYER_URL=%s\n" "$BASE_URL"
-printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 printf "${Y}Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):${N}\n"
 printf "RISK_LAYER_URL=http://risk-layer:8000\n"
-printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 if [[ -n "$DOCKER_NATIVE_URL" ]]; then
   printf "${Y}Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):${N}\n"
   printf "RISK_LAYER_URL=%s\n" "$DOCKER_NATIVE_URL"
-  printf "RISK_LAYER_TOKEN=%s\n" "$TOKEN"
+  printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
   printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
   printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 fi
+printf "${Y}Token bei Bedarf bewusst anzeigen:${N}\n"
+printf "  cat -- %s\n" "$TOKEN_FILE"
 printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
-printf "  export RISK_LAYER_TOKEN=\"%s\"\n" "$TOKEN"
+printf '  export RISK_LAYER_TOKEN="$(tr -d '\''[:space:]'\'' < .engine_token)"\n'
 printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"
 
 # --- systemd-Dienst direkt einrichten (--service) --------------------------
 if [[ $SERVICE -eq 1 ]]; then
-  schritt "systemd-Dienst einrichten (--llm-autostart, Autostart bei Boot)"
+  schritt "systemd-User-Dienst einrichten (--llm-autostart, Autostart bei Anmeldung)"
   command -v systemctl >/dev/null 2>&1 || { echo "systemctl nicht gefunden – kein systemd-System." >&2; exit 1; }
+  if [[ $EUID -eq 0 ]]; then
+    echo "Refuse: --service darf nicht als root/sudo aus dem benutzerschreibbaren Checkout installiert werden." >&2
+    echo "Als Zielbenutzer ohne sudo erneut ausfuehren; fuer Boot ohne Login danach optional: sudo loginctl enable-linger BENUTZER" >&2
+    exit 2
+  fi
   PYBIN="$(python_abs)"
   UNIT_SRC="deploy/risk-layer.service.in"
   [[ -f "$UNIT_SRC" ]] || { echo "Vorlage fehlt: $UNIT_SRC" >&2; exit 1; }
   # Token NICHT in die Unit rendern (/etc/systemd/system/* ist welt-lesbar, 644) —
   # stattdessen in eine separate EnvironmentFile mit chmod 600 (umask 077 deckt
   # auch die Neuanlage ab); die Unit referenziert sie nur per Pfad.
-  if [[ $EUID -eq 0 ]]; then ENV_DIR="/etc/risk-layer"; else ENV_DIR="$HOME/.config/risk-layer"; fi
+  ENV_DIR="$HOME/.config/risk-layer"
   ENV_FILE="$ENV_DIR/engine.env"
   mkdir -p "$ENV_DIR"
+  chmod 700 "$ENV_DIR"
   (umask 077; printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > "$ENV_FILE")
   chmod 600 "$ENV_FILE"
-  [[ $EUID -eq 0 ]] && chown root:root "$ENV_FILE"
   ok "Token-EnvironmentFile geschrieben: $ENV_FILE (chmod 600)"
-  RENDER="$(sed -e "s|@USER@|$(id -un)|g" -e "s|@WORKDIR@|$(pwd)|g" \
-               -e "s|@ENVFILE@|$ENV_FILE|g" -e "s|@EMB_DEVICE@|${RISK_LAYER_EMB_DEVICE:-cuda}|g" \
-               -e "s|@PYTHON@|$PYBIN|g" -e "s|@HOST@|$BIND_HOST|g" -e "s|@PORT@|$PORT|g" "$UNIT_SRC")"
-  if [[ $EUID -eq 0 ]]; then
-    printf '%s\n' "$RENDER" > /etc/systemd/system/risk-layer.service
-    run_systemctl "systemd Unit neu laden" daemon-reload
-    run_systemctl "systemd Autostart aktivieren" enable risk-layer.service
-    run_systemctl "systemd Dienst neu starten" restart risk-layer.service
-    systemctl is-active --quiet risk-layer.service || { systemctl --no-pager status risk-layer.service; exit 1; }
-    ok "System-Dienst aktiv: systemctl status risk-layer"
-  else
-    # Ohne root: User-Unit (läuft bei Login; 'loginctl enable-linger' für Boot ohne Login)
-    mkdir -p "$HOME/.config/systemd/user"
-    printf '%s\n' "$RENDER" | sed '/^User=/d' > "$HOME/.config/systemd/user/risk-layer.service"
-    run_systemctl "systemd User-Unit neu laden" --user daemon-reload
-    run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
-    run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
-    systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
-    ok "User-Dienst aktiv: systemctl --user status risk-layer"
-    info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
-  fi
+  # Keine sed-Ersetzung mit ungefilterten Pfaden: '&', '|', Backslashes und
+  # systemd-Specifier ('%') wuerden sonst die Unit veraendern. Der Renderer
+  # maskiert systemd-Quoted-Strings und verweigert Steuerzeichen fail-closed.
+  RENDER="$("$PY" - "$UNIT_SRC" "$(pwd)" "$ENV_FILE" \
+      "${RISK_LAYER_EMB_DEVICE:-cuda}" "$PYBIN" "$BIND_HOST" "$PORT" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+
+def systemd_escape(name: str, value: str) -> str:
+    if any(ord(char) < 32 or ord(char) == 127 for char in value):
+        raise SystemExit(f"Unsicherer Wert fuer {name}: Steuerzeichen sind nicht erlaubt")
+    return (value.replace("\\", "\\\\")
+            .replace(" ", "\\x20")
+            .replace('"', '\\"')
+            .replace("%", "%%"))
+
+
+template_path, workdir, envfile, emb_device, python, host, port = sys.argv[1:]
+rendered = Path(template_path).read_text(encoding="utf-8")
+values = {
+    "WORKDIR": workdir,
+    "ENVFILE": envfile,
+    "EMB_DEVICE": emb_device,
+    "PYTHON": python,
+    "HOST": host,
+    "PORT": port,
+}
+for key, value in values.items():
+    rendered = rendered.replace(f"@{key}@", systemd_escape(key, value))
+remaining = sorted(set(re.findall(r"@[A-Z_]+@", rendered)))
+if remaining:
+    raise SystemExit(f"Nicht gerenderte systemd-Platzhalter: {', '.join(remaining)}")
+sys.stdout.write(rendered)
+PY
+)"
+  # User-Unit (laeuft bei Login; 'loginctl enable-linger' fuer Boot ohne Login).
+  mkdir -p "$HOME/.config/systemd/user"
+  printf '%s\n' "$RENDER" > "$HOME/.config/systemd/user/risk-layer.service"
+  run_systemctl "systemd User-Unit neu laden" --user daemon-reload
+  run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
+  run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
+  systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
+  ok "User-Dienst aktiv: systemctl --user status risk-layer"
+  info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
 elif [[ $START -eq 1 ]]; then
   schritt "Engine starten (Engine + LLM, Vordergrund)"
   export RISK_LAYER_TOKEN="$TOKEN"

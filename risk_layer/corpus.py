@@ -41,6 +41,56 @@ ART_WERTE: tuple[Art, ...] = ("gesetz", "verordnung")
 # fehlkonfigurierte/kompromittierte Quelle – bounded read wie rss._MAX_FEED.
 _MAX_ZIP = 256 * 1024 * 1024
 
+# Grenzen fuer den *entpackten* Inhalt. Gii-Archive enthalten normalerweise
+# nur sehr wenige Dateien; selbst grosse Gesetzes-XMLs bleiben weit unter
+# diesen bewusst grosszuegigen Schranken. Die Limits verhindern, dass ein
+# formal kleines Download-Archiv beim Lesen unverhaeltnismaessig viel Speicher
+# oder Plattenplatz beansprucht (ZIP-Bomb).
+_MAX_ARCHIV_DATEIEN = 4096
+_MAX_DATEI_UNKOMPRIMIERT = 256 * 1024 * 1024
+_MAX_ARCHIV_UNKOMPRIMIERT = 512 * 1024 * 1024
+_MAX_KOMPRESSIONSVERHAELTNIS = 500
+
+
+class KorpusArchivFehler(ValueError):
+    """Unsicheres oder fachlich unplausibles Korpus-Archiv."""
+
+
+def _pruefe_archiv_limits(zf: zipfile.ZipFile, g: "Gesetz") -> list[zipfile.ZipInfo]:
+    """Prueft ZIP-Metadaten, bevor ein Archiv-Mitglied gelesen wird."""
+    infos = zf.infolist()
+    if len(infos) > _MAX_ARCHIV_DATEIEN:
+        raise KorpusArchivFehler(
+            f"{g.law}: Archiv {g.url} enthaelt {len(infos)} Dateien/Eintraege; "
+            f"erlaubt sind hoechstens {_MAX_ARCHIV_DATEIEN}")
+
+    gesamt = 0
+    for info in infos:
+        if info.file_size < 0 or info.compress_size < 0:
+            raise KorpusArchivFehler(
+                f"{g.law}: ungueltige Groessenangabe fuer {info.filename!r} "
+                f"im Archiv {g.url}")
+        if info.file_size > _MAX_DATEI_UNKOMPRIMIERT:
+            raise KorpusArchivFehler(
+                f"{g.law}: {info.filename!r} ist unkomprimiert "
+                f"{info.file_size} Bytes gross; erlaubt sind hoechstens "
+                f"{_MAX_DATEI_UNKOMPRIMIERT} Bytes")
+        if info.file_size and (
+                info.compress_size == 0
+                or info.file_size > info.compress_size * _MAX_KOMPRESSIONSVERHAELTNIS):
+            verhaeltnis = info.file_size / max(info.compress_size, 1)
+            raise KorpusArchivFehler(
+                f"{g.law}: extremes Kompressionsverhaeltnis bei "
+                f"{info.filename!r} ({verhaeltnis:.1f}:1; erlaubt sind "
+                f"hoechstens {_MAX_KOMPRESSIONSVERHAELTNIS}:1)")
+        gesamt += info.file_size
+
+    if gesamt > _MAX_ARCHIV_UNKOMPRIMIERT:
+        raise KorpusArchivFehler(
+            f"{g.law}: Archiv ist unkomprimiert insgesamt {gesamt} Bytes "
+            f"gross; erlaubt sind hoechstens {_MAX_ARCHIV_UNKOMPRIMIERT} Bytes")
+    return infos
+
 # LAW-Code → gii-Slug (Sonderfälle; Default ist die Kleinschreibung des Codes).
 GII_SLUG = {
     "AO": "ao_1977",
@@ -234,8 +284,10 @@ def hole_gesetz(g: Gesetz, korpus: Path = DEFAULT_KORPUS, *, timeout: float = 30
             raise ValueError(f"{g.law}: Download größer als {_MAX_ZIP} Bytes – "
                              f"abgebrochen ({g.url})")
     with zipfile.ZipFile(io.BytesIO(roh)) as zf:
+        infos = _pruefe_archiv_limits(zf, g)
         # Sortiert = deterministische Wahl, unabhängig von der Archiv-Reihenfolge.
-        xml_namen = sorted(n for n in zf.namelist() if n.lower().endswith(".xml"))
+        xml_namen = sorted(
+            info.filename for info in infos if info.filename.lower().endswith(".xml"))
         if not xml_namen:
             raise ValueError(f"{g.law}: kein XML im Archiv {g.url}")
         if len(xml_namen) > 1:

@@ -1,6 +1,7 @@
 """Berater-Definitionen: Datenmodell, Persistenz, Lebenszyklus (Erweiterung §4)."""
 
 import pytest
+import yaml
 
 from risk_layer.berater import BeraterFehler, BeraterStore
 from risk_layer.models import Status
@@ -57,6 +58,154 @@ def test_lebenszyklus_nur_vorwaerts(tmp_path):
     store.setze_review_status(d.id, "geprüft", reviewer="b")
     with pytest.raises(BeraterFehler):
         store.setze_review_status(d.id, "entwurf", reviewer="b")  # rückwärts
+
+
+def test_lebenszyklus_erlaubt_keinen_statussprung(tmp_path):
+    store = BeraterStore(tmp_path)
+    d = store.definiere("Sprungschutz", "…", autor="a", datum="d", scope="geteilt")
+
+    with pytest.raises(BeraterFehler, match="exakt der nächste Status"):
+        store.setze_review_status(d.id, "freigegeben", reviewer="b")
+
+    # Die abgewiesene Freigabe darf weder Status noch Reviewer persistieren.
+    unveraendert = next(e for e in BeraterStore(tmp_path).alle() if e.id == d.id)
+    assert unveraendert.review_status == "entwurf"
+    assert unveraendert.reviewer is None
+
+
+@pytest.mark.parametrize("reviewer", ["alice", " ALICE "])
+def test_lebenszyklus_verbietet_selbstreview(tmp_path, reviewer):
+    store = BeraterStore(tmp_path)
+    d = store.definiere("Vier-Augen-Prinzip", "…", autor="Alice", datum="d", scope="geteilt")
+
+    with pytest.raises(BeraterFehler, match="Reviewer.*Autor"):
+        store.setze_review_status(d.id, "geprüft", reviewer=reviewer)
+
+    unveraendert = next(e for e in BeraterStore(tmp_path).alle() if e.id == d.id)
+    assert unveraendert.review_status == "entwurf"
+    assert unveraendert.reviewer is None
+
+
+def test_lebenszyklus_braucht_einen_benannten_reviewer(tmp_path):
+    store = BeraterStore(tmp_path)
+    d = store.definiere("Reviewerpflicht", "…", autor="a", datum="d", scope="geteilt")
+
+    with pytest.raises(BeraterFehler, match="nichtleerer String"):
+        store.setze_review_status(d.id, "geprüft", reviewer="  ")
+
+
+def test_laden_quarantaenisiert_legacy_selbstreview_und_erfordert_re_review(tmp_path):
+    store = BeraterStore(tmp_path)
+    d = store.definiere("Persistenzschutz", "…", autor="a", datum="d", scope="geteilt")
+    store.setze_review_status(d.id, "geprüft", reviewer="b")
+
+    pfad = tmp_path / "geteilt.yaml"
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace("reviewer: b", "reviewer: a"),
+        encoding="utf-8",
+    )
+
+    migriert = BeraterStore(tmp_path)
+    eintrag = next(e for e in migriert.alle() if e.id == d.id)
+    assert eintrag.review_status == "entwurf"
+    assert eintrag.reviewer is None
+    assert eintrag.ist_review_quarantiniert is True
+    assert eintrag.review_migration_grund == "legacy_selbstreview"
+    assert eintrag.review_status_vor_migration == "geprüft"
+    assert migriert.finde("Persistenzschutz") is None
+    assert migriert.review_migrationen() == [{
+        "id": d.id,
+        "grund": "legacy_selbstreview",
+        "status_vor_migration": "geprüft",
+        "aktueller_status": "entwurf",
+        "quarantiniert": True,
+    }]
+
+    # Die atomare Migration steht auch in der YAML; ein älteres Binary würde
+    # den Record nach einem Rollback daher nicht erneut als geprüft lesen.
+    persistiert = yaml.safe_load(pfad.read_text(encoding="utf-8"))[0]
+    assert persistiert["review_status"] == "entwurf"
+    assert persistiert["reviewer"] is None
+    assert persistiert["review_migration_grund"] == "legacy_selbstreview"
+
+    # Die Quarantäne ist kein Lebenszyklus-Bypass: Selbstreview bleibt verboten,
+    # ein echter separater Reviewer muss beide regulären Schritte durchlaufen.
+    with pytest.raises(BeraterFehler, match="Reviewer.*Autor"):
+        migriert.setze_review_status(d.id, "geprüft", reviewer="a")
+    migriert.setze_review_status(d.id, "geprüft", reviewer="b")
+    assert migriert.finde("Persistenzschutz") is None
+    migriert.setze_review_status(d.id, "freigegeben", reviewer="b")
+    freigegeben = BeraterStore(tmp_path).finde("Persistenzschutz")
+    assert freigegeben is not None and freigegeben.ist_review_quarantiniert is False
+    assert freigegeben.review_migration_grund == "legacy_selbstreview"
+
+
+@pytest.mark.parametrize("status", ["geprüft", "freigegeben"])
+def test_laden_quarantaenisiert_legacy_ohne_reviewer_pro_eintrag(tmp_path, status):
+    store = BeraterStore(tmp_path)
+    legacy = store.definiere(
+        "Persistenzpflicht", "…", autor="a", datum="d", scope="geteilt")
+    gesund = store.definiere(
+        "Gesunder Bestand", "…", autor="a", datum="d", scope="geteilt")
+    store.setze_review_status(gesund.id, "geprüft", reviewer="b")
+    store.setze_review_status(gesund.id, "freigegeben", reviewer="b")
+
+    pfad = tmp_path / "geteilt.yaml"
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace("review_status: entwurf",
+                                                   f"review_status: {status}", 1),
+        encoding="utf-8",
+    )
+
+    geladen = BeraterStore(tmp_path)
+    eintraege = {e.id: e for e in geladen.alle()}
+    assert set(eintraege) == {legacy.id, gesund.id}
+    assert eintraege[legacy.id].review_status == "entwurf"
+    assert eintraege[legacy.id].review_migration_grund == "legacy_review_ohne_reviewer"
+    assert eintraege[legacy.id].review_status_vor_migration == status
+    assert geladen.finde("Persistenzpflicht") is None
+    # Der valide Nachbar bleibt verfügbar und kanonisch; ein einzelner Legacy-
+    # Record deaktiviert/verschluckt nicht mehr den gesamten Store.
+    assert geladen.finde("Gesunder Bestand") is not None
+
+
+def test_legacy_quarantaene_bleibt_bei_read_only_store_sicher_im_speicher(
+        tmp_path, monkeypatch):
+    store = BeraterStore(tmp_path)
+    d = store.definiere("Read-only Legacy", "…", autor="a", datum="d", scope="geteilt")
+    pfad = tmp_path / "geteilt.yaml"
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace(
+            "review_status: entwurf", "review_status: freigegeben"),
+        encoding="utf-8",
+    )
+
+    def _nicht_schreibbar(*_args, **_kwargs):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr("risk_layer.berater.atomar_schreiben", _nicht_schreibbar)
+    geladen = BeraterStore(tmp_path)
+    eintrag = next(e for e in geladen.alle() if e.id == d.id)
+    assert eintrag.ist_review_quarantiniert is True
+    assert eintrag.review_status == "entwurf"
+    assert geladen.finde("Read-only Legacy") is None
+    # Nur die Persistierung scheiterte; die unveränderte Quelldatei belegt den
+    # Testaufbau und darf die sichere Laufzeitsicht nicht beeinflussen.
+    assert "review_status: freigegeben" in pfad.read_text(encoding="utf-8")
+
+
+def test_legacy_migration_maskiert_keinen_unbekannten_review_status(tmp_path):
+    (tmp_path / "geteilt.yaml").write_text(
+        "- id: kaputt\n"
+        "  begriff: Kaputt\n"
+        "  scope: geteilt\n"
+        "  autor: a\n"
+        "  review_status: automatisch_freigegeben\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(BeraterFehler, match="review_status"):
+        BeraterStore(tmp_path)
 
 
 def test_annotation_an_katalogkarte(tmp_path):

@@ -251,7 +251,7 @@ class TriggerIndex:
             })
         for w in per_wort:
             per_wort[w].sort(key=lambda x: -x["gewicht"])
-        marken = []
+        marken: list[dict[str, Any]] = []
         for w, s, e in vork:
             if w not in idf_ok or w not in per_wort:
                 continue

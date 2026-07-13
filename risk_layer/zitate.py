@@ -272,7 +272,7 @@ def extrahiere_anker(
         nach = text[m.end(): m.end() + 40]
         law_m = re.match(r"\s+([A-ZÄÖÜ][A-Za-zÄÖÜ0-9]+)", nach)
         law = lawmap.resolve(law_m.group(1)) if law_m else None
-        if law:
+        if law and law_m is not None:
             out.extend(parse_normzitat(f"{zitat} {law_m.group(1)}", lawmap))
         elif default_law:
             for a in parse_normzitat(zitat, lawmap):

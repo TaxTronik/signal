@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -25,7 +26,7 @@ import threading
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 from .anonymize import ner_status
@@ -40,18 +41,30 @@ from .radar import RadarFehler, lade_manifest, manifest_vorher_pfad, radar_beric
 from .triggerindex import index_oeffnen
 from .zitate import kanonisiere_fundstelle, parse_normzitat
 
+if TYPE_CHECKING:
+    from .modell import LlamaServerManager
+
 _log = logging.getLogger(__name__)
 
-# Loopback-Adressen: OHNE Token darf nur an diese gebunden werden (lokale Dev).
-# Alles andere (0.0.0.0, ::, echte IPs, "" = alle Interfaces) ist ein Netz-Bind
-# und erfordert ein RISK_LAYER_TOKEN.
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_MAX_REQUEST_THREADS = 32
+_REQUEST_BACKLOG = 64
+
+# Ohne Token darf nur an eine echte Loopback-IP bzw. exakt ``localhost``
+# gebunden werden. Alles andere (0.0.0.0, ::, echte IPs, "" = alle Interfaces)
+# ist ein Netz-Bind und erfordert ein RISK_LAYER_TOKEN.
 
 
 def _ist_loopback(host: str) -> bool:
     # Bewusst KEIN "": ein leerer Host bindet (wie 0.0.0.0) alle Interfaces.
     h = (host or "").strip().lower()
-    return h in _LOOPBACK_HOSTS or h.startswith("127.")
+    if h == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        # Insbesondere KEIN Prefix-Match auf "127.": 127.attacker.example ist
+        # ein DNS-Name und darf niemals als lokale Adresse durchgehen.
+        return False
 
 
 # --- Token-Rotation (IDW PS 861, Mapping-Lücke L8) ---------------------------
@@ -88,7 +101,13 @@ def _llm_url_anzeige(url: str | None) -> str | None:
     u = urlparse(url)
     if not u.hostname:
         return None
-    return f"{u.hostname}:{u.port}" if u.port else u.hostname
+    try:
+        port = u.port
+    except ValueError:
+        # Eine fehlerhafte Betreiber-Konfiguration darf im Statuspfad weder
+        # Secrets spiegeln noch einen 500er erzeugen.
+        port = None
+    return f"{u.hostname}:{port}" if port else u.hostname
 
 
 # Fehlertext für /v1/los/* mit backend=qpu ohne IBM-Zugang (503): nennt beide
@@ -100,8 +119,8 @@ _IBM_CREDENTIALS_FEHLEN = (
     "mitgeben (zentral vom Host verwaltet) ODER auf der Maschine hinterlegen "
     "(~/.qiskit/qiskit-ibm.json bzw. QISKIT_IBM_TOKEN) — oder das Backend "
     "bewusst anders wählen (simulator|csprng); stille Degradation "
-    "auf lokalen Zufall gibt es nicht. Quanten-Extras: "
-    'pip install "risk-layer[quanten]".')
+    "auf lokalen Zufall gibt es nicht. Quanten-Extras hash-gepinnt: "
+    "deploy.sh --with-quanten bzw. deploy.ps1 -WithQuanten.")
 
 
 def _ohne_token(text: str, token: str | None) -> str:
@@ -133,7 +152,9 @@ class Anwendung:
         self.trigger = index_oeffnen()
         # Semantischer Embedding-Index (Schicht 1.7) – nur wenn vorab gebaut.
         # Encoder lazy, kein Startup-Download.
-        from .embedding import (index_oeffnen as _emb_open, encoder_oeffnen as _enc_open,
+        from .embedding import (encoder_oeffnen as _enc_open,
+                                encoder_revision_fuer_name as _emb_revision,
+                                index_oeffnen as _emb_open,
                                 pruefe_aktualitaet as _emb_aktuell)
         self.embedding = _emb_open()
         # Graph-Fingerprint EINMAL berechnen und am Objekt memoisieren: der
@@ -147,7 +168,7 @@ class Anwendung:
         if self.graph is not None:
             try:
                 graph_fp = self.graph.fingerprint()
-                self.graph.fingerprint = lambda _fp=graph_fp: _fp  # type: ignore[method-assign]
+                self.graph.fingerprint = lambda _fp=graph_fp: _fp  # type: ignore[method-assign,misc]
             except Exception:  # noqa: BLE001 – Status nie Show-Stopper; bewusst
                 pass           # KEIN Log: pruefe_aktualitaet meldet den Fall gleich selbst.
         # Staleness-Check EINMALIG beim Start (nie pro Request): warnt laut im
@@ -162,6 +183,13 @@ class Anwendung:
         # weiter belegen, WELCHER Index benutzt worden wäre.
         emb_index_fp = getattr(self.embedding, "graph_fingerprint", None)
         emb_encoder_name = getattr(self.embedding, "encoder_name", None)
+        emb_index_revision = getattr(self.embedding, "encoder_revision", None)
+        emb_erwartete_revision = _emb_revision(emb_encoder_name)
+        emb_laufzeit_revision = emb_erwartete_revision
+        emb_revision_aktuell: bool | None = (
+            None if emb_erwartete_revision is None
+            else emb_index_revision == emb_erwartete_revision
+        )
         # Degradations-GRÜNDE zusätzlich zum Log in den Engine-Status schreiben
         # (Log-Verhalten unverändert): der Host legt den Status mit jedem
         # Analyseergebnis in seiner Audit-Chain ab (Haftungsakte).
@@ -172,6 +200,8 @@ class Anwendung:
         try:
             self.embedding_encoder = (
                 _enc_open(self.embedding.encoder_name, device=_emb_dev) if self.embedding else None)
+            if self.embedding_encoder is not None:
+                emb_laufzeit_revision = getattr(self.embedding_encoder, "revision", None)
         except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
             _log.warning("Embedding-Encoder nicht ladbar (%s) — Engine laeuft ohne Schicht 1.7.", exc)
             emb_grund = f"Embedding-Encoder nicht ladbar: {exc}"
@@ -196,10 +226,11 @@ class Anwendung:
             reranker_grund = "ohne Embedding-Encoder kein Reranking (Schicht 1.7 inaktiv)"
         else:
             reranker_grund = f"nur auf GPU (RISK_LAYER_EMB_DEVICE={_emb_dev!r} ist kein cuda-Device)"
+        reranker_revision = getattr(self.reranker, "revision", None)
         self.llm_url = llm_url        # Schicht 2 (mitLLM:true) verbindet sich hierher
         self.llm_model = llm_model    # expliziter GGUF-Pfad (sonst Registry-Default)
         self.llm_bin = llm_bin        # llama-server-Binary
-        self.manager = None           # LlamaServerManager, falls VON UNS gestartet
+        self.manager: LlamaServerManager | None = None  # falls VON UNS gestartet
         self._llm_lock = threading.Lock()  # serialisiert llm_start/llm_stop (Concurrency)
         self._berater_lock = threading.Lock()  # serialisiert define-on-the-fly-Writes
         # --- Engine-Status: Degradations-Transparenz für die Host-Audit-Chain ---
@@ -224,6 +255,13 @@ class Anwendung:
                 "embedding": {
                     "aktiv": self.embedding is not None and self.embedding_encoder is not None,
                     "encoder": emb_encoder_name,
+                    # Supply-Chain-Nachweis: Laufzeit-Pin und die beim Indexbau
+                    # persistierte Revision werden getrennt ausgewiesen. Bei
+                    # Alt-Indizes ist index_revision=None und revision_aktuell
+                    # fuer kuratierte HF-Encoder explizit False.
+                    "revision": emb_laufzeit_revision,
+                    "index_revision": emb_index_revision,
+                    "revision_aktuell": emb_revision_aktuell,
                     "index_fingerprint": emb_index_fp,
                     "index_aktuell": index_aktuell,
                     # Betriebspunkt der Schicht 1.7 (additiv, s. pipeline.py):
@@ -238,7 +276,9 @@ class Anwendung:
                                     else None),
                     "grund": emb_grund,
                 },
-                "reranker": {"aktiv": self.reranker is not None, "grund": reranker_grund},
+                "reranker": {"aktiv": self.reranker is not None,
+                             "revision": reranker_revision,
+                             "grund": reranker_grund},
                 "ner": ner_status(),
                 # Bewusst KEINE Live-Erreichbarkeitsprüfung beim Start (das LLM
                 # ist lazy; Erreichbarkeit liefert GET /v1/llm/status). url nur
@@ -278,6 +318,32 @@ class Anwendung:
             return BeraterStore(self.berater_dir)
         except BeraterFehler:
             return None
+
+    def berater_status(self) -> dict[str, Any]:
+        """Live-Status des Festwissen-Stores samt sichtbarer Upgrade-Quarantäne.
+
+        Anders als ``engine_status`` ist dies bewusst kein eingefrorener
+        Startup-Snapshot: Review-Übergänge und eingespielte Sicherungen sollen
+        über ``GET /v1/status`` unmittelbar sichtbar werden. Die Liste enthält
+        ausschließlich mandantenfreie Festwissen-IDs und Review-Metadaten.
+        """
+        try:
+            store = BeraterStore(self.berater_dir)
+        except (BeraterFehler, OSError) as exc:
+            return {
+                "verfuegbar": False,
+                "grund": str(exc),
+                "review_quarantaene": 0,
+                "review_migrationen": [],
+            }
+        migrationen = store.review_migrationen()
+        return {
+            "verfuegbar": True,
+            "grund": None,
+            "review_quarantaene": sum(
+                1 for migration in migrationen if migration["quarantiniert"]),
+            "review_migrationen": migrationen,
+        }
 
     def _provider(self, schicht2: bool, llm_url: str | None):
         if not schicht2:
@@ -569,7 +635,9 @@ class Anwendung:
         from .llm import server_status
         st = server_status(self.llm_url)
         return {
-            "url": self.llm_url,
+            # Userinfo, Pfad und Query koennen API-Schluessel enthalten. Der
+            # Status ist beobachtbar/auditierbar und braucht nur das Ziel.
+            "url": _llm_url_anzeige(self.llm_url),
             "verfuegbar": st["erreichbar"],
             "queue": st["queue"],
             "modell_geladen": bool(self._modell_pfad()),
@@ -586,15 +654,33 @@ class Anwendung:
         from .llm import server_verfuegbar
         with self._llm_lock:
             # Schon von UNS gestartet (auch noch im Modell-Lade-Fenster, in dem
-            # /health NICHT antwortet) ODER extern erreichbar? → kein Doppel-Spawn.
-            if (self.manager and self.manager.laeuft) or server_verfuegbar(self.llm_url):
-                return {"ok": True, "hinweis": "läuft bereits", "url": self.llm_url}
+            # /health NICHT antwortet)? → kein Doppel-Spawn.
+            if self.manager and self.manager.laeuft:
+                return {"ok": True, "hinweis": "läuft bereits",
+                        "url": _llm_url_anzeige(self.llm_url)}
+            u = urlparse(self.llm_url)
+            try:
+                port = u.port
+            except ValueError:
+                return {"ok": False, "fehler": "ungueltige llama-server URL/Portangabe"}
+            if u.scheme != "http" or not u.hostname or not _ist_loopback(u.hostname):
+                # Der verwaltete Prozess hat keine eigene Authentisierung. Ein
+                # Wildcard-/Netz-Bind wuerde Slots, Metriken und Modell-Endpunkt
+                # unbeabsichtigt exponieren. Externe Sidecars duerfen weiterhin
+                # als Provider genutzt, aber nicht von dieser Engine gestartet
+                # werden.
+                return {"ok": False, "fehler": "verwalteter llama-server darf nur "
+                                                "an Loopback gebunden werden"}
+            # Ein extern verwalteter, aber lokale erreichbarer Server ist
+            # ebenfalls idempotent; erst nach der URL-Validierung anfragen.
+            if server_verfuegbar(self.llm_url):
+                return {"ok": True, "hinweis": "läuft bereits",
+                        "url": _llm_url_anzeige(self.llm_url)}
             pfad = self._modell_pfad()
             if not pfad:
                 return {"ok": False, "fehler": "Modell nicht geladen – 'risk-layer modell download'"}
-            u = urlparse(self.llm_url)
             mgr = M.LlamaServerManager(pfad, binary=self.llm_bin,
-                                       host=u.hostname or "127.0.0.1", port=u.port or 8080)
+                                       host=u.hostname, port=port or 8080)
             try:
                 mgr.start()   # Popen kehrt sofort zurück; das Laden läuft im Subprozess
             except FileNotFoundError as exc:
@@ -728,6 +814,7 @@ def antwort_json(report: RunReport, text: str) -> dict[str, Any]:
 # großzügig für Sachverhaltstexte. Auth läuft VOR dem Body-Read, daher kein
 # Pre-Auth-Read mehr; der Cap deckelt zusätzlich authentifizierte Clients.
 _MAX_BODY = 8 * 1024 * 1024
+_MIN_TOKEN_BYTES = 32  # mindestens 256 Bit bei zufällig erzeugtem Byte-/Hex-Secret
 
 
 class _RequestFehler(Exception):
@@ -740,8 +827,21 @@ class _RequestFehler(Exception):
 
 
 def make_handler(app: Anwendung):
+    # Auth-Konfiguration ist Startzustand, kein pro Request neu interpretierter
+    # Schalter. Wird eine Env-Variable im laufenden Prozess versehentlich geleert,
+    # darf der Dienst nicht von 401 auf fail-open wechseln; Rotation erfolgt durch
+    # kontrollierten Neustart mit beiden Werten.
+    erwartet_token = os.environ.get("RISK_LAYER_TOKEN", "")
+    vorgaenger_token = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "RiskLayer/0.1"
+        sys_version = ""
+
+        def version_string(self) -> str:
+            """Keine Python-Patchversion im oeffentlichen Server-Header."""
+            return self.server_version
+
         # Socket-Timeout: eine hängende/langsame Verbindung darf nicht dauerhaft
         # einen Worker-Thread binden (slow-read/slowloris im Netzbetrieb).
         timeout = 30
@@ -757,6 +857,7 @@ def make_handler(app: Anwendung):
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
             for k, v in (extra_headers or {}).items():
                 self.send_header(k, v)
             self.end_headers()
@@ -789,24 +890,37 @@ def make_handler(app: Anwendung):
         def _read_json(self) -> dict[str, Any]:
             # Chunked wird vom stdlib-Handler nicht dekodiert – ohne harte
             # Ablehnung würde der Body still falsch (leer) gelesen.
-            te = (self.headers.get("Transfer-Encoding") or "").lower()
-            if "chunked" in te:
-                raise _RequestFehler(411, "Transfer-Encoding: chunked wird nicht "
-                                          "unterstützt – Content-Length erforderlich")
-            cl = self.headers.get("Content-Length")
-            if cl is None:
+            transfer_encodings = self.headers.get_all("Transfer-Encoding", [])
+            if transfer_encodings:
+                raise _RequestFehler(411, "Transfer-Encoding wird nicht unterstützt – "
+                                          "Content-Length erforderlich")
+            content_lengths = self.headers.get_all("Content-Length", [])
+            if not content_lengths:
                 # Fehlende Content-Length hieße still leerer Body → laut: 411.
                 raise _RequestFehler(411, "Content-Length erforderlich")
+            if len(content_lengths) != 1:
+                # Widerspruechliche Framing-Angaben duerfen Proxy und Backend
+                # niemals unterschiedlich interpretieren (Request Smuggling).
+                raise _RequestFehler(400, "genau ein Content-Length erforderlich")
+            cl = content_lengths[0]
             try:
                 laenge = int(cl)
             except (TypeError, ValueError):
                 raise _RequestFehler(400, "ungültige Content-Length")
             if laenge < 0 or laenge > _MAX_BODY:
                 raise _RequestFehler(413, f"Body zu groß (max {_MAX_BODY} Bytes)")
+            # application/json ist absichtlich NICHT CORS-"simple". Zusammen
+            # mit fehlender OPTIONS/CORS-Freigabe verhindert das, dass eine
+            # fremde Webseite den tokenlosen Loopback-Devserver per text/plain-
+            # fetch oder HTML-Formular mutiert. Reguläre API-Clients senden den
+            # im Vertrag dokumentierten JSON-Medientyp ohnehin.
+            medientyp = (self.headers.get("Content-Type") or "").split(";", 1)[0]
+            if medientyp.strip().lower() != "application/json":
+                raise _RequestFehler(415, "Content-Type application/json erforderlich")
             roh = self.rfile.read(laenge) if laenge else b"{}"
             try:
                 obj = json.loads(roh.decode("utf-8") or "{}")
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError):
                 raise _RequestFehler(400, "ungültiger JSON-Body")
             # Top-Level MUSS ein Objekt sein: '[1]' oder '"x"' liefe sonst als
             # AttributeError in die Handler (500 statt klarem Client-Fehler).
@@ -831,7 +945,7 @@ def make_handler(app: Anwendung):
             wäre ein Timing-Leck — die Antwortzeit verriete, ob bereits der
             erste Vergleich getroffen hat.
             """
-            erwartet = os.environ.get("RISK_LAYER_TOKEN", "")
+            erwartet = erwartet_token
             if not erwartet:
                 # Kein aktueller Token → keine Auth (nur Loopback erreichbar,
                 # Logik unverändert). Ein NUR gesetzter Vorgänger aktiviert
@@ -843,7 +957,7 @@ def make_handler(app: Anwendung):
                 return False
             geboten = auth[7:].encode("utf-8")
             aktuell_ok = hmac.compare_digest(geboten, erwartet.encode("utf-8"))
-            vorgaenger = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+            vorgaenger = vorgaenger_token
             vorgaenger_ok = (hmac.compare_digest(geboten, vorgaenger.encode("utf-8"))
                              if vorgaenger else False)
             if vorgaenger_ok and not aktuell_ok:
@@ -852,6 +966,34 @@ def make_handler(app: Anwendung):
                 # alten Token stehen und das Fenster zu schließen ist.
                 _logge_rotationsfenster_einmalig()
             return aktuell_ok or vorgaenger_ok
+
+        def _herkunft_ok(self) -> bool:
+            """Schützt den tokenlosen Loopback-Modus vor Browser-CSRF/Rebinding.
+
+            Mit Bearer-Token ist die Authentisierung die Vertrauensgrenze. Ohne
+            Token darf der Server nur lokal gebunden sein; trotzdem kann ein
+            Browser Requests aus einer fremden Origin an 127.0.0.1 senden oder
+            per DNS-Rebinding mit einem fremden Host-Header dort landen. Der
+            headless Dienst hat bewusst keine Browser-Origin, daher sind Origin-
+            Requests in diesem Modus nie legitim. Der Host muss zusätzlich eine
+            echte Loopback-Adresse sein.
+            """
+            if erwartet_token:
+                return True
+            if self.headers.get("Origin") is not None:
+                return False
+            host_header = (self.headers.get("Host") or "").strip()
+            try:
+                hostname = urlparse(f"//{host_header}").hostname or ""
+            except ValueError:  # z. B. kaputte IPv6-Klammern/Portangabe
+                return False
+            return _ist_loopback(hostname)
+
+        def _403_herkunft(self) -> None:
+            _log.warning("403 untrusted browser origin/host: %s %s von %s",
+                         self.command, urlparse(self.path).path,
+                         self.client_address[0])
+            self._json(403, {"error": "unzulässige Request-Herkunft"})
 
         def _fehler_500(self, exc: Exception) -> None:
             # § 203 / Info-Leak: roher Exception-Text kann Mandantentext-Fragmente
@@ -869,6 +1011,9 @@ def make_handler(app: Anwendung):
                     return
                 if not self._auth_ok():
                     self._401()
+                    return
+                if not self._herkunft_ok():
+                    self._403_herkunft()
                     return
                 code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
                 self._dispatch_json(code, obj)
@@ -891,6 +1036,12 @@ def make_handler(app: Anwendung):
                                  _p.path, self.client_address[0])
                     self._json(401, {"error": "unauthorized"}, write_body=False)
                     return
+                if not self._herkunft_ok():
+                    _log.warning("403 untrusted browser origin/host: %s %s von %s",
+                                 self.command, _p.path, self.client_address[0])
+                    self._json(403, {"error": "unzulässige Request-Herkunft"},
+                               write_body=False)
+                    return
                 code, obj = dispatch(app, "GET", _p.path, {}, parse_qs(_p.query))
                 extra = None
                 if code == 405 and isinstance(obj, dict) and obj.get("allow"):
@@ -909,6 +1060,9 @@ def make_handler(app: Anwendung):
                 # abgewiesen, bevor irgendein Body gelesen wird.
                 if not self._auth_ok():
                     self._401()
+                    return
+                if not self._herkunft_ok():
+                    self._403_herkunft()
                     return
                 payload = self._read_json()
                 code, obj = dispatch(app, "POST", pfad, payload, {})
@@ -935,9 +1089,19 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
     """Startet die /v1-Engine. Rückgabe: Exit-Code (0 = sauberer Lauf/Stop,
     2 = Startverweigerung) – main() reicht ihn durch, damit Service-Manager
     (systemd/NSSM) und deploy-Skripte einen Fehlstart als Fehler sehen."""
+    token = os.environ.get("RISK_LAYER_TOKEN", "")
+    vorgaenger_token = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+    for name, wert in (("RISK_LAYER_TOKEN", token),
+                       ("RISK_LAYER_TOKEN_VORGAENGER", vorgaenger_token)):
+        if wert and len(wert.encode("utf-8")) < _MIN_TOKEN_BYTES:
+            print(f"{name} ist zu kurz (mindestens {_MIN_TOKEN_BYTES} UTF-8-Bytes). "
+                  "Erzeuge ein zufälliges Secret, z. B. mit 'openssl rand -hex 32'.",
+                  file=sys.stderr)
+            return 2
+
     # Netz-Bind ohne Token verweigern (§ 203 StGB): die /v1-Engine ist auth-pflichtig,
     # sobald sie das Loopback verlässt. Ohne Token nur lokal (Entwicklung).
-    if not _ist_loopback(host) and not os.environ.get("RISK_LAYER_TOKEN", ""):
+    if not _ist_loopback(host) and not token:
         print(f"Host {host!r} ist kein Loopback, aber RISK_LAYER_TOKEN ist nicht gesetzt. "
               "Setze ein Token (Bearer-Auth, § 203 StGB) oder binde an 127.0.0.1.",
               file=sys.stderr)
@@ -956,17 +1120,34 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
     app = Anwendung(katalog, berater_dir, graph_pfad, llm_url=llm_url,
                     llm_model=llm_model, llm_bin=llm_bin)
 
-    if llm_autostart:                 # Schicht 2 (llama-server) mit hochfahren – ein-Befehl-Start.
-        r = app.llm_start()           # idempotent + nicht-blockierend; Bereitschaft via /v1/llm/status
-        print("  LLM-Autostart: " + (
-            f"startet {r.get('modell')}" if r.get("startet") else
-            r.get("hinweis") or r.get("fehler") or "?"), file=sys.stderr)
-
     class _Server(ThreadingHTTPServer):
         # KEIN SO_REUSEADDR: ein zweiter Start auf belegtem Port soll laut scheitern,
         # nicht (unter Windows) still denselben Port doppelt binden.
         allow_reuse_address = False
         daemon_threads = True
+        request_queue_size = _REQUEST_BACKLOG
+
+        def __init__(self, *args: Any, **kwargs: Any):
+            self._request_slots = threading.BoundedSemaphore(_MAX_REQUEST_THREADS)
+            super().__init__(*args, **kwargs)
+
+        def process_request(self, request: Any, client_address: Any) -> None:
+            # ThreadingMixIn wuerde sonst fuer jede Verbindung unbeschraenkt
+            # einen Thread erzeugen. Bei Auslastung bleibt hoechstens eine vom
+            # Accept-Loop angenommene Verbindung wartend; weitere werden durch
+            # den begrenzten Kernel-Backlog abgefedert/abgewiesen.
+            self._request_slots.acquire()
+            try:
+                super().process_request(request, client_address)
+            except BaseException:
+                self._request_slots.release()
+                raise
+
+        def process_request_thread(self, request: Any, client_address: Any) -> None:
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                self._request_slots.release()
 
     try:
         httpd = _Server((host, port), make_handler(app))
@@ -974,13 +1155,26 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
         print(f"Port {port} ist belegt – läuft die Engine schon? ({exc})", file=sys.stderr)
         return 2
 
+    # Erst NACH erfolgreichem HTTP-Bind starten. Sonst bliebe bei belegtem Port
+    # ein von uns gestarteter llama-server ohne verwaltenden Webprozess zurück.
+    if llm_autostart:                 # Schicht 2 mit hochfahren – ein-Befehl-Start.
+        r = app.llm_start()           # idempotent + nicht-blockierend
+        print("  LLM-Autostart: " + (
+            f"startet {r.get('modell')}" if r.get("startet") else
+            r.get("hinweis") or r.get("fehler") or "?"), file=sys.stderr)
+
     gstat = app.graph.stats() if app.graph else None
-    auth = "Bearer-Token (gesetzt)" if os.environ.get("RISK_LAYER_TOKEN") else "KEIN Token (nur Loopback)"
+    auth = "Bearer-Token (gesetzt)" if token else "KEIN Token (nur Loopback)"
     print(f"Risk-Layer /v1-Engine läuft auf http://{host}:{port}/v1/")
     print(f"  Katalog v{app.katalog.version} · {len(app.katalog)} Begriffe · Auth: {auth}")
     print(f"  Normgraph: {('%d Knoten' % gstat['knoten']) if gstat else 'nicht gebaut (nur Schicht 1)'} · "
           f"Embedding: {'geladen' if app.embedding else 'nicht gebaut'}")
-    print("  (Strg+C zum Beenden – es verlässt nichts diese Maschine.)")
+    llm_host = urlparse(llm_url).hostname or ""
+    if _ist_loopback(llm_host):
+        print("  (Strg+C zum Beenden – es verlässt nichts diese Maschine.)")
+    else:
+        print("  (Strg+C zum Beenden – ACHTUNG: Analyse-Text kann zum konfigurierten "
+              "externen LLM-Ziel gesendet werden.)")
     sys.stdout.flush()
     try:
         httpd.serve_forever()
@@ -994,8 +1188,10 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
 
 def main(argv: list[str] | None = None) -> int:
     try:
-        sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    except (AttributeError, ValueError):
+        reconfigure = getattr(sys.stdout, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8")
+    except ValueError:
         pass
     p = argparse.ArgumentParser(prog="risk-layer-web",
                                 description="Headless /v1-Engine des Risk-Layer (zustandslos, Bearer-Auth).")

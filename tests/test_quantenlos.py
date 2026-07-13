@@ -132,12 +132,138 @@ def test_roundtrip_csprng_volle_kette():
     assert not any(h.startswith("FEHLSCHLAG") for h in erg["hinweise"])
 
 
-def test_pruefe_offline_ohne_roh_bits_hinweis_kein_fehlschlag():
+def test_pruefe_offline_ohne_roh_bits_ist_fail_closed_ungueltig():
     nachweis = Q.ziehe(RAHMEN, 5, Q.CsprngQuelle(), gezogen_am="t")
     erg = Q.pruefe(nachweis, RAHMEN)            # keine Roh-Bits, kein --online
-    assert erg["gueltig"] is True               # fehlende Kette = Hinweis, kein Fehler
+    assert erg["gueltig"] is False
+    assert erg["vollstaendig_verifiziert"] is False
     assert "ableitungskette" not in erg["geprueft"]
-    assert any("Roh-Bits nicht verfügbar" in h for h in erg["hinweise"])
+    assert any("FEHLSCHLAG vollstaendige_ableitung" in h for h in erg["hinweise"])
+
+
+def test_pruefe_leere_roh_bits_mit_erfundener_qpu_herkunft_bleiben_ungueltig():
+    """Eine selbstkonsistente Ableitung aus b'' ist weder Entropie noch QPU-Beleg."""
+    commitment = Q.rahmen_commitment(RAHMEN)
+    roh = b""
+    seed = Q.konditioniere(commitment, roh)
+    nachweis = {
+        "protokoll_version": Q.PROTOKOLL_VERSION,
+        "gezogen_am": "t",
+        "rahmen": {"commitment": commitment, "n": len(RAHMEN)},
+        "k": 5,
+        "stichprobe": Q.mische_deterministisch(sorted(RAHMEN), seed)[:5],
+        "entropie": {
+            "quelle_klasse": "qpu",
+            "backend": "erfunden",
+            "job_id": "erfunden",
+            "job_tags": ["quantenlos", commitment[:32]],
+            "roh_counts_sha256": hashlib.sha256(roh).hexdigest(),
+        },
+        "ableitung": {"extraktor": "hmac-sha256", "drbg": "sha256-ctr"},
+    }
+
+    erg = Q.pruefe(nachweis, RAHMEN, roh_bits=roh)
+
+    assert erg["gueltig"] is False
+    assert {"roh_bits_mindestlaenge", "qpu_attestierung"} <= set(erg["geprueft"])
+    assert any("FEHLSCHLAG roh_bits_mindestlaenge" in h for h in erg["hinweise"])
+
+
+@pytest.mark.parametrize(("feld", "wert", "befund"), [
+    ("quelle_klasse", "frei-erfunden", "entropie_quelle"),
+    ("roh_counts_sha256", "A" * 64, "entropie_roh_hash"),
+    ("job_id", "fremdjob", "job_id_nur_qpu"),
+])
+def test_pruefe_entropie_herkunft_und_jobfelder_strikt(feld, wert, befund):
+    quelle = Q.CsprngQuelle()
+    nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
+    nachweis["entropie"][feld] = wert
+
+    erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits)
+
+    assert erg["gueltig"] is False
+    assert any(f"FEHLSCHLAG {befund}" in h for h in erg["hinweise"])
+
+
+@pytest.mark.parametrize("boeses_k,leere_stichprobe", [
+    (0, True),       # urspruenglicher Forgery-Pfad: k=0 + []
+    (-1, False),
+    (True, False),   # bool ist in Python ein int-Untertyp, hier aber keine Ganzzahl
+    (False, True),
+    ("5", False),
+    (5.0, False),
+    (None, False),
+    (len(RAHMEN) + 1, False),
+])
+def test_pruefe_k_strikt_und_fail_closed(boeses_k, leere_stichprobe):
+    """Manipuliertes/falsch typisiertes k ist ein ungültiger Nachweis, nie ein
+    ValueError/TypeError bis CLI bzw. /v1 (500)."""
+    nachweis = Q.ziehe(RAHMEN, 5, Q.CsprngQuelle(), gezogen_am="t")
+    nachweis["k"] = boeses_k
+    if leere_stichprobe:
+        nachweis["stichprobe"] = []
+
+    erg = Q.pruefe(nachweis, RAHMEN)
+
+    assert erg["gueltig"] is False
+    assert "k" in erg["geprueft"]
+    assert any("FEHLSCHLAG k" in h for h in erg["hinweise"])
+
+
+@pytest.mark.parametrize("stichprobe", [
+    None,
+    "text_hash:0001",
+    {"item": "text_hash:0001"},
+    ["text_hash:0001", 2, "text_hash:0003", "text_hash:0004", "text_hash:0005"],
+    [],
+    ["text_hash:0001"] * 5,
+])
+def test_pruefe_stichprobe_struktur_laenge_und_duplikate(stichprobe):
+    nachweis = Q.ziehe(RAHMEN, 5, Q.CsprngQuelle(), gezogen_am="t")
+    nachweis["stichprobe"] = stichprobe
+
+    erg = Q.pruefe(nachweis, RAHMEN)
+
+    assert erg["gueltig"] is False
+    assert {"stichprobe_struktur", "stichprobe_laenge", "stichprobe_im_rahmen"} \
+        <= set(erg["geprueft"])
+
+
+@pytest.mark.parametrize("feld,kaputt", [
+    ("rahmen", "kein Objekt"),
+    ("entropie", ["kein", "Objekt"]),
+    ("ableitung", "kein Objekt"),
+    ("ableitung", {"extraktor": "anderer", "drbg": "sha256-ctr"}),
+])
+def test_pruefe_kaputte_teilstruktur_ist_ungueltig_statt_exception(feld, kaputt):
+    nachweis = Q.ziehe(RAHMEN, 5, Q.CsprngQuelle(), gezogen_am="t")
+    nachweis[feld] = kaputt
+
+    erg = Q.pruefe(nachweis, RAHMEN)
+
+    assert erg["gueltig"] is False
+    assert any(h.startswith("FEHLSCHLAG") for h in erg["hinweise"])
+
+
+def test_pruefe_falsche_top_level_und_roh_bits_typen_crashen_nicht():
+    assert Q.pruefe([], RAHMEN)["gueltig"] is False
+
+    nachweis = Q.ziehe(RAHMEN, 5, Q.CsprngQuelle(), gezogen_am="t")
+    erg = Q.pruefe(nachweis, RAHMEN, roh_bits="kein Byte-String")
+    assert erg["gueltig"] is False
+    assert "roh_bits_struktur" in erg["geprueft"]
+
+
+def test_pruefe_falsch_typisiertes_k_mit_roh_bits_crasht_nicht():
+    quelle = Q.CsprngQuelle()
+    nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
+    nachweis["k"] = "abc"       # war zuvor ValueError bei int("abc")
+
+    erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits)
+
+    assert erg["gueltig"] is False
+    assert "roh_bits_hash" in erg["geprueft"]
+    assert "ableitungskette" not in erg["geprueft"]
 
 
 def test_pruefe_manipulation_item_getauscht_schlaegt_fehl():
@@ -179,12 +305,25 @@ class FakeSampler:
              service=None, token=None):
         self.auftraege.append({"commitment": commitment, "shots": shots,
                                "n_qubits": n_qubits, "token": token})
-        # counts deterministisch ans Commitment gebunden, wie ein echter Job
+        # Counts + provider-authentifizierte Jobinputs wie beim echten Seam.
         basis = hashlib.sha256(commitment.encode()).hexdigest()
-        counts = {bin(i)[2:].zfill(n_qubits): int(basis[i], 16) + 1 for i in range(8)}
+        anzahl = min(16, 2 ** n_qubits)
+        versatz = int(basis[:8], 16) % anzahl
+        counts = {
+            bin((i + versatz) % anzahl)[2:].zfill(n_qubits):
+                shots // anzahl + (1 if i < shots % anzahl else 0)
+            for i in range(anzahl)
+        }
+        bindung = Q._qpu_payload_bindung_sha256(commitment, n_qubits, shots)
+        payload_sha = hashlib.sha256(f"fake-isa:{bindung}".encode()).hexdigest()
         return {"counts": counts, "job_id": "fake-job-0xb16b00b5",
                 "backend": "fake_torino", "tags": ["quantenlos", commitment[:32]],
-                "creation_date": "2026-06-11T12:00:00+00:00"}
+                "creation_date": "2026-06-11T12:00:00+00:00",
+                "primitive_id": "sampler", "backend_simulator": False,
+                "backend_n_qubits": 133, "qpu_n_qubits": n_qubits,
+                "qpu_shots": shots, "qpu_payload_sha256": payload_sha,
+                "qpu_payload_bindung_sha256": bindung,
+                "qpu_payload_commitment": commitment}
 
 
 def test_qpu_quelle_gemockt_nachweis_und_bindung():
@@ -202,14 +341,15 @@ def test_qpu_quelle_gemockt_nachweis_und_bindung():
     assert fake.auftraege[0]["shots"] * fake.auftraege[0]["n_qubits"] >= 512
 
     erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits)
-    assert erg["gueltig"] is True and "ableitungskette" in erg["geprueft"]
+    assert erg["gueltig"] is False and "ableitungskette" in erg["geprueft"]
+    assert any("FEHLSCHLAG qpu_attestierung" in h for h in erg["hinweise"])
 
 
 def test_pruefe_online_mit_gemocktem_refetch():
     fake = FakeSampler()
     quelle = Q.QPUQuelle(job_ausfuehren=fake.lauf)
     nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
-    lauf = fake.lauf(commitment=nachweis["rahmen"]["commitment"], n_qubits=8, shots=64)
+    lauf = fake.lauf(commitment=nachweis["rahmen"]["commitment"], n_qubits=8, shots=4096)
 
     erg = Q.pruefe(nachweis, RAHMEN, online=True,
                    job_abrufen=lambda job_id, token=None: lauf)
@@ -224,13 +364,122 @@ def test_pruefe_online_mit_gemocktem_refetch():
     assert erg["gueltig"] is False
 
 
-def test_pruefe_online_nicht_moeglich_ist_hinweis():
-    """Token/Netz fehlt → Hinweis, KEIN Fehlschlag (Spec der Prüf-Semantik)."""
+@pytest.mark.parametrize("feld,wert", [
+    ("backend_simulator", True),
+    ("primitive_id", "estimator"),
+    ("qpu_shots", 4095),
+    ("qpu_n_qubits", 7),
+])
+def test_pruefe_online_verweigert_falsche_provider_jobmetadaten(feld, wert):
+    fake = FakeSampler()
+    quelle = Q.QPUQuelle(job_ausfuehren=fake.lauf)
+    nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
+    lauf = fake.lauf(commitment=nachweis["rahmen"]["commitment"],
+                     n_qubits=8, shots=4096)
+    lauf[feld] = wert
+
+    erg = Q.pruefe(nachweis, RAHMEN, online=True,
+                   job_abrufen=lambda job_id, token=None: lauf)
+
+    assert erg["gueltig"] is False
+    assert any("online_job_metadaten" in h for h in erg["hinweise"])
+
+
+def test_providerdaten_verweigern_fremdcircuit_mit_konsistenter_metadata(monkeypatch):
+    """Tag, Counts und selbstkonsistente Metadata eines Fremdjobs reichen nicht:
+    der tatsächliche Circuit muss dem rekonstruierten Soll-ISA entsprechen."""
+
+    class Bit:
+        def __init__(self, index):
+            self.index = index
+
+    class Fund:
+        def __init__(self, index):
+            self.index = index
+
+    class Op:
+        def __init__(self, name):
+            self.name = name
+            self.params = []
+
+    class Instr:
+        def __init__(self, name, qubit, clbit):
+            self.operation = Op(name)
+            self.qubits = [qubit]
+            self.clbits = [clbit] if clbit is not None else []
+
+    class Circuit:
+        def __init__(self, op_name):
+            self.num_qubits = 8
+            self.num_clbits = 8
+            self._qubits = [Bit(i) for i in range(8)]
+            self._clbits = [Bit(i) for i in range(8)]
+            self.data = [Instr(op_name, self._qubits[0], None)]
+            self.metadata = {}
+
+        def find_bit(self, bit):
+            return Fund(bit.index)
+
+    commitment = Q.rahmen_commitment(RAHMEN)
+    fremd = Circuit("x")
+    soll = Circuit("h")
+    fremd_sha = Q._qpu_schaltkreis_sha256(fremd)
+    fremd.metadata[Q._QPU_PAYLOAD_META_KEY] = {
+        "commitment": commitment,
+        "n_qubits": 8,
+        "shots": 4096,
+        "bindung_sha256": Q._qpu_payload_bindung_sha256(commitment, 8, 4096),
+        "circuit_sha256": fremd_sha,
+    }
+
+    class Config:
+        simulator = False
+        n_qubits = 133
+
+    class Backend:
+        name = "fake_torino"
+        num_qubits = 133
+
+        @staticmethod
+        def configuration():
+            return Config()
+
+    class Job:
+        primitive_id = "sampler"
+        inputs = {"pubs": [[fremd, [], 4096]]}
+
+        @staticmethod
+        def backend():
+            return Backend()
+
+    monkeypatch.setattr(Q, "_qpu_erwarteten_isa_bauen",
+                        lambda commitment, n_qubits, backend: soll)
+
+    with pytest.raises(Q.QuantenlosBindungsFehler, match="erwartete.*Circuit"):
+        Q._qpu_job_providerdaten(Job())
+
+
+def test_pruefe_qpu_braucht_job_id_und_commitment_tag():
+    fake = FakeSampler()
+    quelle = Q.QPUQuelle(job_ausfuehren=fake.lauf)
+    nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
+    nachweis["entropie"]["job_id"] = ""
+    nachweis["entropie"]["job_tags"] = ["quantenlos", "anderer-rahmen"]
+
+    erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits, online=True,
+                   job_abrufen=lambda job_id, token=None: {})
+
+    assert erg["gueltig"] is False
+    assert {"qpu_job_id", "qpu_job_tag_commitment", "online_abruf"} <= set(erg["geprueft"])
+
+
+def test_pruefe_explizit_online_nicht_moeglich_ist_fail_closed():
+    """online=True verspricht einen Refetch und darf nie still überspringen."""
     quelle = Q.CsprngQuelle()
     nachweis = Q.ziehe(RAHMEN, 5, quelle, gezogen_am="t")
     erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits, online=True)
-    assert erg["gueltig"] is True               # csprng hat keine job_id → übersprungen
-    assert any("Online-Prüfung übersprungen" in h for h in erg["hinweise"])
+    assert erg["gueltig"] is False
+    assert any("FEHLSCHLAG online_quelle" in h for h in erg["hinweise"])
 
     fake = FakeSampler()
     nachweis = Q.ziehe(RAHMEN, 5, Q.QPUQuelle(job_ausfuehren=fake.lauf), gezogen_am="t")
@@ -238,8 +487,8 @@ def test_pruefe_online_nicht_moeglich_ist_hinweis():
     def kaputt(job_id, token=None):
         raise OSError("Netz weg")
     erg = Q.pruefe(nachweis, RAHMEN, online=True, job_abrufen=kaputt)
-    assert erg["gueltig"] is True
-    assert any("Online-Prüfung nicht möglich" in h for h in erg["hinweise"])
+    assert erg["gueltig"] is False
+    assert any("FEHLSCHLAG online_abruf" in h for h in erg["hinweise"])
 
 
 def test_quellen_import_guard_nennt_install_extra(monkeypatch):
@@ -247,9 +496,9 @@ def test_quellen_import_guard_nennt_install_extra(monkeypatch):
     KEINE stille Degradation (sys.modules-Block simuliert fehlende Pakete)."""
     for modul in ("qiskit", "qiskit_aer", "qiskit_ibm_runtime"):
         monkeypatch.setitem(sys.modules, modul, None)
-    with pytest.raises(Q.QuantenlosFehler, match=r"risk-layer\[quanten\]"):
+    with pytest.raises(Q.QuantenlosFehler, match=r"deploy\.sh --with-quanten"):
         Q.SimulatorQuelle().hole_bits("c0ffee")
-    with pytest.raises(Q.QuantenlosFehler, match=r"risk-layer\[quanten\]"):
+    with pytest.raises(Q.QuantenlosFehler, match=r"deploy\.sh --with-quanten"):
         Q.QPUQuelle().hole_bits("c0ffee")
 
 
@@ -300,7 +549,10 @@ def test_drand_quelle_gemockt():
     assert nachweis["entropie"]["quelle_klasse"] == "drand_beacon"
     assert nachweis["entropie"]["runde"] == 4711
     erg = Q.pruefe(nachweis, RAHMEN, roh_bits=quelle.letzte_roh_bits)
-    assert erg["gueltig"] is True
+    # Protokoll v1 kann die Ableitung, aber noch nicht die BLS-Attestierung prüfen.
+    assert erg["gueltig"] is False
+    assert "ableitungskette" in erg["geprueft"]
+    assert any("FEHLSCHLAG drand_attestierung" in h for h in erg["hinweise"])
 
 
 # -- CLI (Muster test_cli.py: main([...]), Exit-Konventionen 0/1/2) ---------------
@@ -329,9 +581,9 @@ def test_cli_los_ziehen_csprng_roundtrip(tmp_path, capsys):
     assert pfad.exists() and roh_pfad.exists()
     assert json.loads(pfad.read_text(encoding="utf-8")) == nachweis
 
-    # pruefen: offline (Hinweis, Exit 0) und mit Roh-Bits (volle Kette, Exit 0)
-    assert main(["los", "pruefen", str(pfad), "--rahmen", rahmen]) == 0
-    assert "gültig: ja" in capsys.readouterr().out
+    # Ohne Roh-Bits fail-closed; erst die archivierten Bits erlauben Exit 0.
+    assert main(["los", "pruefen", str(pfad), "--rahmen", rahmen]) == 1
+    assert "gültig: NEIN" in capsys.readouterr().out
     assert main(["los", "pruefen", str(pfad), "--rahmen", rahmen,
                  "--roh-bits", str(roh_pfad)]) == 0
     out = capsys.readouterr().out

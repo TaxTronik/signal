@@ -5,7 +5,6 @@ Halluzinierte Spannen werden verworfen.
 """
 
 from risk_layer.schicht2 import (
-    Kandidat,
     NullProvider,
     erkenne_kandidaten,
     verifiziere_kandidaten,

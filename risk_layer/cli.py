@@ -173,9 +173,9 @@ def _cmd_graph(args: argparse.Namespace) -> int:
         if not knoten:
             print(f"Keine XML in {args.dir}/gii – erst 'korpus fetch' ausführen.", file=sys.stderr)
             return 1
-        g = graphmod.NormGraph.build(knoten, args.db)
+        gebauter_graph = graphmod.NormGraph.build(knoten, args.db)
         print(f"Graph gebaut: {args.db}")
-        print(f"  {g.stats()}")
+        print(f"  {gebauter_graph.stats()}")
         # Manifest-Rotation (Norm-Änderungs-Radar, radar.py): der bisherige
         # Stand wird zum Vorher-Manifest – ohne diese Rotation gäbe es nach
         # einem Rebuild keinen Vergleichsstand und Festwissens-Anker veralteten
@@ -189,26 +189,27 @@ def _cmd_graph(args: argparse.Namespace) -> int:
             os.replace(m_pfad, v_pfad)
             print(f"  Vergleichsstand rotiert: {v_pfad}")
         radar.speichere_manifest(m_pfad, radar.erstelle_manifest(
-            g, erstellt_am=datetime.now().isoformat(timespec="seconds")))
+            gebauter_graph, erstellt_am=datetime.now().isoformat(timespec="seconds")))
         print(f"  Norm-Manifest geschrieben: {m_pfad} (Prüfung: risk-layer radar)")
         # Verbindung DETERMINISTISCH schließen (nicht auf GC verlassen): unter
         # Windows blockiert ein offenes Handle sonst das unlink() des NÄCHSTEN
         # Builds auf dieselbe Datei (WinError 32).
-        g.close()
+        gebauter_graph.close()
         return 0
-    g = graphmod.graph_oeffnen(args.db)
-    if g is None:
+    graph = graphmod.graph_oeffnen(args.db)
+    if graph is None:
         print(f"Kein Graph unter {args.db} – erst 'graph build'.", file=sys.stderr)
         return 1
     if args.aktion == "stats":
-        print(g.stats())
+        print(graph.stats())
     elif args.aktion == "dangling":
-        for d in g.dangling(args.limit):
+        for d in graph.dangling(args.limit):
             print(f"  {d['src']}  →  {d['dst']}")
     elif args.aktion == "aufloesen":
-        r = g.aufloesen(args.id)
+        r = graph.aufloesen(args.id)
         if not r.get("gefunden"):
-            print(f"nicht gefunden: {args.id}"); return 1
+            print(f"nicht gefunden: {args.id}")
+            return 1
         print(f"{r['verwendet']}  ({r.get('titel','')})")
         print(r["text"][:600])
         print("verweist_auf:", r["verweist_auf"][:10])
@@ -379,10 +380,11 @@ def _cmd_modell(args: argparse.Namespace) -> int:
                   else "ABWEICHUNG: mindestens ein Artefakt weicht ab oder fehlt.")
         return 0 if alle_ok else 1
 
-    info = M.MODELLE.get(args.modell or M.DEFAULT_MODELL)
-    if info is None:
+    modell_info = M.MODELLE.get(args.modell or M.DEFAULT_MODELL)
+    if modell_info is None:
         print(f"unbekanntes Modell: {args.modell}", file=sys.stderr)
         return 2
+    info = modell_info
 
     if args.aktion == "download":
         ziel = M.DEFAULT_MODELL_DIR
@@ -536,17 +538,17 @@ def _cmd_trigger(args: argparse.Namespace) -> int:
         if g is None:
             print("Kein Normgraph – erst 'graph build'.", file=sys.stderr)
             return 1
-        ti = TriggerIndex.build(g, args.db)
-        print(f"Trigger-Index gebaut: {args.db}\n  {ti.stats()}")
+        gebauter_index = TriggerIndex.build(g, args.db)
+        print(f"Trigger-Index gebaut: {args.db}\n  {gebauter_index.stats()}")
         return 0
-    ti = index_oeffnen(args.db)
-    if ti is None:
+    index = index_oeffnen(args.db)
+    if index is None:
         print(f"Kein Trigger-Index unter {args.db} – erst 'trigger build'.", file=sys.stderr)
         return 1
     if args.aktion == "stats":
-        print(ti.stats())
+        print(index.stats())
     elif args.aktion == "lookup":
-        for c in ti.kandidaten(" ".join(args.text or []), k=args.limit):
+        for c in index.kandidaten(" ".join(args.text or []), k=args.limit):
             mark = "✓" if c["geprueft"] else "·"
             print(f" {mark} {c['zitat']:14} score={c['score']:6}  {c['titel'][:45]:45} "
                   f"via {', '.join(c['trigger'])}")
@@ -566,29 +568,29 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
         enc = encoder_oeffnen(args.encoder, device=dev)
         kat = lade_katalog(getattr(args, "katalog", None))
         print(f"Baue Embedding-Index mit Encoder '{enc.name}' (+ Katalog-Paraphrasen) ...")
-        idx = EmbeddingIndex.build(g, enc, katalog=kat)
-        idx.save(args.dir)
-        anker = getattr(idx, "n_paraphrase_anker", 0)
-        print(f"Embedding-Index gebaut: {args.dir} | {len(idx.ids)} Vektoren "
-              f"(davon {anker} Paraphrasen-Anker), dim {idx.dim}")
+        gebauter_index = EmbeddingIndex.build(g, enc, katalog=kat)
+        gebauter_index.save(args.dir)
+        anker = getattr(gebauter_index, "n_paraphrase_anker", 0)
+        print(f"Embedding-Index gebaut: {args.dir} | {len(gebauter_index.ids)} Vektoren "
+              f"(davon {anker} Paraphrasen-Anker), dim {gebauter_index.dim}")
         # TOTE ANKER laut melden: Paraphrasen ohne Index-Ziel dämpfen den Recall
         # unsichtbar (z. B. Granularitäts-Mismatch Katalog/Index). Schreien, nicht schlucken.
-        tot = getattr(idx, "verlorene_anker", [])
+        tot = getattr(gebauter_index, "verlorene_anker", [])
         if tot:
             print(f"\n  ⚠ {len(tot)} TOTE ANKER (Paraphrasen ohne Index-Ziel):", file=sys.stderr)
             for v in tot:
                 print(f"     - {v['begriff']}: Ziel '{v['ziel_zitat']}' nicht im Index "
                       f"({v['n_paraphrasen']} Paraphrasen verloren)", file=sys.stderr)
         return 0
-    idx = index_oeffnen(args.dir)
-    if idx is None:
+    index = index_oeffnen(args.dir)
+    if index is None:
         print(f"Kein Embedding-Index unter {args.dir} – erst 'embedding build'.", file=sys.stderr)
         return 1
     if args.aktion == "stats":
-        print(f"{len(idx.ids)} Normen, dim {idx.dim}, Encoder {idx.encoder_name}")
+        print(f"{len(index.ids)} Normen, dim {index.dim}, Encoder {index.encoder_name}")
     elif args.aktion == "suche":
-        enc = encoder_oeffnen(idx.encoder_name)
-        for h in idx.suche(" ".join(args.text or []), enc, k=args.limit, min_sim=0.0):
+        enc = encoder_oeffnen(index.encoder_name)
+        for h in index.suche(" ".join(args.text or []), enc, k=args.limit, min_sim=0.0):
             print(f"  {h['zitat']:14} sim={h['sim']:6}  {h['titel'][:50]}")
     return 0
 
@@ -710,12 +712,12 @@ def _cmd_zitat(args: argparse.Namespace) -> int:
             print("kein Entscheidungszitat erkannt", file=sys.stderr)
             return 1
         print(uid.to_id())
-        for a in uid.aliase:
-            print(f"  alias: {a}")
+        for alias in uid.aliase:
+            print(f"  alias: {alias}")
         return 0
     anker = parse_normzitat(text)
-    for a in anker:
-        d = a.as_dict()
+    for geparster_anker in anker:
+        d = geparster_anker.as_dict()
         flags = []
         if d["relativ"]:
             flags.append("relativ")
@@ -927,8 +929,10 @@ def _utf8_konsole() -> None:
     """Stellt UTF-8 für Konsolenausgabe sicher (Windows-Codepages)."""
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-        except (AttributeError, ValueError):
+            reconfigure = getattr(stream, "reconfigure", None)
+            if callable(reconfigure):
+                reconfigure(encoding="utf-8")
+        except ValueError:
             pass
 
 

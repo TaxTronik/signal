@@ -21,6 +21,7 @@ from __future__ import annotations
 from typing import Any
 
 from .berater import REVIEW_REIHENFOLGE
+from .models import GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN
 
 # 1.1.0: additiv – neue Route POST /v1/katalog/review (Review-Lebenszyklus des
 # geteilten Festwissens läuft jetzt durch /v1, damit der Host die Freigabe in
@@ -37,7 +38,43 @@ from .berater import REVIEW_REIHENFOLGE
 # /v1/los/abholen rekonstruiert die Ziehung aus job_id+rahmen+k, die Bindung
 # Job↔Rahmen sichern die Commitment-Tags des IBM-Jobs. Keine bestehende
 # Antwort geändert.
-V1_VERSION = "1.3.1"
+# 1.3.2: Sicherheits-Hardening – strikte Bool-/String-Schemas, Ressourcenlimits
+# und fail-closed Prüfung manipulierter bzw. nur teilweise belegter Nachweise.
+V1_VERSION = "1.3.2"
+
+_MAX_FESTWISSEN_BEGRIFF = 512
+_MAX_FESTWISSEN_TEXT = 100_000
+_MAX_NORM_ANKER = 100
+_MAX_NORM_ANKER_CHARS = 1_024
+_MAX_AKTEUR_CHARS = 256
+_MAX_STRUKTURFELD_CHARS = 512
+_MAX_DATUM_CHARS = 64
+_MAX_LOS_JOB_ID_CHARS = 512
+_MAX_IBM_TOKEN_CHARS = 16_384
+_MAX_LOS_ROH_HEX_CHARS = 2_000_000
+
+
+def _pii_rest_fuer_felder(felder: list[tuple[str, str]]) -> list[dict[str, str]]:
+    """Alle persistierten Freitexte gemeinsam durch das lokale PII-Gate schicken.
+
+    Feldnamen und harte Trenner verhindern, dass Inhalte beim Zusammenfuehren
+    ununterscheidbar werden. Ein gemeinsamer Lauf ist zudem deutlich billiger
+    als bis zu hundert einzelne NER-Aufrufe fuer ``norm_anker``.
+    """
+    from .recherche import pruefe_rest
+
+    text = "\n\n".join(f"Feld {name}:\n{wert}" for name, wert in felder if wert)
+    return pruefe_rest(text) if text else []
+
+
+def _bool_feld(obj: dict[str, Any], feld: str) -> tuple[bool, str | None]:
+    """Optionales JSON-Bool strikt lesen; Strings wie ``"false"`` nie aktivieren."""
+    if feld not in obj:
+        return False, None
+    wert = obj[feld]
+    if not isinstance(wert, bool):
+        return False, f"Feld '{feld}' muss true oder false sein"
+    return wert, None
 
 
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
@@ -64,16 +101,26 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     # der Hebel `smart_windowing` (implementiert + getestet, dann CLI+Web konsistent
     # setzen UND gegen Gold messen), KEIN blankes Textlimit. Der `text`-Echo in der
     # Antwort ist tragend: die spans referenzieren Offsets in genau diesen Text.
-    text = str(payload.get("text", ""))
-    opt = payload.get("optionen") or {}
+    text = payload.get("text", "")
+    if not isinstance(text, str):
+        return 400, {"error": "Feld 'text' muss ein String sein"}
+    opt = payload["optionen"] if "optionen" in payload else {}
     # Robustheit: ein truthy Nicht-Objekt ({"optionen": "x"}) würde unten bei
     # opt.get(...) als AttributeError → 500 enden. Klar klassifizieren: 400.
     if not isinstance(opt, dict):
         return 400, {"error": "Feld 'optionen' muss ein JSON-Objekt sein"}
-    mit_llm = bool(payload.get("mitLLM", False))
+    mit_llm, fehler = _bool_feld(payload, "mitLLM")
+    if fehler:
+        return 400, {"error": fehler}
+    optionen: dict[str, bool] = {}
+    for feld in ("unknown", "abweichung", "lemma"):
+        wert, fehler = _bool_feld(opt, feld)
+        if fehler:
+            return 400, {"error": f"Feld 'optionen.{feld}' muss true oder false sein"}
+        optionen[feld] = wert
     res = app.analyse(
         text,
-        unknown=bool(opt.get("unknown")),
+        unknown=optionen["unknown"],
         berater=False,                  # zustandslos: keine Berater-Store-Defs einmischen
         nutzer=None,
         schicht2=mit_llm,
@@ -82,10 +129,10 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         # LLM-Calls auf ein vom Aufrufer gewähltes Ziel lenken. Es gilt strikt
         # der server-konfigurierte llama-server (self.llm_url).
         llm_url=None,
-        abweichung=bool(opt.get("abweichung")),
+        abweichung=optionen["abweichung"],
         # /LF50/: optionaler Lemma-Robustheitspfad (flektierte Katalogformen).
         # Default False – Bestands-Clients erhalten byte-identische Antworten.
-        lemma=bool(opt.get("lemma")),
+        lemma=optionen["lemma"],
     )
     res["engineVersion"] = V1_VERSION
     return 200, res
@@ -116,30 +163,79 @@ def _katalog_definiere(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     Festwissen, kein Mandantengeheimnis. Body wie GUI-/api/definiere:
       {begriff, definition_text, autor?, scope?, norm_anker?[], governance_typ?, ...}
     """
-    begriff = str(payload.get("begriff", "")).strip()
+    begriff_roh = payload.get("begriff", "")
+    if not isinstance(begriff_roh, str):
+        return 400, {"error": "Feld 'begriff' muss ein String sein"}
+    begriff = begriff_roh.strip()
     if not begriff:
         return 400, {"error": "Feld 'begriff' fehlt"}
+    definition_text = payload.get("definition_text", "")
+    if not isinstance(definition_text, str):
+        return 400, {"error": "Feld 'definition_text' muss ein String sein"}
+    if len(begriff) > _MAX_FESTWISSEN_BEGRIFF or len(definition_text) > _MAX_FESTWISSEN_TEXT:
+        return 413, {"error": "Festwissen-Text zu lang (begriff maximal "
+                              f"{_MAX_FESTWISSEN_BEGRIFF}, definition_text maximal "
+                              f"{_MAX_FESTWISSEN_TEXT} Zeichen)"}
+    for feld in ("autor", "datum", "scope", "governance_typ",
+                 "schadensintensitaet", "konfidenz"):
+        if feld in payload and not isinstance(payload[feld], str):
+            return 400, {"error": f"Feld '{feld}' muss ein String sein"}
+    if ("katalog_id" in payload and payload["katalog_id"] is not None
+            and not isinstance(payload["katalog_id"], str)):
+        return 400, {"error": "Feld 'katalog_id' muss ein String oder null sein"}
+    for feld, limit in (("autor", _MAX_AKTEUR_CHARS),
+                        ("datum", _MAX_DATUM_CHARS),
+                        ("scope", _MAX_STRUKTURFELD_CHARS),
+                        ("governance_typ", _MAX_STRUKTURFELD_CHARS),
+                        ("schadensintensitaet", _MAX_STRUKTURFELD_CHARS),
+                        ("konfidenz", _MAX_STRUKTURFELD_CHARS),
+                        ("katalog_id", _MAX_STRUKTURFELD_CHARS)):
+        wert = payload.get(feld)
+        if isinstance(wert, str) and len(wert) > limit:
+            return 413, {"error": f"Feld '{feld}' ist zu lang (maximal {limit} Zeichen)"}
+    if payload.get("scope", "personal") not in ("personal", "geteilt"):
+        return 422, {"error": "Feld 'scope' muss personal|geteilt sein"}
+    if payload.get("governance_typ", "IN") not in GUELTIGE_GOVERNANCE:
+        return 422, {"error": "Feld 'governance_typ' muss FP|FF|IN sein"}
+    if payload.get("schadensintensitaet", "mittel") not in GUELTIGE_SCHADEN:
+        return 422, {"error": "Feld 'schadensintensitaet' muss niedrig|mittel|hoch sein"}
+    if payload.get("konfidenz", "mittel") not in ("niedrig", "mittel", "hoch"):
+        return 422, {"error": "Feld 'konfidenz' muss niedrig|mittel|hoch sein"}
     # Form-Validierung: ein String statt Liste würde sonst zeichenweise
     # zersplittert STILL in die Festwissens-YAML geschrieben.
     norm_anker = payload.get("norm_anker")
     if norm_anker is not None and (
-            isinstance(norm_anker, str) or not isinstance(norm_anker, (list, tuple))
+            not isinstance(norm_anker, list)
             or not all(isinstance(x, str) for x in norm_anker)):
         return 422, {"error": "Feld 'norm_anker' muss eine Liste von Strings sein"}
-    # § 203: Dieser Store ist Festwissen und wird an JEDEN Client ausgeliefert
-    # (GET /v1/katalog). Ein verbatim-Write darf daher kein Mandantengeheimnis
-    # tragen – derselbe Detektor wie beim Recherche-Export prüft begriff + Text.
-    from .recherche import pruefe_rest
-    rest = pruefe_rest(f"{begriff}\n{payload.get('definition_text', '')}")
+    if isinstance(norm_anker, list) and (
+            len(norm_anker) > _MAX_NORM_ANKER
+            or any(len(x) > _MAX_NORM_ANKER_CHARS for x in norm_anker)):
+        return 413, {"error": "Feld 'norm_anker' ueberschreitet das Ressourcenlimit"}
+    # § 203: Dieser Store ist Festwissen und wird an JEDEN Client ausgeliefert.
+    # Ein verbatim-Write darf daher in KEINEM persistierten Freitextfeld ein
+    # Mandantengeheimnis tragen – Begriff, Definition, Actor-Tags, Katalog-ID
+    # und Normanker laufen gemeinsam durch denselben Detektor wie der Export.
+    pii_felder = [("begriff", begriff), ("definition_text", definition_text)]
+    pii_felder.extend((f"norm_anker[{i}]", wert)
+                      for i, wert in enumerate(norm_anker or []))
+    for feld in ("autor", "datum", "katalog_id"):
+        wert = payload.get(feld)
+        if isinstance(wert, str):
+            pii_felder.append((feld, wert))
+    rest = _pii_rest_fuer_felder(pii_felder)
     if rest:
-        return 422, {"error": "definition_text enthält identifizierende Angaben "
+        return 422, {"error": "Festwissensfelder enthalten identifizierende Angaben "
                               "(§ 203 StGB) – bitte abstrahieren.", "rest": rest}
-    return 200, app.definiere(payload)
+    sauber = dict(payload)
+    sauber["begriff"] = begriff
+    sauber["definition_text"] = definition_text
+    return 200, app.definiere(sauber)
 
 
 def _katalog_review(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/katalog/review – Review-Lebenszyklus eines GETEILTEN Berater-
-    Eintrags: {id, status: entwurf|geprüft|freigegeben, pruefer?}. Nur Vorwärts-
+    Eintrags: {id, status: entwurf|geprüft|freigegeben, pruefer}. Nur Vorwärts-
     Übergänge (entwurf → geprüft → freigegeben, berater.setze_review_status).
 
     Der Lebenszyklus ist die Kanonizitäts-Garantie des geteilten Festwissens –
@@ -148,10 +244,19 @@ def _katalog_review(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     Die Antwort nennt deshalb den VOLLSTÄNDIGEN Übergang (alter_status →
     neuer_status). Reiner Festwissens-State, kein Mandantenbezug (§ 203-unkritisch).
     """
-    eintrag_id = str(payload.get("id", "")).strip()
+    eintrag_id_roh = payload.get("id", "")
+    if not isinstance(eintrag_id_roh, str):
+        return 400, {"error": "Feld 'id' muss ein String sein"}
+    eintrag_id = eintrag_id_roh.strip()
     if not eintrag_id:
         return 400, {"error": "Feld 'id' fehlt"}
-    status = str(payload.get("status", "")).strip()
+    if len(eintrag_id) > _MAX_STRUKTURFELD_CHARS:
+        return 413, {"error": f"Feld 'id' ist zu lang "
+                              f"(maximal {_MAX_STRUKTURFELD_CHARS} Zeichen)"}
+    status_roh = payload.get("status", "")
+    if not isinstance(status_roh, str):
+        return 400, {"error": "Feld 'status' muss ein String sein"}
+    status = status_roh.strip()
     if not status:
         return 400, {"error": "Feld 'status' fehlt"}
     # Form-Validierung wie norm_anker in _katalog_definiere: ein unbekannter
@@ -159,7 +264,25 @@ def _katalog_review(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     if status not in REVIEW_REIHENFOLGE:
         return 422, {"error": "Feld 'status' muss eines von "
                               f"{'|'.join(REVIEW_REIHENFOLGE)} sein, nicht {status!r}"}
-    res = app.review_setzen(payload)
+    pruefer_roh = payload.get("pruefer")
+    if not isinstance(pruefer_roh, str) or not pruefer_roh.strip():
+        return 400, {"error": "Feld 'pruefer' muss ein nicht-leerer String sein"}
+    pruefer = pruefer_roh.strip()
+    if len(pruefer) > _MAX_AKTEUR_CHARS:
+        return 413, {"error": f"Feld 'pruefer' ist zu lang "
+                              f"(maximal {_MAX_AKTEUR_CHARS} Zeichen)"}
+    rest = _pii_rest_fuer_felder([("pruefer", pruefer)])
+    if rest:
+        return 422, {"error": "Feld 'pruefer' enthält identifizierende Angaben "
+                              "(§ 203 StGB) – bitte ein internes Actor-Tag verwenden.",
+                     "rest": rest}
+    # Architekturgrenze: der gemeinsame Bearer-Token authentisiert den Client,
+    # nicht die behauptete Person. Bis ein JWT-/mTLS-/Proxy-Principal existiert,
+    # bleibt ``pruefer`` ein auditierbares Actor-Tag und darf deshalb weder
+    # fehlen noch still durch einen generischen Default ersetzt werden.
+    sauber = dict(payload)
+    sauber.update({"id": eintrag_id, "status": status, "pruefer": pruefer})
+    res = app.review_setzen(sauber)
     # BeraterFehler (Rückwärts-Übergang, unbekannte id) → 400 mit Fehlertext
     # (Muster _katalog_norm_kuratieren: ok:false trägt 'fehler').
     return (200 if res.get("ok") else 400), res
@@ -171,6 +294,34 @@ def _katalog_norm_kuratieren(app, payload: dict[str, Any]) -> tuple[int, dict[st
     Rein strukturell (Begriff-ID + Norm-Zitat + aktion + Autor-Tag) – KEIN Fall-/
     Mandantentext, daher § 203-unkritisch und fallzustandslos. Die Engine hält nur den
     Katalog-State; die Handlung (wer/wann) auditiert der Host in seiner Chain."""
+    for feld in ("katalog_id", "norm", "aktion"):
+        if not isinstance(payload.get(feld), str):
+            return 400, {"error": f"Feld '{feld}' muss ein String sein"}
+    for feld in ("scope", "autor", "datum"):
+        if feld in payload and not isinstance(payload[feld], str):
+            return 400, {"error": f"Feld '{feld}' muss ein String sein"}
+    for feld, limit in (("katalog_id", _MAX_STRUKTURFELD_CHARS),
+                        ("norm", _MAX_NORM_ANKER_CHARS),
+                        ("aktion", _MAX_STRUKTURFELD_CHARS),
+                        ("scope", _MAX_STRUKTURFELD_CHARS),
+                        ("autor", _MAX_AKTEUR_CHARS),
+                        ("datum", _MAX_DATUM_CHARS)):
+        wert = payload.get(feld)
+        if isinstance(wert, str) and len(wert) > limit:
+            return 413, {"error": f"Feld '{feld}' ist zu lang (maximal {limit} Zeichen)"}
+    if payload.get("scope", "personal") not in ("personal", "geteilt"):
+        return 422, {"error": "Feld 'scope' muss personal|geteilt sein"}
+    if payload["aktion"] not in ("verwerfen", "ergaenzen", "zuruecksetzen"):
+        return 422, {"error": "Feld 'aktion' muss verwerfen|ergaenzen|zuruecksetzen sein"}
+    pii_felder = [("norm", payload["norm"])]
+    for feld in ("autor", "datum", "katalog_id"):
+        wert = payload.get(feld)
+        if isinstance(wert, str):
+            pii_felder.append((feld, wert))
+    rest = _pii_rest_fuer_felder(pii_felder)
+    if rest:
+        return 422, {"error": "Kuratierungsfelder enthalten identifizierende Angaben "
+                              "(§ 203 StGB) – bitte abstrahieren.", "rest": rest}
     res = app.kuratiere_norm(payload)
     return (200 if res.get("ok") else 400), res
 
@@ -181,8 +332,10 @@ def _katalog_kuratierung(app, query: dict[str, list[str]]) -> tuple[int, dict[st
     persönlichen des Nutzers), mit ``katalog_id`` die aufbereitete Sicht eines Begriffs
     ({verworfen, ergaenzt}). Reiner Katalog-State, kein Fallbezug; /v1/analyse bleibt
     davon unberührt (katalog-rein) – die Anwendung der Kuratierung macht der Host."""
-    katalog_id = (query.get("katalog_id") or [None])[0]
-    nutzer = (query.get("nutzer") or [None])[0]
+    katalog_ids = query.get("katalog_id")
+    nutzer_ids = query.get("nutzer")
+    katalog_id = katalog_ids[0] if katalog_ids else None
+    nutzer = nutzer_ids[0] if nutzer_ids else None
     return 200, {**app.kuratierung_lesen(katalog_id=katalog_id, nutzer=nutzer),
                  "engineVersion": V1_VERSION}
 
@@ -212,17 +365,19 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
     Body: {text, k?: int}. Liefert Bedeutungs-Nachbarn (mit sim-Wert) – ausdrücklich
     Vorschläge, kein Mapping. Leer, wenn kein Embedding-Index gebaut ist.
     """
-    text = str(payload.get("text", ""))
+    text = payload.get("text", "")
+    if not isinstance(text, str):
+        return 400, {"error": "Feld 'text' muss ein String sein"}
+    # k aus dem Request-Body robust parsen + clampen: unbegrenztes/negatives k
+    # ist ein DoS-Vektor (riesiger Sort+Serialize auf einem Worker-Thread).
+    k_roh = payload.get("k", 5)
+    if isinstance(k_roh, bool) or not isinstance(k_roh, int):
+        return 400, {"error": "Feld 'k' muss eine Ganzzahl sein"}
+    k = k_roh
+    k = max(1, min(k, 50))
     if app.embedding is None or app.embedding_encoder is None:
         return 200, {"treffer": [], "grund": "kein Embedding-Index",
                      "engineVersion": V1_VERSION}
-    # k aus dem Request-Body robust parsen + clampen: unbegrenztes/negatives k
-    # ist ein DoS-Vektor (riesiger Sort+Serialize auf einem Worker-Thread).
-    try:
-        k = int(payload.get("k", 5))
-    except (TypeError, ValueError):
-        k = 5
-    k = max(1, min(k, 50))
     hits = app.embedding.suche(text, app.embedding_encoder, k=k, min_sim=0.0)
     return 200, {"treffer": hits, "engineVersion": V1_VERSION}
 
@@ -239,8 +394,16 @@ def _status(app) -> tuple[int, dict[str, Any]]:
     Derselbe Block hängt als ``engine_status`` an jeder /v1/analyse-Antwort
     (dort zusätzlich mit den effektiven Lauf-``optionen``).
     """
-    return 200, {"ok": True, "engineVersion": V1_VERSION,
-                 "engine_status": app.engine_status()}
+    return 200, {
+        "ok": True,
+        "engineVersion": V1_VERSION,
+        "engine_status": app.engine_status(),
+        # Live und additiv: Legacy-Records, die beim Upgrade auf das harte
+        # Vier-Augen-Gate sicher herabgestuft wurden, dürfen weder verschwinden
+        # noch still als kanonisch weiterlaufen. Der Host kann pro ID eine neue
+        # Review-Aufgabe anlegen; die Engine gibt sie niemals automatisch frei.
+        "festwissen_status": app.berater_status(),
+    }
 
 
 def _radar(app) -> tuple[int, dict[str, Any]]:
@@ -276,6 +439,8 @@ def _radar(app) -> tuple[int, dict[str, Any]]:
 # --- /v1/los/* (Quantenlos — beweisbar blinde Stichprobe, seit 1.3.0) --------
 
 _LOS_BACKENDS = ("qpu", "simulator", "csprng")
+_MAX_LOS_RAHMEN_ITEMS = 100_000
+_MAX_LOS_ITEM_CHARS = 1_024
 
 
 def _los_rahmen(payload: dict[str, Any]) -> tuple[list[str] | None,
@@ -286,10 +451,18 @@ def _los_rahmen(payload: dict[str, Any]) -> tuple[list[str] | None,
     § 203 — der Host baut sie aus seiner Chain). Alles andere ist ein 400,
     BEVOR Quantenlos-Code läuft (Muster _katalog_definiere/norm_anker)."""
     rahmen = payload.get("rahmen")
-    if (not isinstance(rahmen, list) or not rahmen
-            or not all(isinstance(x, str) and x.strip() for x in rahmen)):
+    if not isinstance(rahmen, list) or not rahmen:
         return None, (400, {"error": "Feld 'rahmen' muss ein nicht-leeres "
                                      "Array von ID-Strings sein"})
+    if len(rahmen) > _MAX_LOS_RAHMEN_ITEMS:
+        return None, (413, {"error": "Feld 'rahmen' enthält zu viele Items "
+                                     f"(maximal {_MAX_LOS_RAHMEN_ITEMS})"})
+    if not all(isinstance(x, str) and x.strip() for x in rahmen):
+        return None, (400, {"error": "Feld 'rahmen' muss ein nicht-leeres "
+                                     "Array von ID-Strings sein"})
+    if any(len(x) > _MAX_LOS_ITEM_CHARS for x in rahmen):
+        return None, (413, {"error": "Ein Rahmen-Item ist zu lang "
+                                     f"(maximal {_MAX_LOS_ITEM_CHARS} Zeichen)"})
     return rahmen, None
 
 
@@ -325,6 +498,8 @@ def _los_ibm_token(payload: dict[str, Any]) -> tuple[str | None,
         return None, (400, {"error": "Feld 'ibm_token' muss ein String sein "
                                      "(optional — fehlt er, gilt der "
                                      "Maschinen-Zugang der Engine)"})
+    if len(token) > _MAX_IBM_TOKEN_CHARS:
+        return None, (413, {"error": "Feld 'ibm_token' ist zu lang"})
     return token.strip() or None, None
 
 
@@ -347,9 +522,11 @@ def _los_ziehen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     rahmen, fehler = _los_rahmen(payload)
     if fehler:
         return fehler
+    assert rahmen is not None
     k, fehler = _los_k(payload, rahmen)
     if fehler:
         return fehler
+    assert k is not None
     backend = payload.get("backend")
     if backend not in _LOS_BACKENDS:
         return 400, {"error": "Feld 'backend' muss qpu|simulator|csprng sein "
@@ -375,15 +552,23 @@ def _los_abholen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     fertig-/wartet-Form wie /v1/los/ziehen; 400 (Form bzw. Job gehört nicht zu
     diesem Rahmen — ``bindung_verletzt:true``), 422 (k>n), 503 (Extras/
     Credentials fehlen)."""
-    job_id = str(payload.get("job_id") or "").strip()
+    job_id_roh = payload.get("job_id")
+    if not isinstance(job_id_roh, str):
+        return 400, {"error": "Feld 'job_id' muss ein String sein"}
+    job_id = job_id_roh.strip()
     if not job_id:
         return 400, {"error": "Feld 'job_id' fehlt"}
+    if len(job_id) > _MAX_LOS_JOB_ID_CHARS:
+        return 413, {"error": f"Feld 'job_id' ist zu lang "
+                              f"(maximal {_MAX_LOS_JOB_ID_CHARS} Zeichen)"}
     rahmen, fehler = _los_rahmen(payload)
     if fehler:
         return fehler
+    assert rahmen is not None
     k, fehler = _los_k(payload, rahmen)
     if fehler:
         return fehler
+    assert k is not None
     ibm_token, fehler = _los_ibm_token(payload)
     if fehler:
         return fehler
@@ -401,13 +586,14 @@ def _los_pruefen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
     Body: {nachweis: {…}, rahmen: [str,…], online?: bool, roh_bits_hex?: str,
     ibm_token?: str}. Offline immer: Commitment, n, Stichprobe⊆Rahmen. Mit
-    ``roh_bits_hex`` (vom Host neben dem Nachweis archiviert) oder
-    ``online:true`` (Counts via IBM-Job-ID erneut abrufen; ``ibm_token``
-    optional für den Refetch) zusätzlich die volle Ableitungskette.
+    roh_bits_hex (vom Host neben dem Nachweis archiviert) prüft zusätzlich
+    die volle Ableitungskette. QPU-Nachweise benötigen außerdem online:true
+    (Counts via IBM-Job-ID erneut abrufen; ibm_token optional für den Refetch),
+    damit ihre Dritt-Attestierung belegt ist.
     → 200 {ok:true, gueltig: bool, geprueft: […], hinweise: […]} — ein
-    WIDERSPRUCH ist gueltig:false (die Prüfung fand statt), kein HTTP-Fehler;
-    eine nicht durchführbare Online-Prüfung ist per Protokoll-Semantik ein
-    Hinweis, kein Fehlschlag. 400 nur für Form-Fehler des Requests."""
+    WIDERSPRUCH oder eine unvollständige/nicht durchführbare Vollprüfung ist
+    gueltig:false (die Prüfung fand statt), kein HTTP-Fehler. 400 nur für
+    Form-Fehler des Requests."""
     nachweis = payload.get("nachweis")
     if not isinstance(nachweis, dict) or not nachweis:
         return 400, {"error": "Feld 'nachweis' muss ein JSON-Objekt sein "
@@ -416,17 +602,26 @@ def _los_pruefen(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     if fehler:
         return fehler
     roh_bits = None
-    roh_hex = payload.get("roh_bits_hex")
-    if roh_hex:
+    if "roh_bits_hex" in payload:
+        roh_hex = payload["roh_bits_hex"]
+        if not isinstance(roh_hex, str) or not roh_hex:
+            return 400, {"error": "Feld 'roh_bits_hex' muss ein Hex-String sein"}
+        if (len(roh_hex) > _MAX_LOS_ROH_HEX_CHARS
+                or len(roh_hex) % 2
+                or any(c not in "0123456789abcdefABCDEF" for c in roh_hex)):
+            return 400, {"error": "Feld 'roh_bits_hex' ist kein kanonischer Hex-String"}
         try:
-            roh_bits = bytes.fromhex(str(roh_hex).strip())
+            roh_bits = bytes.fromhex(roh_hex)
         except ValueError:
             return 400, {"error": "Feld 'roh_bits_hex' ist kein gültiger Hex-String"}
     ibm_token, fehler = _los_ibm_token(payload)
     if fehler:
         return fehler
+    online, bool_fehler = _bool_feld(payload, "online")
+    if bool_fehler:
+        return 400, {"error": bool_fehler}
     erg = app.los_pruefen(nachweis, rahmen, roh_bits=roh_bits,
-                          online=bool(payload.get("online", False)),
+                          online=online,
                           ibm_token=ibm_token)
     return 200, {"ok": True, **erg, "engineVersion": V1_VERSION}
 

@@ -9,6 +9,10 @@
 # fahren (llm-Service unten auskommentieren, llama-server lokal starten und
 # engine.command --llm-url auf http://host.docker.internal:8080 zeigen).
 #
+# Linux einmalig (verhindert root-eigene, implizit erzeugte Bind-Verzeichnisse):
+#   install -d -m 0700 definitionen models
+# Bei einer Host-UID/GID ungleich 1000 vor Build/Start zusätzlich exportieren:
+#   export RISK_LAYER_UID=$(id -u) RISK_LAYER_GID=$(id -g)
 # Start:  RISK_LAYER_TOKEN=$(cat .engine_token) docker compose up -d
 # =============================================================================
 services:
@@ -17,6 +21,8 @@ services:
       context: .
       args:
         WITH_EMBEDDING: "1"
+        RISK_LAYER_UID: ${RISK_LAYER_UID:-1000}
+        RISK_LAYER_GID: ${RISK_LAYER_GID:-1000}
     image: taxtronik/risk-layer-engine:${TAG:-latest}
     environment:
       - RISK_LAYER_TOKEN=${RISK_LAYER_TOKEN:?bitte RISK_LAYER_TOKEN setzen (z. B. aus .engine_token)}
@@ -24,9 +30,37 @@ services:
     command: ["python", "-m", "risk_layer.web", "--host", "0.0.0.0", "--port", "8000",
               "--graph", "corpus/graph.sqlite", "--llm-url", "http://llm:8080"]
     volumes:
-      - ./corpus:/app/corpus:ro            # Festwissen (Graph/Trigger/Embedding) — read-only
-      - ./catalog:/app/catalog:ro          # Begriffskatalog — read-only
-      - ./definitionen:/app/definitionen   # berater-kuratiertes Wissen ("der Schatz") — persistent, RW
+      - type: bind                         # Festwissen (Graph/Trigger/Embedding) — read-only
+        source: ./corpus
+        target: /app/corpus
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind                         # Begriffskatalog — read-only
+        source: ./catalog
+        target: /app/catalog
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind                         # berater-kuratiertes Wissen ("der Schatz") — persistent, RW
+        source: ./definitionen
+        target: /app/definitionen
+        bind:
+          create_host_path: false
+      - type: volume                       # persistenter Download-Cache für BGE-M3
+        source: embedding-cache
+        target: /cache
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: ${RISK_LAYER_ENGINE_MEMORY_LIMIT:-12g}
+    cpus: ${RISK_LAYER_ENGINE_CPU_LIMIT:-8.0}
     ports:
       - "127.0.0.1:8000:8000"              # NUR Loopback nach außen; im selben Netz spricht TaxTronik 'engine:8000'
     depends_on:
@@ -44,10 +78,30 @@ services:
     # (oder ghcr.io-API: HEAD /v2/ggml-org/llama.cpp/manifests/server-cuda)
     # und hier ersetzen.
     image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:1c4ff61ab157cdaee20dcae39860394384e5e9703c8848a33d2e40d68b6df0fa
+    user: "${RISK_LAYER_UID:-1000}:${RISK_LAYER_GID:-1000}"
+    environment:
+      HOME: /tmp
+      CUDA_CACHE_PATH: /tmp/cuda-cache
     command: ["-m", "/models/granite-4.1-8b-Q5_K_M.gguf", "--host", "0.0.0.0",
               "--port", "8080", "-ngl", "99", "--jinja"]
     volumes:
-      - ./models:/models:ro
+      - type: bind
+        source: ./models
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,mode=1777
+    init: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: ${RISK_LAYER_LLM_MEMORY_LIMIT:-16g}
+    cpus: ${RISK_LAYER_LLM_CPU_LIMIT:-16.0}
     # llama.cpp-server hat einen /health-Endpoint; das server-cuda-Image bringt curl mit.
     # start_period großzügig: das GGUF (~6 GB) braucht beim Laden Zeit.
     healthcheck:
@@ -64,3 +118,6 @@ services:
               count: 1
               capabilities: [gpu]
     restart: unless-stopped
+
+volumes:
+  embedding-cache:

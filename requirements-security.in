@@ -1,0 +1,5 @@
+# Werkzeuge fuer den Security-Workflow; getrennt von Runtime und Quality,
+# damit weder Produktionsimage noch normale Testjobs den Audit-Stack installieren.
+# Regenerieren: pip-compile --generate-hashes --allow-unsafe --strip-extras
+#   --output-file=requirements-security-lock.txt requirements-security.in
+pip-audit>=2.10,<2.11

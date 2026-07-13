@@ -83,7 +83,7 @@ schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallbac
 Laufzeit erzwingt `RISK_LAYER_NER=aus` den deterministischen Regex-Pfad.
 
 ```bash
-python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
 python -m pip install --no-build-isolation --no-deps -e .
 
 # (a) Headless-Engine: bedient ausschließlich das authentifizierte /v1
@@ -94,10 +94,38 @@ python -m risk_layer.web        # http://127.0.0.1:8000/v1/
 # (b) CLI: Sachverhalt analysieren → Konsolen-Zusammenfassung
 python -m risk_layer.cli analyse examples/beispiel_organschaft.txt
 
-# optional: semantische Vorschläge (BGE-M3) vorbereiten
-pip install sentence-transformers
+# optional: semantische Vorschläge (BGE-M3), CPU/Python 3.12
+# Linux:
+python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-linux-cpu-py312-lock.txt
+# Windows entsprechend: requirements-embedding-windows-cpu-py312-lock.txt
 risk-layer embedding build      # einmalig — baut den Korpus-Index (+ Paraphrasen-Anker)
 ```
+
+Produktion und optionale Backends werden getrennt gelockt: der schlanke
+`requirements-runtime-lock.txt` enthält keine Testwerkzeuge; Embedding und
+Quanten besitzen je einen unter Linux beziehungsweise Windows/Python 3.12
+erzeugten Hash-Lock. Die Deploy-Skripte lösen keine ML-/Qiskit-Ranges mehr zur
+Installationszeit auf. Der automatische Embedding-Pfad ist CPU-only; GPU-Torch
+erfordert einen eigenen, für die konkrete CUDA-/ROCm-Zielmatrix auditierten Lock.
+
+### Sicherer Autostart
+
+Service-Prozesse dürfen nicht privilegiert aus dem benutzerschreibbaren Checkout
+laufen. Unter Linux deshalb `./deploy.sh --service` **als Zielbenutzer, ohne
+`sudo`** ausführen; das erzeugt eine systemd-User-Unit. Für Start schon vor der
+Anmeldung kann ein Administrator einmalig `sudo loginctl enable-linger BENUTZER`
+setzen. Die Unit verweigert einen versehentlich als `root` gerenderten Start und
+setzt zusätzlich systemd-Sandboxing.
+
+Unter Windows installiert `./install-service.ps1` standardmäßig einen sofort
+gestarteten, auf `RunLevel Limited` begrenzten Task für den aktuellen Benutzer;
+Autostart erfolgt bei dessen Anmeldung und es wird kein Kennwort gespeichert. Der
+Unicode-sichere PowerShell-Wrapper verweigert den Start, wenn `.engine_token`
+fehlt, unlesbar oder kürzer als 32 Zeichen ist. Ein Boot-Dienst aus dem
+benutzerschreibbaren Checkout wird absichtlich nicht angeboten. Migration einer
+älteren Dienst-/SYSTEM-Installation: zuerst aus einer administrativen PowerShell
+`./install-service.ps1 -Remove`, danach als normaler Benutzer den begrenzten Task
+neu installieren.
 
 Als Bibliothek:
 
@@ -109,7 +137,7 @@ for karte in report.luecken:
     print("Lücke:", karte.rechercheauftrag)
 ```
 
-### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.2.0`)
+### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.3.2`)
 
 `GET /v1/health` · `GET /v1/status` · `POST /v1/analyse` · `GET /v1/katalog` ·
 `POST /v1/katalog/definiere` · `POST /v1/katalog/review` · `GET /v1/radar` ·
@@ -139,7 +167,8 @@ Audit-Chain ab — der Degradations-Nachweis je Analyse (deterministisch, keine
 Zeitstempel — bricht keine Hash-Ketten).
 
 **Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth bei Netz-Bind),
-`RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook, SSRF),
+`RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook;
+außerhalb von Loopback ist HTTPS Pflicht, SSRF-/DNS-Rebinding-Schutz),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
 `RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER),
 `RISK_LAYER_RERANK_SCHWELLE` (Abstention-Schwelle des Rerankers, Default `0.10`),
@@ -377,6 +406,11 @@ geteilte Katalog trägt kein Geheimnis.
 **seiner** Audit-Chain protokolliert — die Engine auditiert nicht. Das
 CLI-Kommando `definiere` ist als **Nicht-Audit-Pfad** gekennzeichnet (lauter
 stderr-Hinweis): Operator-Werkzeug, in Produktion gehört der Write durch `/v1`.
+Altbestände aus Versionen ohne hartes Vier-Augen-Gate werden beim Laden einzeln
+auf `entwurf` zurückgestuft, nie automatisch freigegeben und mit Grund sowie
+früherem Status in `geteilt.yaml` markiert. `GET /v1/status` weist diese
+Migrationen unter `festwissen_status.review_migrationen` pro ID aus; jeder
+quarantänisierte Eintrag muss den regulären Review erneut vollständig durchlaufen.
 
 ## Stufe 2 — Normgraph aus gesetze-im-internet
 
@@ -423,6 +457,7 @@ opt-in (`mitLLM:true`); die Engine verbindet sich dann zum konfigurierten
 ```bash
 risk-layer modell list                 # Empfehlungen (Default: Granite-4.1-8B Q5_K_M)
 risk-layer modell download             # lädt das GGUF (resumebar) nach ./models
+risk-layer modell engine --backend auto # lädt die fest gepinnte llama.cpp-Engine
 risk-layer modell start                # startet llama-server (Vulkan, alle Layer auf GPU)
 risk-layer analyse sachverhalt.txt --unknown    # --no-schicht2 schaltet ab
 ```
@@ -430,6 +465,29 @@ risk-layer analyse sachverhalt.txt --unknown    # --no-schicht2 schaltet ab
 Ist kein Server erreichbar, läuft die Analyse normal ohne Kandidaten weiter.
 Modell, Quantisierung, Seed und Temperatur (=0) werden im Provenienzfeld des
 Reports geführt (das Host-System schreibt daraus sein Audit, /LF140/).
+
+**Engine-Supply-Chain:** Der automatische Engine-Download unterstützt Windows
+x64 und Ubuntu/Linux x64. Er verwendet ausschließlich den im Repository
+festgelegten llama.cpp-Release `b9986`; Assetname, Größe und SHA-256 stehen in
+`risk_layer/llama_cpp_manifest.py`. Es gibt keine Abfrage von `latest` und keinen
+Trust-on-first-use: Ein Archiv wird vor dem Entpacken hart gegen den gepinnten
+Digest geprüft und bei Abweichung gelöscht. Andere Plattformen brechen
+geschlossen ab. Ein selbst gebautes bzw. separat verwaltetes Binary bleibt per
+`--llm-bin PFAD` oder `PATH` ausdrücklich nutzbar.
+
+**Kontrollierter Engine-Updateprozess:**
+
+1. Einen konkreten Tag auf der [offiziellen llama.cpp-Release-Seite](https://github.com/ggml-org/llama.cpp/releases)
+   auswählen und Release/Commit prüfen; niemals eine `latest`-URL eintragen.
+2. Die Assetnamen, Größen und `sha256:`-Digests über die offizielle GitHub-API
+   für genau diesen Tag (`/repos/ggml-org/llama.cpp/releases/tags/<TAG>`) holen.
+   Assets ohne SHA-256-Digest werden nicht aufgenommen.
+3. Jedes aufzunehmende Asset von seiner offiziellen Release-URL laden, den
+   SHA-256 lokal (`sha256sum` bzw. `Get-FileHash -Algorithm SHA256`) neu berechnen
+   und mit dem API-Digest vergleichen.
+4. Tag und Manifest gemeinsam reviewen; danach mindestens
+   `pytest -q tests/test_modell.py`, `ruff check risk_layer/modell.py` und `mypy`
+   ausführen. Erst dieser Commit autorisiert den neuen Engine-Stand.
 
 **Steuerung über `/v1`:** Das Host-System startet den llama-server per
 `POST /v1/llm/start` (idempotent, blockiert nicht — Bereitschaft pollen) und prüft
@@ -458,7 +516,9 @@ nutzbar) erzwingt den Geheimnisschutz:
 3. **Export** nur nach **Re-Check**: findet die Abstraktion noch Identifizierendes,
    wird der Export **verweigert** (ohne bewusstes Erzwingen). Hinaus geht nur der
    abstrahierte Text + die Rechtsbegriffe + die Frage. Der **Webhook-Versand** ist
-   default-deny (nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects — SSRF);
+   default-deny (nur Hosts aus `RISK_LAYER_WEBHOOK_ALLOW`, keine Redirects,
+   außerhalb Loopback nur HTTPS); ohne erfolgreich gelaufene lokale NER bleibt
+   der lokale Download möglich, automatischer Webhook-Versand aber gesperrt;
    ein identifizierender Restbefund geht selbst mit `force` **nie** automatisch
    hinaus (`force` erlaubt dann nur den lokalen Download). Die Rückübersetzung wird
    **nie** mitexportiert.
@@ -492,7 +552,7 @@ Einträge werden gemerkt.
 ```bash
 python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
 python -m pip install --no-build-isolation --no-deps -e .
-python -m pytest -q          # 478 Tests: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
+python -m pytest -q          # vollständige Suite: /AB10/–/AB60/, Parser /T10/–/T40/, /v1-Vertrag +
                              #   Surface/Auth + engine_status, Engine-Analysevertrag,
                              #   AnalyseOptionen, Graph, LLM-Mock + Norm-Vorschlag,
                              #   Muster/Streit, Trigger, Embedding/Paraphrasen-Anker +

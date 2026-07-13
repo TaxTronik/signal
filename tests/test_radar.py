@@ -225,8 +225,8 @@ def test_dringlichkeits_sortierung(tmp_path):
     # danach Kuratierung und Katalog – deterministisch.
     store = BeraterStore(tmp_path / "b")
     store.definiere("P", "…", autor="rey", datum="d", norm_anker=("§ 162 AO",))
-    e = store.definiere("E", "…", autor="rey", datum="d", scope="geteilt",
-                        norm_anker=("§ 162 AO",))
+    store.definiere("E", "…", autor="rey", datum="d", scope="geteilt",
+                    norm_anker=("§ 162 AO",))
     g = store.definiere("G", "…", autor="rey", datum="d", scope="geteilt",
                         norm_anker=("§ 162 AO",))
     store.setze_review_status(g.id, "geprüft", reviewer="rv")

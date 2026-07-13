@@ -19,6 +19,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
+from typing import Any, cast
 
 # Umlaut-Transliteration: filesystem- und ID-sicher (ASCII), über alle Stores
 # IDENTISCH. "Müller" → "mueller" – egal welcher Store den Slug bildet.
@@ -33,7 +34,11 @@ def als_int(v: object, default: int | None = 0) -> int | None:
     einen unbehandelten ``ValueError``/``TypeError`` (→ HTTP 500) auszulösen.
     """
     try:
-        return int(v)  # type: ignore[arg-type]
+        # ``object`` ist an der API-Grenze bewusst breit; ``int`` akzeptiert
+        # zur Laufzeit mehr Protokolltypen als seine statischen Overloads
+        # ausdruecken. Der Cast aendert nichts am Verhalten, die Fehler bleiben
+        # durch den folgenden Guard sauber auf ``default`` abgebildet.
+        return int(cast(Any, v))
     except (TypeError, ValueError):
         return default
 

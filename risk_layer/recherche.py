@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import ipaddress
 import urllib.request
 from typing import Any
 from urllib.parse import urlparse
@@ -51,7 +52,12 @@ def _erlaubte_webhook_hosts() -> set[str]:
             continue
         if "://" in h:
             u = urlparse(h)
-            h = (u.netloc or u.path).lower()
+            if u.username or u.password or not u.hostname:
+                continue
+            try:
+                h = f"{u.hostname}:{u.port}" if u.port else u.hostname
+            except ValueError:
+                continue
         out.add(h)
     return out
 
@@ -66,14 +72,31 @@ def _webhook_ziel_ok(webhook_url: str) -> tuple[bool, str]:
     u = urlparse(webhook_url)
     if u.scheme not in ("http", "https"):
         return False, "nur http/https erlaubt"
+    if u.username or u.password:
+        return False, "Zugangsdaten in der Webhook-URL sind nicht erlaubt"
+    host = (u.hostname or "").lower()
+    try:
+        port = u.port
+    except ValueError:
+        return False, "ungueltiger Webhook-Port"
+    # HTTPS bindet den erlaubten Host kryptographisch an das Verbindungsziel
+    # und verhindert damit auch DNS-Rebinding auf interne HTTP-Dienste. Reines
+    # HTTP bleibt nur fuer echte Loopback-Entwicklung zulaessig.
+    loopback = host == "localhost"
+    if not loopback:
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            pass
+    if u.scheme == "http" and not loopback:
+        return False, "Webhook-Ziele ausserhalb von Loopback muessen HTTPS verwenden"
     erlaubt = _erlaubte_webhook_hosts()
     if not erlaubt:
         return False, ("keine Webhook-Ziele freigegeben – setze RISK_LAYER_WEBHOOK_ALLOW "
                        "(kommagetrennte Host[:Port]-Liste)")
-    host = (u.hostname or "").lower()
     kandidaten = {(u.netloc or "").lower(), host}
-    if u.port:
-        kandidaten.add(f"{host}:{u.port}")
+    if port:
+        kandidaten.add(f"{host}:{port}")
     if not (kandidaten & erlaubt):
         return False, f"Ziel {(u.netloc or '')!r} nicht in RISK_LAYER_WEBHOOK_ALLOW"
     return True, ""
@@ -96,6 +119,7 @@ def baue_entwurf(text: str, begriffe: list[dict[str, Any]], frage: str | None = 
     return {
         "abstrahiert": anon.abstrahiert,
         "ersetzungen": anon.as_dict()["ersetzungen"],   # bleibt LOKAL (nur Anzeige)
+        "ner": anon.as_dict()["ner"],                   # Review-Güte sichtbar machen
         "begriffe": begriffe,
         "frage": frage or _default_frage(begriffe),
     }
@@ -103,13 +127,69 @@ def baue_entwurf(text: str, begriffe: list[dict[str, Any]], frage: str | None = 
 
 def export_payload(sachverhalt: str, begriffe: list[dict[str, Any]], frage: str) -> dict[str, Any]:
     """Der nach außen gehende Payload – ohne Rückübersetzung, ohne Rohtext."""
+    if not isinstance(sachverhalt, str) or not isinstance(frage, str):
+        raise ValueError("sachverhalt und frage müssen Strings sein")
+    if not isinstance(begriffe, list):
+        raise ValueError("begriffe muss eine Liste sein")
+    kompakt: list[dict[str, Any]] = []
+    for i, begriff in enumerate(begriffe):
+        if not isinstance(begriff, dict):
+            raise ValueError(f"begriffe[{i}] muss ein Objekt sein")
+        name = begriff.get("begriff")
+        herkunft = begriff.get("herkunft")
+        norm_anker = begriff.get("norm_anker", [])
+        if name is not None and not isinstance(name, str):
+            raise ValueError(f"begriffe[{i}].begriff muss String oder null sein")
+        if herkunft is not None and not isinstance(herkunft, str):
+            raise ValueError(f"begriffe[{i}].herkunft muss String oder null sein")
+        if (not isinstance(norm_anker, list)
+                or not all(isinstance(anker, str) for anker in norm_anker)):
+            raise ValueError(f"begriffe[{i}].norm_anker muss eine Liste von Strings sein")
+        kompakt.append({"begriff": name, "herkunft": herkunft,
+                        "norm_anker": list(norm_anker)})
     return {
         "schema": SCHEMA,
         "sachverhalt": sachverhalt,
-        "begriffe": [{"begriff": b.get("begriff"), "herkunft": b.get("herkunft"),
-                      "norm_anker": b.get("norm_anker", [])} for b in begriffe],
+        "begriffe": kompakt,
         "frage": frage,
     }
+
+
+def _webhook_freitexte(payload: dict[str, Any]) -> list[tuple[str, str]]:
+    """Alle variablen Strings benennen, die den Prozess per Webhook verlassen.
+
+    ``export_payload`` hat das Schema bereits strikt validiert. Diese Funktion
+    ist bewusst explizit statt generisch-rekursiv: Nur das feste ``schema`` ist
+    eine lokale Konstante; jeder andere String ist Aufruferinhalt und muss durch
+    dasselbe Regex+NER-Gate wie der Sachverhalt.
+    """
+    felder = [("sachverhalt", payload["sachverhalt"]),
+              ("frage", payload["frage"])]
+    for i, begriff in enumerate(payload["begriffe"]):
+        for name in ("begriff", "herkunft"):
+            wert = begriff[name]
+            if isinstance(wert, str):
+                felder.append((f"begriffe[{i}].{name}", wert))
+        felder.extend((f"begriffe[{i}].norm_anker[{j}]", anker)
+                      for j, anker in enumerate(begriff["norm_anker"]))
+    return felder
+
+
+def _pruefe_webhook_freitexte(
+    payload: dict[str, Any], sachverhalt_pruefung: Any,
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    """Regex- und konkreten NER-Pass für JEDES ausgehende Freitextfeld belegen."""
+    rest: list[dict[str, str]] = []
+    ner_fehler: list[dict[str, str]] = []
+    for pfad, text in _webhook_freitexte(payload):
+        pruefung = (sachverhalt_pruefung if pfad == "sachverhalt"
+                    else anonymisiere(text))
+        rest.extend({"feld": pfad, **fund}
+                    for fund in pruefung.as_dict()["ersetzungen"])
+        if not pruefung.ner_verwendet:
+            ner_fehler.append({"feld": pfad,
+                               "grund": pruefung.ner_grund or "unbekannt"})
+    return rest, ner_fehler
 
 
 def pruefe_rest(sachverhalt: str) -> list[dict[str, str]]:
@@ -133,16 +213,23 @@ def exportiere(
 
     Findet der Re-Check noch identifizierende Angaben, wird ohne ``force``
     abgelehnt. ``force`` erlaubt aber NUR den lokalen Download/Return – ein
-    Restbefund geht NIE automatisch über den Webhook hinaus (§ 203 StGB). Ohne
-    ``webhook_url`` wird der Payload nur zurückgegeben (Download). Die
-    ``webhook_url`` muss in RISK_LAYER_WEBHOOK_ALLOW freigegeben sein (SSRF).
+    Restbefund geht NIE automatisch über den Webhook hinaus (§ 203 StGB). Vor
+    einem Webhook laufen Sachverhalt, Frage sowie Begriff/Herkunft/Normanker
+    jedes Eintrags einzeln durch Regex UND einen konkret erfolgreichen NER-Pass.
+    Ohne ``webhook_url`` wird der Payload nur zurückgegeben (Download). Die URL
+    muss in RISK_LAYER_WEBHOOK_ALLOW freigegeben sein (SSRF).
     """
-    rest = pruefe_rest(sachverhalt)
+    try:
+        payload = export_payload(sachverhalt, begriffe, frage)
+    except (TypeError, ValueError) as exc:
+        return {"ok": False, "grund": "payload_ungueltig", "hinweis": str(exc)}
+
+    pruefung = anonymisiere(sachverhalt)
+    rest = pruefung.as_dict()["ersetzungen"]
     if rest and not force:
         return {"ok": False, "grund": "geheimnis_verdacht", "rest": rest,
                 "hinweis": "Der Text enthält noch identifizierende Angaben. Bitte "
                            "abstrahieren oder Export bewusst erzwingen."}
-    payload = export_payload(sachverhalt, begriffe, frage)
     if not webhook_url:
         return {"ok": True, "versendet": False, "payload": payload, "rest_geprueft": rest}
     # § 203: Restbefund + force darf NICHT automatisch ins Netz. force ist eine
@@ -157,6 +244,34 @@ def exportiere(
     if not ziel_ok:
         return {"ok": False, "grund": "webhook_nicht_erlaubt", "hinweis": grund,
                 "payload": payload, "rest_geprueft": rest}
+    webhook_rest, ner_fehler = _pruefe_webhook_freitexte(payload, pruefung)
+    if webhook_rest:
+        # ``force`` ist ausschließlich eine lokale Download-Entscheidung. Auch
+        # ein Geheimnis in Frage/Begriff/Herkunft/Normanker darf nie automatisch
+        # versandt werden.
+        return {
+            "ok": False,
+            "grund": "force_kein_webhook" if force else "geheimnis_verdacht",
+            "rest": webhook_rest,
+            "payload": payload,
+            "rest_geprueft": webhook_rest,
+            "hinweis": "Ein ausgehendes Freitextfeld enthält identifizierende Angaben.",
+        }
+    if ner_fehler:
+        # Ein Remote-Export ist irreversibel. Regex-only bleibt fuer lokale
+        # Entwuerfe/Downloads verfuegbar, darf aber bei fehlendem/defektem oder
+        # bewusst deaktiviertem NER nicht still als vollstaendiges §203-Gate
+        # gelten. Es gibt absichtlich keinen force-Bypass fuer Netzversand.
+        return {
+            "ok": False,
+            "grund": "ner_nicht_verfuegbar",
+            "hinweis": ("Webhook-Versand verweigert: Der konkrete Text wurde nicht "
+                        "erfolgreich durch die lokale NER-Schicht geprueft. "
+                        "NER-Lock installieren/aktivieren und erneut pruefen."),
+            "ner_grund": ner_fehler,
+            "payload": payload,
+            "rest_geprueft": rest,
+        }
     req = urllib.request.Request(
         webhook_url, data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json"}, method="POST",

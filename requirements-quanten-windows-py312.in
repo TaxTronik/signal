@@ -1,0 +1,5 @@
+# IBM-QPU- und Aer-Simulator-Backends fuer Windows x86_64 / Python 3.12.
+-c requirements-runtime-lock.txt
+qiskit==2.5.0
+qiskit-aer==0.17.2
+qiskit-ibm-runtime==0.47.0

@@ -34,6 +34,15 @@ FESTWISSEN_DATEIEN: tuple[str, ...] = ("personal.yaml", "geteilt.yaml",
                                        "norm_kuratierung.yaml")
 ARCHIV_PREFIX = "festwissen_"
 
+# Ein Restore darf selbst bei einem manipulierten, stark komprimierten Archiv
+# nicht unbeschraenkt Speicher oder Plattenplatz verbrauchen. Drei Mitglieder
+# folgen bereits aus der Whitelist; die Groessenlimits liegen weit ueber einem
+# realistischen, von Menschen kuratierten Berater-Store.
+_MAX_ARCHIV_DATEIEN = len(FESTWISSEN_DATEIEN)
+_MAX_DATEI_UNKOMPRIMIERT = 256 * 1024 * 1024
+_MAX_ARCHIV_UNKOMPRIMIERT = 512 * 1024 * 1024
+_MAX_KOMPRESSIONSVERHAELTNIS = 500
+
 # Hinweis im Zip-Kommentar eines leeren Archivs: ein leerer Store ist KEIN
 # Fehler (frische Installation), aber das Archiv soll selbsterklärend sein.
 _LEER_HINWEIS = ("leerer Berater-Store: keine Festwissens-YAMLs vorhanden "
@@ -42,6 +51,41 @@ _LEER_HINWEIS = ("leerer Berater-Store: keine Festwissens-YAMLs vorhanden "
 
 class SicherungsFehler(ValueError):
     """Bedienungs-/Strukturfehler bei Sicherung oder Wiederherstellung."""
+
+
+def _pruefe_archiv_limits(zf: zipfile.ZipFile, archiv: Path) -> list[zipfile.ZipInfo]:
+    """Prueft alle ZIP-Metadaten vor der ersten Extraktion."""
+    infos = zf.infolist()
+    if len(infos) > _MAX_ARCHIV_DATEIEN:
+        raise SicherungsFehler(
+            f"{archiv}: Archiv enthaelt {len(infos)} Dateien/Eintraege; "
+            f"erlaubt sind hoechstens {_MAX_ARCHIV_DATEIEN}")
+
+    gesamt = 0
+    for info in infos:
+        if info.file_size < 0 or info.compress_size < 0:
+            raise SicherungsFehler(
+                f"{archiv}: ungueltige Groessenangabe fuer {info.filename!r}")
+        if info.file_size > _MAX_DATEI_UNKOMPRIMIERT:
+            raise SicherungsFehler(
+                f"{archiv}: {info.filename!r} ist unkomprimiert "
+                f"{info.file_size} Bytes gross; erlaubt sind hoechstens "
+                f"{_MAX_DATEI_UNKOMPRIMIERT} Bytes")
+        if info.file_size and (
+                info.compress_size == 0
+                or info.file_size > info.compress_size * _MAX_KOMPRESSIONSVERHAELTNIS):
+            verhaeltnis = info.file_size / max(info.compress_size, 1)
+            raise SicherungsFehler(
+                f"{archiv}: extremes Kompressionsverhaeltnis bei "
+                f"{info.filename!r} ({verhaeltnis:.1f}:1; erlaubt sind "
+                f"hoechstens {_MAX_KOMPRESSIONSVERHAELTNIS}:1)")
+        gesamt += info.file_size
+
+    if gesamt > _MAX_ARCHIV_UNKOMPRIMIERT:
+        raise SicherungsFehler(
+            f"{archiv}: Archiv ist unkomprimiert insgesamt {gesamt} Bytes "
+            f"gross; erlaubt sind hoechstens {_MAX_ARCHIV_UNKOMPRIMIERT} Bytes")
+    return infos
 
 
 def zeitstempel_dateiname(zeitstempel: str) -> str:
@@ -137,8 +181,10 @@ def stelle_wieder_her(archiv: str | Path, ziel_dir: str | Path,
     except zipfile.BadZipFile as exc:
         raise SicherungsFehler(f"{archiv}: kein gültiges Zip-Archiv ({exc})") from exc
     with zf:
+        infos = _pruefe_archiv_limits(zf, archiv)
         ziel = ziel_dir.resolve()
-        for m in zf.namelist():
+        for info in infos:
+            m = info.filename
             if m not in FESTWISSEN_DATEIEN:
                 raise SicherungsFehler(
                     f"{archiv}: unerwarteter Archiv-Inhalt abgewehrt: {m!r} "
@@ -150,7 +196,7 @@ def stelle_wieder_her(archiv: str | Path, ziel_dir: str | Path,
                     f"{archiv}: unsicherer Pfad im Archiv (Zip-Slip): {m!r}") from None
         ziel_dir.mkdir(parents=True, exist_ok=True)
         wiederhergestellt: list[str] = []
-        for m in zf.namelist():
-            zf.extract(m, ziel_dir)
-            wiederhergestellt.append(m)
+        for info in infos:
+            zf.extract(info, ziel_dir)
+            wiederhergestellt.append(info.filename)
     return wiederhergestellt

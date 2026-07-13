@@ -121,12 +121,19 @@ Mindestens: TaxTronik kann via Engine-API neue Berater-Begriffe anlegen
   (nur intern erreichbar; Reverse-Proxy davor nur für TaxTronik selbst).
 - Volumes: Katalog + `corpus/` (Graph, Embedding) als gemountete, regenerierbare
   Daten. **Kein** Mandanten-Volume.
+- Beide Container laufen ohne Root-Rechte, mit verworfenem Capability-Set,
+  `no-new-privileges`, schreibgeschütztem Root-Dateisystem, PID-/Speicher-/CPU-
+  Grenzen und expliziten Schreibbereichen. Auf Linux müssen `definitionen/`
+  und `models/` vor dem ersten Start vom Host-Benutzer angelegt werden; bei
+  UID/GID ungleich 1000 werden `RISK_LAYER_UID`/`RISK_LAYER_GID` gesetzt.
 - Optional GPU-Passthrough für die Embedding-Schicht (ROCm/Vulkan) — sonst CPU.
 - Healthcheck: `GET /v1/health`.
 
 ### F) Auth zwischen TaxTronik und Engine
 Bearer-Token (shared secret aus Config) auf allen Engine-Calls, da der Dienst
 zwar netzintern, aber mandantendatenführend angefragt wird. Kein offener Port.
+Die Engine verlangt beim Start mindestens 32 UTF-8-Bytes Tokenlänge; empfohlen
+ist ein zufälliges 64-stelliges Hex-Secret (`openssl rand -hex 32`).
 
 **Token-Rotation (ohne Ausfallfenster):** Die Engine akzeptiert während eines
 Rotationsfensters zusätzlich den alten Token aus der Env
@@ -147,24 +154,33 @@ schließen); Token-Werte erscheinen nie im Log.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.3.0`
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.3.2`
 (additiv zu `1.1.0` = `POST /v1/katalog/review`; `1.2.0` ergänzt
 `GET /v1/status` + den `engine_status`-Block in `/v1/analyse` sowie — parallel
 entwickelt — `GET /v1/radar`; `1.3.0` ergänzt `POST /v1/los/{ziehen,abholen,pruefen}`
-= Quantenlos, beweisbar blinde Stichprobe).
+(Quantenlos, beweisbar blinde Stichprobe);
+`1.3.1` den optionalen IBM-Token und `1.3.2` strikte Eingabeschemas,
+Ressourcenlimits sowie die fail-closed Nachweisprüfung).
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
 (Unverändert seit `1.0.0` — darauf probt der Docker-`HEALTHCHECK`.)
 
 ### `GET /v1/status`  (seit `1.2.0` — Engine-Zustand / Degradations-Transparenz)
-→ `{ok: true, engineVersion, engine_status: {…}}`. Die Engine **degradiert
+→ `{ok: true, engineVersion, engine_status: {…}, festwissen_status: {…}}`.
+Die Engine **degradiert
 bewusst** an vielen Stellen (Trigger-Index nicht gebaut, Embedding-Index
 fehlt/veraltet, Encoder/Reranker nicht ladbar, NER ohne Modell, LLM aus) —
 bisher stand das nur im Betreiber-Log. `engine_status` macht den Zustand
 abfragbar: **einmalig beim Start erhoben**, danach unveränderlich; **keine**
 Live-Prüfung (LLM-Erreichbarkeit liefert weiterhin `GET /v1/llm/status`),
 **keine** Zeitstempel/Zufallswerte (Fingerprints sind deterministisch).
+`festwissen_status` ist dagegen eine additive Live-Sicht: `review_quarantaene`
+nennt die Anzahl noch zu prüfender Upgrade-Fälle und `review_migrationen[]`
+liefert pro Festwissen-ID Migrationsgrund, früheren und aktuellen Status. Vor
+dem Vier-Augen-Gate gespeicherte Records ohne getrennten Reviewer werden sicher
+auf `entwurf` herabgestuft und müssen beide regulären Review-Schritte erneut
+durchlaufen; es gibt keine automatische Freigabe.
 
 ```jsonc
 {
@@ -469,7 +485,8 @@ Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
 `backend` fehlt/unbekannt, `job_id` fehlt, Job gehört nicht zu diesem Rahmen —
 `bindung_verletzt: true`); `422` (`k` > n eindeutige Items); `503`
 `{ok:false, fehler}` als fehlende Betriebsvoraussetzung: Quanten-Extras nicht
-installiert (`pip install "risk-layer[quanten]"`) bzw. `backend:"qpu"` ohne
+installiert (`deploy.sh --with-quanten` bzw. `deploy.ps1 -WithQuanten`, jeweils
+aus dem plattformspezifischen Hash-Lock) bzw. `backend:"qpu"` ohne
 IBM-Credentials (weder `ibm_token` im Request noch Maschinen-Zugang
 `~/.qiskit/qiskit-ibm.json`/`QISKIT_IBM_TOKEN`) — der `fehler`-Text nennt die
 Abhilfe; auch ein Scheitern der IBM-Seite selbst (ungültiger Token, Netz) ist
@@ -490,7 +507,9 @@ die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Servic
 bindet `docker-compose.yml` den Port nur auf Host-Loopback, und andere
 Container sprechen die Engine ueber den Compose-Service-Namen an. Healthcheck
 auf `/v1/health`, Volume `/app/corpus` (Normgraph + Embedding-Index,
-mandantenfrei). LLM = separater llama-server, nicht im Image.
+mandantenfrei). Das Root-Dateisystem ist read-only; nur `definitionen/`, ein
+persistenter Embedding-Modellcache und begrenztes `/tmp` sind schreibbar. LLM =
+separater llama-server, nicht im Image.
 
 ---
 

@@ -1,6 +1,6 @@
 # =============================================================================
 # Build-Kontext schlank + sauber halten: das Dockerfile kopiert NUR
-# pyproject.toml, README.md, requirements-lock.txt, risk_layer/ und catalog/ —
+# pyproject.toml, README.md, LICENSE, requirements-lock.txt, risk_layer/ und catalog/ —
 # alles andere wäre Kontext-Ballast (GB an Modellen) oder darf NIE in ein
 # Image gelangen.
 # =============================================================================

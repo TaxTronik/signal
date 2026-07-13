@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from risk_layer import modell as M
+from risk_layer import llama_cpp_manifest as EM
 
 
 def _sha(b: bytes) -> str:
@@ -32,15 +33,32 @@ def test_registry_granite_eintraege():
 
 
 def test_datei_url_form():
-    url = M.datei_url("Qwen/Qwen3-14B-GGUF", "Qwen3-14B-Q5_K_M.gguf")
-    assert url == "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/main/Qwen3-14B-Q5_K_M.gguf?download=true"
+    info = M.MODELLE["qwen3-14b"]
+    url = M.datei_url(
+        info.repo, "Qwen3-14B-Q5_K_M.gguf", revision=info.revision,
+    )
+    assert url == (
+        "https://huggingface.co/Qwen/Qwen3-14B-GGUF/resolve/"
+        "530227a7d994db8eca5ab5ced2fb692b614357fd/"
+        "Qwen3-14B-Q5_K_M.gguf?download=true"
+    )
 
 
 def test_passende_dateien_filtert_quant(monkeypatch):
-    monkeypatch.setattr(M, "hf_dateien", lambda repo, timeout=25.0: [
+    revision = "a" * 40
+    gesehen = {}
+
+    def fake_dateien(repo, *, revision, timeout=25.0):
+        gesehen["revision"] = revision
+        return [
         "README.md", "Qwen3-14B-Q4_K_M.gguf", "Qwen3-14B-Q5_K_M.gguf", "Qwen3-14B-Q6_K.gguf",
-    ])
-    assert M.passende_dateien("x", "Q5_K_M") == ["Qwen3-14B-Q5_K_M.gguf"]
+        ]
+
+    monkeypatch.setattr(M, "hf_dateien", fake_dateien)
+    assert M.passende_dateien("x", "Q5_K_M", revision=revision) == [
+        "Qwen3-14B-Q5_K_M.gguf"
+    ]
+    assert gesehen["revision"] == revision
 
 
 def test_modell_pfad_findet_gguf(tmp_path):
@@ -70,13 +88,24 @@ def test_finde_llama_server(monkeypatch, tmp_path):
     assert M.finde_llama_server(str(tmp_path / "fehlt")) is None
     # in ./engine abgelegtes Binary wird gefunden
     (tmp_path / "eng").mkdir()
+    (tmp_path / "eng" / "llama-server-helper.exe").write_text("nicht das Binary")
     (tmp_path / "eng" / "llama-server.exe").write_text("x")
     assert M.finde_llama_server(engine_dir=tmp_path / "eng").endswith("llama-server.exe")
 
 
+def test_finde_llama_server_bevorzugt_gepinnten_baum_vor_path(monkeypatch, tmp_path):
+    verwaltet = tmp_path / EM.LLAMA_CPP_RELEASE / "llama-server.exe"
+    verwaltet.parent.mkdir()
+    verwaltet.write_text("x")
+    monkeypatch.setattr(M.shutil, "which", lambda name: "C:/alt/llama-server.exe")
+    assert M.finde_llama_server(engine_dir=tmp_path) == str(verwaltet)
+
+
 def test_manager_kommando(tmp_path):
-    binpath = tmp_path / "llama-server"; binpath.write_text("x")
-    model = tmp_path / "m.gguf"; model.write_bytes(b"x")
+    binpath = tmp_path / "llama-server"
+    binpath.write_text("x")
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"x")
     mgr = M.LlamaServerManager(model, binary=str(binpath), port=8080, n_ctx=8192)
     cmd = mgr.kommando()
     assert cmd[0] == str(binpath)
@@ -89,7 +118,8 @@ def test_manager_kommando(tmp_path):
 
 def test_manager_start_ohne_binary_meldet_fehlende_engine(monkeypatch, tmp_path):
     monkeypatch.setattr(M, "finde_llama_server", lambda *a, **k: None)
-    model = tmp_path / "m.gguf"; model.write_bytes(b"x")
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"x")
     mgr = M.LlamaServerManager(model)  # kein Binary auffindbar
     with pytest.raises(FileNotFoundError):
         mgr.start()
@@ -283,6 +313,25 @@ def test_download_datei_416_holt_fehlenden_sidecar_nach(monkeypatch, tmp_path):
     assert M.sidecar_lesen(ziel) == _sha(b"hello")
 
 
+def test_download_datei_416_vertraut_sidecar_nicht_statt_manifest(monkeypatch, tmp_path):
+    # Ein Angreifer darf kein fertiges Archiv plus selbst ausgestellten Sidecar
+    # platzieren und damit den unabhängigen Engine-Manifest-Digest umgehen.
+    ziel = tmp_path / "engine.zip"
+    ziel.write_bytes(b"boese")
+    M.sidecar_schreiben(ziel, _sha(b"boese"))
+
+    def urlopen(req, timeout=60):
+        raise urllib.error.HTTPError(req.full_url, 416, "Range Not Satisfiable",
+                                     {"Content-Range": "bytes */5"}, None)
+
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    with pytest.raises(RuntimeError, match="Integrität|Erwartungswert"):
+        M.download_datei("http://x/engine.zip", ziel,
+                         erwartet_sha256=_sha(b"offiziell"))
+    assert not ziel.exists()
+    assert not M.sidecar_pfad(ziel).exists()
+
+
 def test_hf_lfs_digests_liest_tree_endpunkt(monkeypatch):
     # Der HF-Tree-Endpunkt liefert je LFS-Datei lfs.oid = sha256; Nicht-LFS-
     # Dateien (README) haben keinen Digest und fehlen im Ergebnis.
@@ -302,31 +351,65 @@ def test_hf_lfs_digests_liest_tree_endpunkt(monkeypatch):
         gefragt["url"] = req.full_url
         return FakeResp(json.dumps(eintraege).encode("utf-8"))
     monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
-    d = M.hf_lfs_digests("org/repo")
+    revision = "b" * 40
+    d = M.hf_lfs_digests("org/repo", revision=revision)
     assert d == {"a.gguf": "ab" * 32}                   # nur LFS, kleingeschrieben
-    assert "/api/models/org/repo/tree/main" in gefragt["url"]
+    assert f"/api/models/org/repo/tree/{revision}" in gefragt["url"]
+
+
+def test_hf_dateien_liest_exakten_commit_endpunkt(monkeypatch):
+    revision = "c" * 40
+    gefragt = {}
+
+    class FakeResp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen(url, timeout=25.0):
+        gefragt["url"] = url
+        return FakeResp(json.dumps({"siblings": [{"rfilename": "a.gguf"}]}).encode())
+
+    monkeypatch.setattr(M.urllib.request, "urlopen", urlopen)
+    assert M.hf_dateien("org/repo", revision=revision) == ["a.gguf"]
+    assert gefragt["url"].endswith(f"/api/models/org/repo/revision/{revision}")
 
 
 def test_download_modell_reicht_hf_erwartungswert_durch(monkeypatch, tmp_path):
     erhalten = {}
-    monkeypatch.setattr(M, "passende_dateien", lambda repo, quant: ["a.gguf"])
-    monkeypatch.setattr(M, "hf_lfs_digests", lambda repo: {"a.gguf": "f" * 64})
+
+    def fake_passende(repo, quant, *, revision):
+        erhalten["listen_revision"] = revision
+        return ["a.gguf"]
+
+    def fake_digests(repo, *, revision):
+        erhalten["digest_revision"] = revision
+        return {"a.gguf": "f" * 64}
+
+    monkeypatch.setattr(M, "passende_dateien", fake_passende)
+    monkeypatch.setattr(M, "hf_lfs_digests", fake_digests)
 
     def fake_dl(url, ziel, *, fortschritt=None, erwartet_sha256=None):
         erhalten["erwartet"] = erwartet_sha256
+        erhalten["url"] = url
         return ziel
     monkeypatch.setattr(M, "download_datei", fake_dl)
-    M.download_modell(M.MODELLE[M.DEFAULT_MODELL], tmp_path)
+    info = M.MODELLE[M.DEFAULT_MODELL]
+    M.download_modell(info, tmp_path)
     assert erhalten["erwartet"] == "f" * 64
+    assert erhalten["listen_revision"] == info.revision
+    assert erhalten["digest_revision"] == info.revision
+    assert f"/resolve/{info.revision}/" in erhalten["url"]
 
 
 def test_download_modell_degradiert_ohne_hf_digests(monkeypatch, tmp_path):
     # Digest-Abfrage scheitert (offline/HF-API down) → Download läuft trotzdem,
     # nur ohne Erwartungswert (der Sidecar pinnt dann den Erst-Download).
-    def kaputt(repo):
+    def kaputt(repo, *, revision):
         raise urllib.error.URLError("offline (Test)")
     monkeypatch.setattr(M, "hf_lfs_digests", kaputt)
-    monkeypatch.setattr(M, "passende_dateien", lambda repo, quant: ["a.gguf"])
+    monkeypatch.setattr(
+        M, "passende_dateien", lambda repo, quant, *, revision: ["a.gguf"]
+    )
     erhalten = {}
 
     def fake_dl(url, ziel, *, fortschritt=None, erwartet_sha256=None):
@@ -377,11 +460,31 @@ def test_verifiziere_artefakte_vertrag_signatur():
     assert sig.parameters["verzeichnis"].default == M.DEFAULT_MODELL_DIR
 
 
-def test_hf_revision_explizit_in_datei_url():
-    # Reproduzierbarkeit (D5/L4): die Revision steht EXPLIZIT als Konstante,
-    # nicht implizit als "main"-Literal in der URL verstreut.
-    assert M.HF_REVISION == "main"
-    assert f"/resolve/{M.HF_REVISION}/" in M.datei_url("a/b", "c.gguf")
+def test_registry_hat_nur_exakte_hf_commit_pins():
+    erwartet = {
+        "qwen3-14b": "530227a7d994db8eca5ab5ced2fb692b614357fd",
+        "qwen3-8b": "7c41481f57cb95916b40956ab2f0b139b296d974",
+        "qwen3.5-4b": "e87f176479d0855a907a41277aca2f8ee7a09523",
+        "lfm2.5-8b-a1b": "dfd5fdcad7a1c0d31473fb4ca443b8befbacddf0",
+        "granite-4.1-8b": "865b82c2e7970d82e3731278c88c57ae7138359c",
+        "granite-4.1-3b": "ab4701481089b58a082ef63cc1cee738887293ff",
+    }
+    assert {key: info.revision for key, info in M.MODELLE.items()} == erwartet
+    assert not hasattr(M, "HF_REVISION")
+    for info in M.MODELLE.values():
+        assert len(info.revision) == 40
+        assert set(info.revision) <= set("0123456789abcdef")
+
+
+def test_hf_helfer_verweigern_bewegliche_revisionen():
+    with pytest.raises(ValueError, match="40-stelliger Commit-Hash"):
+        M.datei_url("a/b", "c.gguf", revision="main")
+    with pytest.raises(ValueError, match="40-stelliger Commit-Hash"):
+        M.hf_dateien("a/b", revision="latest")
+    with pytest.raises(ValueError, match="40-stelliger Commit-Hash"):
+        M.hf_lfs_digests("a/b", revision="v1")
+    with pytest.raises(ValueError, match="40-stelliger Commit-Hash"):
+        M.ModellInfo("key", "Name", "a/b", "main", "Q5_K_M", 1.0)
 
 
 def test_manager_start_loggt_sidecar_digest_oder_ungeprueft(monkeypatch, tmp_path, caplog):
@@ -456,48 +559,147 @@ def test_waehle_asset_trennt_cudart_und_formate():
     assert M._waehle_asset(assets, "bin-win-vulkan-x64") is None
 
 
+def test_engine_manifest_ist_fest_hashgepinnt_und_ohne_latest():
+    assert EM.LLAMA_CPP_RELEASE == "b9986"
+    assert M.ENGINE_ASSETS
+    assert not hasattr(M, "GITHUB_RELEASES")
+    assert len({a.name for a in M.ENGINE_ASSETS}) == len(M.ENGINE_ASSETS)
+    for asset in M.ENGINE_ASSETS:
+        assert len(asset.sha256) == 64
+        assert set(asset.sha256) <= set("0123456789abcdef")
+        assert asset.groesse > 0
+        assert f"/releases/download/{EM.LLAMA_CPP_RELEASE}/" in asset.url
+        assert "/latest/" not in asset.url
+
+
+def test_engine_manifest_deckt_jeden_auto_backend_ab():
+    for table in (M._BACKEND_WIN, M._BACKEND_LINUX):
+        for patterns in table.values():
+            assert any(M._waehle_engine_asset(pattern) for pattern in patterns)
+
+
+def test_finde_engine_asset_liest_keine_release_metadaten(monkeypatch):
+    def kein_netz(*args, **kwargs):
+        raise AssertionError("Release-Metadaten dürfen nicht zur Laufzeit abgefragt werden")
+
+    monkeypatch.setattr(M.urllib.request, "urlopen", kein_netz)
+    treffer = M.finde_engine_asset("bin-win-vulkan-x64")
+    assert treffer is not None
+    assert treffer[0] == "llama-b9986-bin-win-vulkan-x64.zip"
+    assert "/download/b9986/" in treffer[1]
+
+
+def test_lade_und_entpacke_prueft_hash_vor_extraktion(monkeypatch, tmp_path):
+    asset = M.EngineAsset("manipuliert.zip", "ab" * 32, 5)
+    monkeypatch.setattr(
+        M.urllib.request,
+        "urlopen",
+        lambda req, timeout=60: _fake_resp(200, {"Content-Length": "5"}, b"boese"),
+    )
+    with pytest.raises(RuntimeError, match="Integrität|Erwartungswert"):
+        M._lade_und_entpacke(asset, tmp_path, None)
+    assert not (tmp_path / asset.name).exists()
+    assert not M.sidecar_pfad(tmp_path / asset.name).exists()
+
+
+def test_lade_und_entpacke_prueft_manifestgroesse(monkeypatch, tmp_path):
+    asset = M.EngineAsset("falsch-kurz.zip", "ab" * 32, 99)
+
+    def fake_download(url, ziel, *, fortschritt=None, erwartet_sha256=None):
+        assert erwartet_sha256 == asset.sha256
+        ziel.write_bytes(b"kurz")
+        M.sidecar_schreiben(ziel, asset.sha256)
+        return ziel
+
+    monkeypatch.setattr(M, "download_datei", fake_download)
+    with pytest.raises(RuntimeError, match="Größe|Manifest"):
+        M._lade_und_entpacke(asset, tmp_path, None)
+    assert not (tmp_path / asset.name).exists()
+    assert not M.sidecar_pfad(tmp_path / asset.name).exists()
+
+
 def test_download_engine_cuda_zieht_auch_cudart(monkeypatch, tmp_path):
-    assets = [
-        ("cudart-llama-bin-win-cuda-12.4-x64.zip", "u-cudart"),
-        ("llama-b1-bin-win-cuda-12.4-x64.zip", "u-cuda"),
-        ("llama-b1-bin-win-vulkan-x64.zip", "u-vk"),
-    ]
-    geladen: list[str] = []
+    geladen: list[M.EngineAsset] = []
+    ziele: list[Path] = []
     monkeypatch.setattr(M.sys, "platform", "win32")
-    monkeypatch.setattr(M, "_release_assets", lambda **k: assets)
-    monkeypatch.setattr(M, "_lade_und_entpacke", lambda name, url, zd, f: geladen.append(name))
-    monkeypatch.setattr(M, "finde_llama_server", lambda **k: str(tmp_path / "llama-server.exe"))
+    monkeypatch.setattr(M.platform, "machine", lambda: "AMD64")
+    monkeypatch.setattr(
+        M,
+        "_lade_und_entpacke",
+        lambda asset, zd, f: (geladen.append(asset), ziele.append(zd)),
+    )
+    monkeypatch.setattr(
+        M,
+        "_finde_llama_server_im_verzeichnis",
+        lambda d: str(tmp_path / "llama-server.exe"),
+    )
     out = M.download_engine(tmp_path, backend="cuda")
     assert out.endswith("llama-server.exe")
-    assert geladen == ["llama-b1-bin-win-cuda-12.4-x64.zip", "cudart-llama-bin-win-cuda-12.4-x64.zip"]
+    assert [a.name for a in geladen] == [
+        "llama-b9986-bin-win-cuda-12.4-x64.zip",
+        "cudart-llama-bin-win-cuda-12.4-x64.zip",
+    ]
+    installations_dir = (
+        tmp_path / "b9986" / "llama-b9986-bin-win-cuda-12.4-x64"
+    )
+    assert ziele == [installations_dir, installations_dir]
+    # Nicht der Download pinnt seinen eigenen Hash (TOFU), sondern das
+    # repository-versionierte Manifest reicht ihn bis vor die Extraktion durch.
+    assert all(len(a.sha256) == 64 for a in geladen)
 
 
 def test_download_engine_amd_nimmt_hip_ohne_cudart(monkeypatch, tmp_path):
-    assets = [("llama-b1-bin-win-hip-radeon-x64.zip", "u-hip"),
-              ("llama-b1-bin-win-vulkan-x64.zip", "u-vk")]
     geladen: list[str] = []
     monkeypatch.setattr(M.sys, "platform", "win32")
-    monkeypatch.setattr(M, "_release_assets", lambda **k: assets)
-    monkeypatch.setattr(M, "_lade_und_entpacke", lambda name, url, zd, f: geladen.append(name))
-    monkeypatch.setattr(M, "finde_llama_server", lambda **k: "x/llama-server")
+    monkeypatch.setattr(M.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(M, "_lade_und_entpacke", lambda asset, zd, f: geladen.append(asset.name))
+    monkeypatch.setattr(M, "_finde_llama_server_im_verzeichnis", lambda d: "x/llama-server")
     M.download_engine(tmp_path, backend="hip")
-    assert geladen == ["llama-b1-bin-win-hip-radeon-x64.zip"]
+    assert geladen == ["llama-b9986-bin-win-hip-radeon-x64.zip"]
 
 
 def test_download_engine_meldet_fehlend(monkeypatch, tmp_path):
     monkeypatch.setattr(M.sys, "platform", "win32")
-    monkeypatch.setattr(M, "_release_assets", lambda **k: [("readme.txt", "u")])
+    monkeypatch.setattr(M.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(M, "ENGINE_ASSETS", ())
     with pytest.raises(RuntimeError):
         M.download_engine(tmp_path, backend="cuda")
 
 
-def test_download_engine_cuda_ohne_cudart_crasht_nicht(monkeypatch, tmp_path):
-    # CUDA-Build da, aber kein cudart-Paket -> nur warnen, nicht crashen, Build trotzdem da
-    assets = [("llama-b1-bin-win-cuda-12.4-x64.zip", "u-cuda")]
+def test_download_engine_pattern_kann_keine_fremde_plattform_waehlen(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(M.sys, "platform", "win32")
+    monkeypatch.setattr(M.platform, "machine", lambda: "x86_64")
+    with pytest.raises(RuntimeError, match="Plattform"):
+        M.download_engine(tmp_path, pattern="bin-ubuntu-x64")
+    with pytest.raises(ValueError, match="leer"):
+        M.download_engine(tmp_path, pattern=" ")
+
+
+def test_download_engine_cuda_ohne_gepinntes_cudart_bricht_vor_download_ab(
+    monkeypatch, tmp_path
+):
+    # Ein nur halb registriertes CUDA-Bundle darf nicht installiert werden.
+    assets = tuple(a for a in M.ENGINE_ASSETS if not a.name.startswith("cudart"))
     geladen: list[str] = []
     monkeypatch.setattr(M.sys, "platform", "win32")
-    monkeypatch.setattr(M, "_release_assets", lambda **k: assets)
-    monkeypatch.setattr(M, "_lade_und_entpacke", lambda name, url, zd, f: geladen.append(name))
-    monkeypatch.setattr(M, "finde_llama_server", lambda **k: "x/llama-server")
-    assert M.download_engine(tmp_path, backend="cuda") == "x/llama-server"
-    assert geladen == ["llama-b1-bin-win-cuda-12.4-x64.zip"]
+    monkeypatch.setattr(M.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(M, "ENGINE_ASSETS", assets)
+    monkeypatch.setattr(M, "_lade_und_entpacke", lambda asset, zd, f: geladen.append(asset.name))
+    with pytest.raises(RuntimeError, match="cudart"):
+        M.download_engine(tmp_path, backend="cuda")
+    assert geladen == []
+
+
+@pytest.mark.parametrize(
+    ("system", "maschine"),
+    [("darwin", "x86_64"), ("linux", "aarch64")],
+)
+def test_download_engine_unterstuetzt_nur_gepinnte_plattformen(
+    monkeypatch, tmp_path, system, maschine
+):
+    monkeypatch.setattr(M.sys, "platform", system)
+    monkeypatch.setattr(M.platform, "machine", lambda: maschine)
+    with pytest.raises(RuntimeError, match="manuell|--llm-bin"):
+        M.download_engine(tmp_path, backend="cpu")

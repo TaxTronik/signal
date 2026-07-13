@@ -15,6 +15,7 @@ es führt Provenienz und Lebenszyklus prüfbar mit (PS-980-freundlich).
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,9 +36,27 @@ _WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÖØ-öø-ÿ"
 
 REVIEW_REIHENFOLGE = ("entwurf", "geprüft", "freigegeben")
 
+# Bis zur Einführung des harten Vier-Augen-Gates waren geteilte YAML-Einträge
+# ohne Reviewer bzw. mit Autor==Reviewer zulässig. Solche Altbestände dürfen
+# beim Upgrade weder kanonisch bleiben noch den kompletten Store unlesbar
+# machen. Die Migration stuft ausschließlich diese eng abgegrenzten Fälle auf
+# ``entwurf`` zurück und hält den Grund pro Eintrag dauerhaft nachvollziehbar.
+REVIEW_MIGRATIONSGRUENDE = (
+    "legacy_review_ohne_reviewer",
+    "legacy_selbstreview",
+    "legacy_ungueltiger_reviewer",
+)
+
+_log = logging.getLogger(__name__)
+
 
 class BeraterFehler(ValueError):
     """Strukturfehler / unzulässiger Lebenszyklus-Übergang."""
+
+
+def _identitaet(text: str) -> str:
+    """Vergleichsform für Autor-/Reviewer-Tags (kein Whitespace-/Case-Bypass)."""
+    return text.strip().casefold()
 
 
 def _slug(text: str) -> str:
@@ -65,6 +84,11 @@ class BeraterDefinition:
     eingetragen_am: str = ""
     review_status: str = "entwurf"    # nur bei scope=geteilt relevant
     reviewer: str | None = None
+    # Upgrade-Metadaten für vor dem Vier-Augen-Gate persistierte Records. Der
+    # Migrationshinweis bleibt auch nach einem späteren ordentlichen Re-Review
+    # erhalten; ``ist_review_quarantiniert`` zeigt den aktuellen Gate-Zustand.
+    review_migration_grund: str | None = None
+    review_status_vor_migration: str | None = None
     konfidenz: str = "mittel"
     # Abgleich (Stufe 2)
     geankert_an: tuple[str, ...] = ()
@@ -77,6 +101,12 @@ class BeraterDefinition:
     def ist_kanonisch(self) -> bool:
         """Geteilte Einträge sind erst nach Freigabe kanonisch (/LF330/)."""
         return self.scope == "personal" or self.review_status == "freigegeben"
+
+    @property
+    def ist_review_quarantiniert(self) -> bool:
+        """Altbestand wartet nach sicherer Herabstufung auf einen neuen Review."""
+        return (self.scope == "geteilt" and self.review_migration_grund is not None
+                and self.review_status == "entwurf" and self.reviewer is None)
 
     def as_dict(self) -> dict[str, Any]:
         d = {
@@ -100,6 +130,12 @@ class BeraterDefinition:
             "abgleich_status": self.abgleich_status,
             "katalog_id": self.katalog_id,
         }
+        # Für reguläre Einträge bleibt die persistierte Form unverändert. Bei
+        # migrierten Altbeständen sind Ursache und früherer Status dagegen
+        # absichtlich sichtbar und über Sicherung/Restore hinweg stabil.
+        if self.review_migration_grund is not None:
+            d["review_migration_grund"] = self.review_migration_grund
+            d["review_status_vor_migration"] = self.review_status_vor_migration
         return d
 
 
@@ -122,6 +158,68 @@ def _validiere(d: BeraterDefinition) -> None:
         raise BeraterFehler(f"[{d.id}] scope muss personal|geteilt sein")
     if d.scope == "geteilt" and d.review_status not in REVIEW_REIHENFOLGE:
         raise BeraterFehler(f"[{d.id}] review_status muss {REVIEW_REIHENFOLGE} sein")
+    if ((d.review_migration_grund is None)
+            != (d.review_status_vor_migration is None)):
+        raise BeraterFehler(
+            f"[{d.id}] Review-Migrationsgrund und früherer Status müssen gemeinsam vorliegen")
+    if d.review_migration_grund is not None and d.scope != "geteilt":
+        raise BeraterFehler(f"[{d.id}] Review-Migration ist nur für geteilte Einträge zulässig")
+    if (d.review_migration_grund is not None
+            and d.review_migration_grund not in REVIEW_MIGRATIONSGRUENDE):
+        raise BeraterFehler(f"[{d.id}] unbekannter Review-Migrationsgrund")
+    if (d.review_status_vor_migration is not None
+            and d.review_status_vor_migration not in REVIEW_REIHENFOLGE):
+        raise BeraterFehler(f"[{d.id}] ungültiger früherer Review-Status")
+    if d.scope == "geteilt":
+        # Ein persistierter Status darf die API-Lebenszyklusregeln nicht durch
+        # direktes/fehlerhaftes YAML umgehen: ab dem ersten Review-Schritt ist
+        # ein verantwortlicher Reviewer zwingender Teil der Provenienz.
+        if d.review_status != "entwurf" and (
+                not isinstance(d.reviewer, str) or not d.reviewer.strip()):
+            raise BeraterFehler(
+                f"[{d.id}] Status {d.review_status!r} erfordert einen nichtleeren Reviewer")
+        if d.reviewer is not None:
+            if not isinstance(d.reviewer, str) or not d.reviewer.strip():
+                raise BeraterFehler(f"[{d.id}] reviewer muss ein nichtleerer String sein")
+            if _identitaet(d.reviewer) == _identitaet(d.autor):
+                raise BeraterFehler(
+                    f"[{d.id}] Reviewer darf nicht mit dem Autor identisch sein")
+
+
+def _migriere_legacy_review(d: BeraterDefinition) -> bool:
+    """Quarantänisiert genau die vor dem Vier-Augen-Gate zulässigen Altformen.
+
+    Der Record bleibt im Store sichtbar, verliert aber jede Kanonizität:
+    Status wird ``entwurf`` und ``reviewer`` wird ``None``. Ein erneuter
+    ordentlicher Übergang über ``geprüft`` nach ``freigegeben`` ist damit
+    zwingend; es gibt keinen Migrations-Bypass und keine automatische Freigabe.
+    Strukturell unbekannte Statuswerte werden bewusst NICHT repariert, sondern
+    anschließend weiter von ``_validiere`` abgewiesen.
+    """
+    if d.scope != "geteilt" or d.review_status not in REVIEW_REIHENFOLGE:
+        return False
+
+    grund: str | None = None
+    if d.reviewer is not None and (
+            not isinstance(d.reviewer, str) or not d.reviewer.strip()):
+        grund = "legacy_ungueltiger_reviewer"
+    elif (isinstance(d.reviewer, str) and d.reviewer.strip()
+          and _identitaet(d.reviewer) == _identitaet(d.autor)):
+        grund = "legacy_selbstreview"
+    elif d.review_status != "entwurf" and d.reviewer is None:
+        grund = "legacy_review_ohne_reviewer"
+
+    if grund is None:
+        return False
+    # Eine bereits vorhandene, valide Migrationsspur nicht überschreiben. Das
+    # kann etwa passieren, wenn ein später manuell beschädigter Record erneut
+    # quarantänisiert wird; die erste Herkunft bleibt dann auditierbar.
+    if d.review_migration_grund is None and d.review_status_vor_migration is None:
+        d.review_migration_grund = grund
+        d.review_status_vor_migration = d.review_status
+    d.review_status = "entwurf"
+    d.reviewer = None
+    return True
 
 
 @dataclass
@@ -172,6 +270,7 @@ class BeraterStore:
 
     def _laden(self) -> None:
         self._eintraege = []
+        legacy_review_migriert = False
         for scope in ("personal", "geteilt"):
             pfad = self._datei(scope)
             if not pfad.exists():
@@ -185,7 +284,9 @@ class BeraterStore:
                 if not isinstance(raw, dict):
                     raise BeraterFehler(f"{pfad}: Eintrag #{i} muss ein Mapping sein: {raw!r}")
                 try:
-                    self._eintraege.append(self._aus_dict(raw, scope))
+                    eintrag, migriert = self._aus_dict(raw, scope)
+                    self._eintraege.append(eintrag)
+                    legacy_review_migriert = legacy_review_migriert or migriert
                 except BeraterFehler as exc:
                     raise BeraterFehler(f"{pfad}: Eintrag #{i}: {exc}") from exc
                 except (KeyError, TypeError, ValueError, AttributeError) as exc:
@@ -214,6 +315,20 @@ class BeraterStore:
                     norm_id=str(raw["norm_id"]), aktion=str(raw["aktion"]),
                     scope=str(raw.get("scope", "personal")), autor=str(raw.get("autor", "")),
                     eingetragen_am=str(raw.get("eingetragen_am", ""))))
+        if legacy_review_migriert:
+            # Das sichere Downgrade möglichst sofort atomar persistieren: damit
+            # würde auch ein späterer Rollback auf eine ältere Programmversion
+            # den Altbestand nicht erneut als freigegeben lesen. Ein read-only
+            # Store bleibt dennoch verfügbar und arbeitet mit der sicheren
+            # In-Memory-Quarantäne; der Status weist die Migration je Record aus.
+            try:
+                self._speichern("geteilt")
+            except OSError as exc:
+                _log.warning(
+                    "Review-Quarantäne konnte nicht in %s persistiert werden; "
+                    "sichere In-Memory-Herabstufung bleibt aktiv: %s",
+                    self._datei("geteilt"), exc,
+                )
 
     def _speichern(self, scope: str) -> None:
         rows = [d.as_dict() for d in self._eintraege if d.scope == scope]
@@ -281,7 +396,7 @@ class BeraterStore:
                 and (k.scope == "geteilt" or k.autor == nutzer)]
 
     @staticmethod
-    def _aus_dict(raw: dict[str, Any], scope: str) -> BeraterDefinition:
+    def _aus_dict(raw: dict[str, Any], scope: str) -> tuple[BeraterDefinition, bool]:
         if "id" not in raw or "begriff" not in raw:
             raise BeraterFehler(f"Eintrag braucht 'id' und 'begriff': {raw!r}")
         for q in (raw.get("definitionsquelle") or []):
@@ -308,19 +423,41 @@ class BeraterStore:
             eingetragen_am=str(raw.get("eingetragen_am", "")),
             review_status=str(raw.get("review_status", "entwurf")),
             reviewer=raw.get("reviewer"),
+            review_migration_grund=raw.get("review_migration_grund"),
+            review_status_vor_migration=raw.get("review_status_vor_migration"),
             konfidenz=str(raw.get("konfidenz", "mittel")),
             geankert_an=tuple(raw.get("geankert_an") or ()),
             zuletzt_geprueft_gegen_rspr_am=raw.get("zuletzt_geprueft_gegen_rspr_am"),
             abgleich_status=str(raw.get("abgleich_status", "aktuell")),
             katalog_id=raw.get("katalog_id"),
         )
+        migriert = _migriere_legacy_review(d)
         _validiere(d)
-        return d
+        return d, migriert
 
     # --- Operationen ----------------------------------------------------
 
     def alle(self) -> list[BeraterDefinition]:
         return list(self._eintraege)
+
+    def review_migrationen(self) -> list[dict[str, Any]]:
+        """Sichtbare, deterministische Upgrade-Spur je betroffenem Eintrag.
+
+        ``quarantiniert`` ist nur so lange wahr, bis der Eintrag den regulären
+        Vier-Augen-Lebenszyklus erneut begonnen hat. Der Migrationsgrund und der
+        frühere Status bleiben danach als Provenienz erhalten.
+        """
+        return [
+            {
+                "id": d.id,
+                "grund": d.review_migration_grund,
+                "status_vor_migration": d.review_status_vor_migration,
+                "aktueller_status": d.review_status,
+                "quarantiniert": d.ist_review_quarantiniert,
+            }
+            for d in sorted(self._eintraege, key=lambda eintrag: eintrag.id)
+            if d.review_migration_grund is not None
+        ]
 
     def definiere(
         self,
@@ -393,7 +530,8 @@ class BeraterStore:
     def setze_review_status(self, eintrag_id: str, neuer_status: str, *, reviewer: str) -> None:
         """Lebenszyklus-Übergang für geteilte Einträge (/LF320/).
 
-        Erlaubt nur Vorwärts-Schritte entwurf → geprüft → freigegeben.
+        Erlaubt nur den jeweils nächsten Schritt entwurf → geprüft → freigegeben;
+        Autor und Reviewer müssen verschiedene Personen sein.
         """
         self._laden()   # frischen Datei-Stand mergen (Lost-Update-Schutz)
         d = next((e for e in self._eintraege if e.id == eintrag_id and e.scope == "geteilt"), None)
@@ -401,14 +539,19 @@ class BeraterStore:
             raise BeraterFehler(f"kein geteilter Eintrag {eintrag_id!r}")
         if neuer_status not in REVIEW_REIHENFOLGE:
             raise BeraterFehler(f"unbekannter review_status {neuer_status!r}")
+        if not isinstance(reviewer, str) or not reviewer.strip():
+            raise BeraterFehler("reviewer muss ein nichtleerer String sein")
+        if _identitaet(reviewer) == _identitaet(d.autor):
+            raise BeraterFehler("Reviewer darf nicht mit dem Autor identisch sein")
         alt = REVIEW_REIHENFOLGE.index(d.review_status)
         neu = REVIEW_REIHENFOLGE.index(neuer_status)
-        if neu <= alt:
+        if neu != alt + 1:
             raise BeraterFehler(
-                f"unzulässiger Übergang {d.review_status} → {neuer_status} (nur vorwärts)"
+                f"unzulässiger Übergang {d.review_status} → {neuer_status} "
+                "(nur exakt der nächste Status ist erlaubt)"
             )
         d.review_status = neuer_status
-        d.reviewer = reviewer
+        d.reviewer = reviewer.strip()
         self._speichern("geteilt")
 
     def _sichtbare(self, nutzer: str | None) -> list[BeraterDefinition]:

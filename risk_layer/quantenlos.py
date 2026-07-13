@@ -47,7 +47,8 @@ HMAC-Konditionierung mit dem Commitment als Schlüssel.
 
 Bewusst KEINE stille Degradation qpu→csprng: wer Attestierung verspricht,
 darf nicht leise lokal würfeln. Fehlende Pakete/Credentials sind laute Fehler
-(Install-Hinweis: ``pip install "risk-layer[quanten]"``); die Quelle steht im
+(Install-Hinweis: ``deploy.sh --with-quanten`` bzw. ``deploy.ps1 -WithQuanten``
+aus den plattformspezifischen Hash-Locks); die Quelle steht im
 Nachweis (``quelle_klasse``), und Simulator/CSPRNG sagen dort selbst laut,
 dass sie keine Dritt-Attestierung liefern.
 
@@ -69,13 +70,20 @@ import secrets
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 PROTOKOLL_VERSION = 1
 # Mindestmenge Roh-Entropie je Ziehung (Bits). 512 Roh-Bits >> 256 Bit
 # Seed-Kapazität der SHA-256-Extraktion — auch deutlich verrauschte/biased
 # Quellen liefern damit noch volle Seed-Entropie.
 MIN_ROH_BITS = 512
+
+# Unveränderliche Bindung im vom Provider gespeicherten Sampler-Payload. Anders
+# als Job-Tags kann diese Circuit-Metadaten ein Job-Eigentümer nach dem Submit
+# nicht nachträglich passend umschreiben.
+_QPU_PAYLOAD_META_KEY = "risk_layer_quantenlos_v1"
+_QPU_PRIMITIVE_ID = "sampler"
+_QPU_TRANSPILER_SEED = 0x51A1
 
 
 class QuantenlosFehler(ValueError):
@@ -207,7 +215,10 @@ def mische_deterministisch(items: Sequence[str], seed: bytes) -> list[str]:
 
 # --- 2. Entropie-Quellen -------------------------------------------------------
 
-_INSTALL_HINWEIS = 'Quanten-Extras fehlen — installieren mit: pip install "risk-layer[quanten]"'
+_INSTALL_HINWEIS = (
+    "Quanten-Extras fehlen — hash-gepinnt installieren mit: "
+    "deploy.sh --with-quanten bzw. deploy.ps1 -WithQuanten"
+)
 
 
 def _kanonische_counts_bytes(counts: dict[str, int]) -> bytes:
@@ -239,6 +250,234 @@ def _commitment_winkel(commitment: str, n_qubits: int) -> list[float]:
         h = hashlib.sha256(f"{commitment}:{i}".encode("ascii")).digest()
         winkel.append(int.from_bytes(h[:8], "big") / 2**64 * 2 * math.pi)
     return winkel
+
+
+def _qpu_payload_bindung_sha256(commitment: str, n_qubits: int, shots: int) -> str:
+    """Hash des erwarteten logischen QPU-Auftrags (unabhängig vom Transpiler)."""
+    payload = {
+        "schema": _QPU_PAYLOAD_META_KEY,
+        "commitment": commitment,
+        "n_qubits": n_qubits,
+        "shots": shots,
+        "rz_winkel_hex": [w.hex() for w in _commitment_winkel(commitment, n_qubits)],
+    }
+    return _sha256_hex(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode("ascii"))
+
+
+def _qpu_parameter_kanonisch(wert: Any) -> Any:
+    """Qiskit-Instruktionsparameter deterministisch und fail-closed abbilden."""
+    if wert is None or isinstance(wert, (bool, int, str)):
+        return wert
+    if isinstance(wert, float):
+        if not math.isfinite(wert):
+            raise QuantenlosBindungsFehler("QPU-Payload enthält nicht-endliche Parameter.")
+        return {"float_hex": wert.hex()}
+    if isinstance(wert, complex):
+        if not (math.isfinite(wert.real) and math.isfinite(wert.imag)):
+            raise QuantenlosBindungsFehler("QPU-Payload enthält nicht-endliche Parameter.")
+        return {"complex_hex": [wert.real.hex(), wert.imag.hex()]}
+    if isinstance(wert, (list, tuple)):
+        return [_qpu_parameter_kanonisch(x) for x in wert]
+    if hasattr(wert, "tolist"):
+        return _qpu_parameter_kanonisch(wert.tolist())
+    # Die Quantenlos-Schaltung ist vollständig gebunden und braucht keine
+    # ParameterExpression oder benutzerdefinierten Objekte. Nicht raten.
+    raise QuantenlosBindungsFehler(
+        f"QPU-Payload enthält einen nicht kanonisierbaren Parameter ({type(wert).__name__}).")
+
+
+def _qpu_schaltkreis_sha256(schaltkreis: Any) -> str:
+    """Semantischer Hash des tatsächlich an IBM übertragenen ISA-Circuits."""
+    try:
+        daten = list(schaltkreis.data)
+        num_qubits = int(schaltkreis.num_qubits)
+        num_clbits = int(schaltkreis.num_clbits)
+        find_bit = schaltkreis.find_bit
+    except Exception as exc:  # noqa: BLE001 - fremde Providerdaten sind untrusted
+        raise QuantenlosBindungsFehler("QPU-Jobinputs enthalten keinen lesbaren Circuit.") from exc
+
+    operationen: list[dict[str, Any]] = []
+    for eintrag in daten:
+        try:
+            operation = eintrag.operation
+            qargs = eintrag.qubits
+            cargs = eintrag.clbits
+        except AttributeError:
+            try:
+                operation, qargs, cargs = eintrag
+            except Exception as exc:  # noqa: BLE001
+                raise QuantenlosBindungsFehler(
+                    "QPU-Jobinputs enthalten eine unbekannte Circuit-Instruktion.") from exc
+        name = getattr(operation, "name", None)
+        params = getattr(operation, "params", None)
+        if not isinstance(name, str) or not isinstance(params, (list, tuple)):
+            raise QuantenlosBindungsFehler("QPU-Circuit-Instruktion ist nicht kanonisierbar.")
+        operationen.append({
+            "name": name,
+            "params": [_qpu_parameter_kanonisch(x) for x in params],
+            "qubits": [int(find_bit(bit).index) for bit in qargs],
+            "clbits": [int(find_bit(bit).index) for bit in cargs],
+        })
+    payload = {"num_qubits": num_qubits, "num_clbits": num_clbits,
+               "operationen": operationen}
+    return _sha256_hex(json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
+    ).encode("ascii"))
+
+
+def _qpu_erwarteten_isa_bauen(commitment: str, n_qubits: int, backend: Any) -> Any:
+    """Erwarteten ISA-Circuit deterministisch für das Provider-Backend bauen."""
+    try:
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+    except ImportError as exc:
+        raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
+    logisch = _baue_schaltkreis(commitment, n_qubits)
+    pm = generate_preset_pass_manager(
+        optimization_level=0, backend=backend, seed_transpiler=_QPU_TRANSPILER_SEED)
+    return pm.run(logisch)
+
+
+def _backend_attestierungsdaten(backend: Any) -> tuple[str, bool, int]:
+    """Provider-Backenddaten lesen; unbekannt bedeutet nicht automatisch QPU."""
+    try:
+        name_roh = backend.name
+        name = name_roh() if callable(name_roh) else name_roh
+        konfiguration = backend.configuration()
+        simulator = getattr(konfiguration, "simulator")
+        n_qubits = getattr(backend, "num_qubits", None)
+        if n_qubits is None:
+            n_qubits = getattr(konfiguration, "n_qubits")
+    except Exception as exc:  # noqa: BLE001 - fehlende Daten müssen fail-closed sein
+        raise QuantenlosBindungsFehler(
+            "IBM-Backend liefert keine überprüfbaren Simulator-/Qubit-Metadaten.") from exc
+    if not isinstance(name, str) or not name.strip():
+        raise QuantenlosBindungsFehler("IBM-Backendname fehlt.")
+    if not isinstance(simulator, bool):
+        raise QuantenlosBindungsFehler("IBM-Backend weist den Simulatorstatus nicht aus.")
+    if isinstance(n_qubits, bool) or not isinstance(n_qubits, int) or n_qubits < 1:
+        raise QuantenlosBindungsFehler("IBM-Backend weist keine gültige Qubit-Zahl aus.")
+    return name, simulator, n_qubits
+
+
+def _qpu_job_providerdaten(job: Any) -> dict[str, Any]:
+    """Vom IBM-Job authentifizierte Backend- und unveränderliche Inputdaten."""
+    try:
+        backend = job.backend()
+        primitive_id = job.primitive_id
+        inputs = job.inputs
+    except Exception as exc:  # noqa: BLE001
+        raise QuantenlosBindungsFehler(
+            "IBM-Jobmetadaten (Backend/Primitive/Inputs) sind nicht abrufbar.") from exc
+    if backend is None:
+        raise QuantenlosBindungsFehler("IBM-Job weist kein Backend aus.")
+    backend_name, simulator, backend_n_qubits = _backend_attestierungsdaten(backend)
+    if not isinstance(inputs, dict):
+        raise QuantenlosBindungsFehler("IBM-Jobinputs sind kein Objekt.")
+    pubs = inputs.get("pubs")
+    if not isinstance(pubs, list) or len(pubs) != 1:
+        raise QuantenlosBindungsFehler("Quantenlos erwartet exakt einen Sampler-PUB.")
+    pub = pubs[0]
+    if hasattr(pub, "circuit") and hasattr(pub, "shots"):
+        schaltkreis, shots = pub.circuit, pub.shots
+    elif isinstance(pub, (list, tuple)) and len(pub) == 3:
+        schaltkreis, shots = pub[0], pub[2]
+    else:
+        raise QuantenlosBindungsFehler("IBM-Sampler-PUB hat eine unbekannte Form.")
+    if isinstance(shots, bool) or not isinstance(shots, int) or shots < 1:
+        raise QuantenlosBindungsFehler("IBM-Sampler-PUB weist keine gültigen Shots aus.")
+    metadata = getattr(schaltkreis, "metadata", None)
+    payload_meta = metadata.get(_QPU_PAYLOAD_META_KEY) if isinstance(metadata, dict) else None
+    if not isinstance(payload_meta, dict):
+        raise QuantenlosBindungsFehler(
+            "IBM-Jobinput trägt keine unveränderliche Quantenlos-Payload-Bindung.")
+    if payload_meta.get("shots") != shots:
+        raise QuantenlosBindungsFehler("Shot-Zahl in IBM-Jobinput und Sampler-PUB widerspricht sich.")
+    n_qubits = payload_meta.get("n_qubits")
+    circuit_num_clbits = getattr(schaltkreis, "num_clbits", None)
+    if (isinstance(n_qubits, bool) or not isinstance(n_qubits, int) or n_qubits < 1
+            or circuit_num_clbits != n_qubits):
+        raise QuantenlosBindungsFehler("Qubit-Zahl in IBM-Jobinput und Circuit widerspricht sich.")
+    circuit_sha256 = _qpu_schaltkreis_sha256(schaltkreis)
+    if payload_meta.get("circuit_sha256") != circuit_sha256:
+        raise QuantenlosBindungsFehler("Circuit-Hash und IBM-Jobinput widersprechen sich.")
+    commitment = payload_meta.get("commitment")
+    if not _ist_sha256_hex(commitment):
+        raise QuantenlosBindungsFehler("IBM-Jobinput enthält kein gültiges Commitment.")
+    commitment = cast(str, commitment)
+    # Entscheidend gegen selbstkonsistente Fremdjob-Metadata: Nicht der im
+    # Payload behauptete Hash definiert den Soll-Circuit. Der Verifier baut den
+    # Circuit aus Commitment/Qubit-Zahl und dem authentifizierten IBM-Backend
+    # selbst erneut und vergleicht dessen semantischen ISA-Hash.
+    erwartet_isa = _qpu_erwarteten_isa_bauen(commitment, n_qubits, backend)
+    if _qpu_schaltkreis_sha256(erwartet_isa) != circuit_sha256:
+        raise QuantenlosBindungsFehler(
+            "IBM-Jobinput ist nicht der erwartete commitment-gebundene Quantenlos-Circuit.")
+    return {
+        "primitive_id": primitive_id,
+        "backend": backend_name,
+        "backend_simulator": simulator,
+        "backend_n_qubits": backend_n_qubits,
+        "qpu_n_qubits": n_qubits,
+        "qpu_shots": shots,
+        "qpu_payload_sha256": circuit_sha256,
+        "qpu_payload_bindung_sha256": payload_meta.get("bindung_sha256"),
+        "qpu_payload_commitment": commitment,
+    }
+
+
+def _qpu_attestierungsfelder(lauf: dict[str, Any], commitment: str) -> dict[str, Any]:
+    """Normalisiert/prüft Providerdaten und liefert die beweisrelevanten Felder."""
+    primitive_id = lauf.get("primitive_id")
+    backend = lauf.get("backend")
+    simulator = lauf.get("backend_simulator")
+    backend_n = lauf.get("backend_n_qubits")
+    n_qubits = lauf.get("qpu_n_qubits")
+    shots = lauf.get("qpu_shots")
+    payload_sha = lauf.get("qpu_payload_sha256")
+    bindung_sha = lauf.get("qpu_payload_bindung_sha256")
+    if primitive_id != _QPU_PRIMITIVE_ID:
+        raise QuantenlosBindungsFehler("IBM-Job ist kein Sampler-Primitive-Job.")
+    if not isinstance(backend, str) or not backend.strip():
+        raise QuantenlosBindungsFehler("IBM-Job weist kein Backend aus.")
+    if simulator is not False:
+        raise QuantenlosBindungsFehler("IBM-Job lief nicht nachweisbar auf einem echten QPU-Backend.")
+    if (isinstance(n_qubits, bool) or not isinstance(n_qubits, int) or n_qubits < 1
+            or isinstance(shots, bool) or not isinstance(shots, int) or shots < 1
+            or n_qubits * shots < MIN_ROH_BITS):
+        raise QuantenlosBindungsFehler("IBM-Job hat unerwartete Qubit-/Shot-Parameter.")
+    if (isinstance(backend_n, bool) or not isinstance(backend_n, int)
+            or backend_n < n_qubits):
+        raise QuantenlosBindungsFehler("IBM-Backendkapazität passt nicht zum QPU-Payload.")
+    erwartet_bindung = _qpu_payload_bindung_sha256(commitment, n_qubits, shots)
+    if (lauf.get("qpu_payload_commitment") != commitment
+            or bindung_sha != erwartet_bindung or not _ist_sha256_hex(payload_sha)):
+        raise QuantenlosBindungsFehler(
+            "IBM-Jobinput ist nicht an Commitment, Shots, Qubits und Circuit gebunden.")
+    return {
+        "primitive_id": primitive_id,
+        "backend_simulator": simulator,
+        "backend_n_qubits": backend_n,
+        "qpu_n_qubits": n_qubits,
+        "qpu_shots": shots,
+        "qpu_payload_sha256": payload_sha,
+        "qpu_payload_bindung_sha256": bindung_sha,
+    }
+
+
+def _qpu_counts_pruefen(counts: Any, n_qubits: int, shots: int) -> dict[str, int]:
+    """Counts müssen exakt zu Provider-Shots und gemessener Qubit-Zahl passen."""
+    if not isinstance(counts, dict) or not counts:
+        raise QuantenlosBindungsFehler("IBM-Job lieferte keine Counts.")
+    if not all(isinstance(k, str) and len(k) == n_qubits and set(k) <= {"0", "1"}
+               and isinstance(v, int) and not isinstance(v, bool) and v >= 0
+               for k, v in counts.items()):
+        raise QuantenlosBindungsFehler("IBM-Counts passen nicht zur erwarteten Qubit-Zahl.")
+    counts_dict = cast(dict[str, int], counts)
+    if sum(counts_dict.values()) != shots:
+        raise QuantenlosBindungsFehler("IBM-Counts passen nicht zur erwarteten Shot-Zahl.")
+    return counts_dict
 
 
 def _baue_schaltkreis(commitment: str, n_qubits: int):
@@ -297,7 +536,6 @@ def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
     trennen kann. Tests injizieren hier (Seam wie ``_qpu_job_ausfuehren``).
     """
     try:
-        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
         from qiskit_ibm_runtime import SamplerV2
     except ImportError as exc:
         raise QuantenlosFehler(_INSTALL_HINWEIS) from exc
@@ -305,11 +543,27 @@ def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
     service = service or _runtime_service(token)
     backend = (service.backend(backend_name) if backend_name
                else service.least_busy(operational=True, simulator=False))
-    schaltkreis = _baue_schaltkreis(commitment, n_qubits)
-    # optimization_level=0: die RZ-Bindungsschicht (No-Op auf |0⟩) darf der
-    # Transpiler nicht wegoptimieren — sie ist das Wasserzeichen im Payload.
-    pm = generate_preset_pass_manager(optimization_level=0, backend=backend)
-    isa = pm.run(schaltkreis)
+    backend_label, simulator, backend_n_qubits = _backend_attestierungsdaten(backend)
+    if simulator:
+        raise QuantenlosFehler(
+            f"Backend {backend_label!r} ist ein Simulator; QPU-Attestierung verweigert.")
+    if backend_n_qubits < n_qubits:
+        raise QuantenlosFehler(
+            f"Backend {backend_label!r} hat nur {backend_n_qubits} Qubits, benötigt werden {n_qubits}.")
+    # optimization_level=0 + fester Seed: die RZ-Bindungsschicht bleibt
+    # erhalten und der Online-Verifier kann denselben Soll-ISA-Circuit gegen
+    # das provider-authentifizierte Backend deterministisch rekonstruieren.
+    isa = _qpu_erwarteten_isa_bauen(commitment, n_qubits, backend)
+    circuit_sha256 = _qpu_schaltkreis_sha256(isa)
+    metadata = dict(getattr(isa, "metadata", None) or {})
+    metadata[_QPU_PAYLOAD_META_KEY] = {
+        "commitment": commitment,
+        "n_qubits": n_qubits,
+        "shots": shots,
+        "bindung_sha256": _qpu_payload_bindung_sha256(commitment, n_qubits, shots),
+        "circuit_sha256": circuit_sha256,
+    }
+    isa.metadata = metadata
     sampler = SamplerV2(mode=backend)
     tags = ["quantenlos", commitment[:32]]
     sampler.options.environment.job_tags = tags
@@ -317,8 +571,16 @@ def _qpu_job_einreichen(*, commitment: str, n_qubits: int, shots: int,
     return {
         "job": job,
         "job_id": job.job_id(),
-        "backend": getattr(backend, "name", str(backend)),
+        "backend": backend_label,
         "tags": tags,
+        "primitive_id": _QPU_PRIMITIVE_ID,
+        "backend_simulator": simulator,
+        "backend_n_qubits": backend_n_qubits,
+        "qpu_n_qubits": n_qubits,
+        "qpu_shots": shots,
+        "qpu_payload_sha256": circuit_sha256,
+        "qpu_payload_bindung_sha256": metadata[_QPU_PAYLOAD_META_KEY]["bindung_sha256"],
+        "qpu_payload_commitment": commitment,
     }
 
 
@@ -342,6 +604,11 @@ def _qpu_job_ausfuehren(*, commitment: str, n_qubits: int, shots: int,
         "backend": lauf["backend"],
         "tags": lauf["tags"],
         "creation_date": str(creation) if creation else None,
+        **{k: lauf[k] for k in (
+            "primitive_id", "backend_simulator", "backend_n_qubits",
+            "qpu_n_qubits", "qpu_shots", "qpu_payload_sha256",
+            "qpu_payload_bindung_sha256", "qpu_payload_commitment",
+        )},
     }
 
 
@@ -373,6 +640,7 @@ def _qpu_job_holen(job_id: str, *, service=None,
         return {"fertig": False, "status": status, "backend": backend}
     ergebnis = job.result()
     creation = getattr(job, "creation_date", None)
+    providerdaten = _qpu_job_providerdaten(job)
     return {
         "fertig": True,
         "status": status,
@@ -380,6 +648,7 @@ def _qpu_job_holen(job_id: str, *, service=None,
         "tags": list(getattr(job, "tags", None) or []),
         "backend": backend,
         "creation_date": str(creation) if creation else None,
+        **providerdaten,
     }
 
 
@@ -395,11 +664,13 @@ def _qpu_job_abrufen(job_id: str, *, service=None,
     except Exception:  # noqa: BLE001 — Backend-Name ist informativ, nie Show-Stopper
         pass
     creation = getattr(job, "creation_date", None)
+    providerdaten = _qpu_job_providerdaten(job)
     return {
         "counts": _sampler_counts(ergebnis),
         "tags": list(getattr(job, "tags", None) or []),
         "backend": backend,
         "creation_date": str(creation) if creation else None,
+        **providerdaten,
     }
 
 
@@ -462,7 +733,10 @@ class QPUQuelle(EntropieQuelle):
         lauf = self._job_ausfuehren(commitment=commitment, n_qubits=self._n_qubits,
                                     shots=shots, backend_name=self._backend_name,
                                     service=self._service, token=self._token)
-        roh = _kanonische_counts_bytes(lauf["counts"])
+        attestierung = _qpu_attestierungsfelder(lauf, commitment)
+        counts = _qpu_counts_pruefen(
+            lauf.get("counts"), attestierung["qpu_n_qubits"], attestierung["qpu_shots"])
+        roh = _kanonische_counts_bytes(counts)
         return self._merke(EntropieErgebnis(roh, {
             "quelle_klasse": self.quelle_klasse,
             "backend": lauf.get("backend"),
@@ -470,6 +744,7 @@ class QPUQuelle(EntropieQuelle):
             "job_tags": lauf.get("tags"),
             "creation_date": lauf.get("creation_date"),
             "roh_counts_sha256": _sha256_hex(roh),
+            **attestierung,
         }))
 
 
@@ -701,7 +976,10 @@ def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
             f"IBM-Job {job_id} trägt nicht das Commitment-Tag dieses Rahmens — "
             "der Job gehört zu einem anderen (oder veränderten) Rahmen.")
 
-    roh = _kanonische_counts_bytes(lauf["counts"])
+    attestierung = _qpu_attestierungsfelder(lauf, commitment)
+    counts = _qpu_counts_pruefen(
+        lauf.get("counts"), attestierung["qpu_n_qubits"], attestierung["qpu_shots"])
+    roh = _kanonische_counts_bytes(counts)
     entropie = {
         "quelle_klasse": QPUQuelle.quelle_klasse,
         "backend": lauf.get("backend"),
@@ -709,6 +987,7 @@ def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
         "job_tags": list(lauf.get("tags") or []),
         "creation_date": lauf.get("creation_date"),
         "roh_counts_sha256": _sha256_hex(roh),
+        **attestierung,
     }
     return {"status": "fertig",
             "nachweis": _nachweis_bauen(eindeutig, k_eff, commitment, roh,
@@ -718,23 +997,38 @@ def qpu_los_abholen(job_id: str, rahmen_items: Sequence[str], k: int, *,
 
 # --- 5. Prüfung ----------------------------------------------------------------
 
+_BEKANNTE_QUELLEN = frozenset({"qpu", "simulator", "csprng_fallback", "drand_beacon"})
+_MAX_JOB_ID_CHARS = 512
+
+
+def _ist_sha256_hex(wert: Any) -> bool:
+    return (isinstance(wert, str) and len(wert) == 64
+            and wert == wert.lower()
+            and all(c in "0123456789abcdef" for c in wert))
+
+
 def pruefe(nachweis: dict[str, Any], rahmen_items: Sequence[str],
            roh_bits: bytes | None = None, *, online: bool = False,
            token: str | None = None,
            job_abrufen: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """Rechnet einen Nachweis gegen die Rahmenliste nach.
 
-    Offline immer: Commitment, n, Stichprobe ⊆ Rahmen. Mit ``roh_bits`` (vom
-    Aufrufer archiviert) ODER ``online=True`` (Counts via IBM-Job-ID erneut
-    abrufen, Hash vergleichen) zusätzlich die volle Ableitungskette
-    Seed → Fisher-Yates → Stichprobe. ``token`` gibt dem Online-Refetch
+    Offline ohne Roh-Bits wird nur die Struktur geprüft und der Nachweis bleibt
+    fail-closed UNGÜLTIG. Mit ``roh_bits`` (vom Aufrufer archiviert) wird die
+    volle Ableitungskette Seed → Fisher-Yates → Stichprobe geprüft. Für einen
+    als ``qpu`` bezeichneten Nachweis reicht das allein nicht: dessen behauptete
+    Dritt-Attestierung muss zusätzlich mit ``online=True`` über IBM-Counts und
+    Job-Tags bestätigt werden. ``token`` gibt dem Online-Refetch
     optional einen IBM-Token pro Aufruf mit (Host-verwaltet, s.
     ``_runtime_service``); ohne ihn gilt die Maschinen-Auflösung.
-    Eine NICHT durchführbare Online-Prüfung
-    (kein Token, Paket fehlt, Netz weg) ist ein Hinweis, kein Fehlschlag —
-    ein WIDERSPRUCH in einer durchgeführten Prüfung schlägt fehl.
+    Eine explizit angeforderte, aber nicht durchführbare Online-Prüfung
+    (kein Token, Paket fehlt, Netz weg) ist ein Fehlschlag. So kann ein
+    erfundener Job nicht durch absichtliche Unerreichbarkeit gültig werden.
 
-    Ergebnis: {"gueltig": bool, "geprueft": [...], "hinweise": [...]}.
+    Ergebnis: {"gueltig": bool, "vollstaendig_verifiziert": bool,
+    "geprueft": [...], "hinweise": [...]}. Die beiden Bool-Felder sind in v1
+    absichtlich identisch; das zweite macht die fail-closed Semantik für neue
+    Integrationen unmissverständlich.
     """
     geprueft: list[str] = []
     hinweise: list[str] = []
@@ -747,6 +1041,18 @@ def pruefe(nachweis: dict[str, Any], rahmen_items: Sequence[str],
             gueltig = False
             hinweise.append(f"FEHLSCHLAG {name}: {detail}" if detail else f"FEHLSCHLAG {name}")
 
+    # ``pruefe`` ist selbst die Vertrauensgrenze fuer ein archiviertes, ggf.
+    # manipuliertes JSON-Artefakt. Deshalb duerfen falsche Teiltypen nie als
+    # Python-Ausnahme bis CLI/API durchschlagen (HTTP 500), sondern muessen den
+    # Nachweis fail-closed ungueltig machen. Die von _nachweis_bauen erzeugten
+    # v1-Nachweise sind allesamt dicts; das lokale Umschalten auf ein leeres
+    # Mapping haelt die folgenden Einzelbefunde trotzdem aussagekraeftig.
+    nachweis_ok = isinstance(nachweis, dict)
+    befund("nachweis_struktur", nachweis_ok,
+           "Nachweis muss ein JSON-Objekt sein.")
+    if not nachweis_ok:
+        nachweis = {}
+
     befund("protokoll_version", nachweis.get("protokoll_version") == PROTOKOLL_VERSION,
            f"unbekannte Version {nachweis.get('protokoll_version')!r} "
            f"(erwartet {PROTOKOLL_VERSION})")
@@ -755,54 +1061,234 @@ def pruefe(nachweis: dict[str, Any], rahmen_items: Sequence[str],
         eindeutig = rahmen_normalisieren(rahmen_items)
     except QuantenlosFehler as exc:
         befund("rahmen_commitment", False, str(exc))
-        return {"gueltig": False, "geprueft": geprueft, "hinweise": hinweise}
+        return {"gueltig": False, "vollstaendig_verifiziert": False,
+                "geprueft": geprueft, "hinweise": hinweise}
 
-    rahmen = nachweis.get("rahmen") or {}
+    rahmen_roh = nachweis.get("rahmen")
+    rahmen_ok = isinstance(rahmen_roh, dict)
+    befund("rahmen_struktur", rahmen_ok,
+           "Feld 'rahmen' muss ein JSON-Objekt sein.")
+    rahmen: dict[str, Any] = rahmen_roh if isinstance(rahmen_roh, dict) else {}
     erwartet = rahmen_commitment(eindeutig)
     befund("rahmen_commitment", rahmen.get("commitment") == erwartet,
            "Merkle-Root der übergebenen Rahmenliste weicht vom Nachweis ab "
            "— Rahmen wurde verändert oder ist nicht derselbe.")
-    befund("rahmen_n", rahmen.get("n") == len(eindeutig),
+    rahmen_n = rahmen.get("n")
+    rahmen_n_ok = (isinstance(rahmen_n, int) and not isinstance(rahmen_n, bool)
+                   and rahmen_n == len(eindeutig))
+    befund("rahmen_n", rahmen_n_ok,
            f"n im Nachweis ({rahmen.get('n')}) != Rahmenliste ({len(eindeutig)})")
 
-    stichprobe = list(nachweis.get("stichprobe") or [])
+    # k ist sicherheitsrelevant: ohne strikte Pruefung wurde ``k=0`` zusammen
+    # mit einer leeren Stichprobe als gueltig akzeptiert. bool ist in Python ein
+    # int-Untertyp und muss explizit ausgeschlossen werden; Strings/Floats werden
+    # nicht still konvertiert. Ein gueltiger v1-Nachweis hat 1 <= k <= n.
+    k_roh = nachweis.get("k")
+    k = (k_roh if isinstance(k_roh, int) and not isinstance(k_roh, bool)
+         and 1 <= k_roh <= len(eindeutig) else None)
+    k_ok = k is not None
+    befund("k", k_ok,
+           f"k muss eine Ganzzahl zwischen 1 und n={len(eindeutig)} sein "
+           f"(bekommen: {k_roh!r}).")
+
+    stichprobe_roh = nachweis.get("stichprobe")
+    stichprobe_form_ok = (isinstance(stichprobe_roh, list)
+                          and all(isinstance(x, str) for x in stichprobe_roh))
+    befund("stichprobe_struktur", stichprobe_form_ok,
+           "Feld 'stichprobe' muss ein Array von Strings sein.")
+    stichprobe: list[str] = (
+        cast(list[str], stichprobe_roh) if stichprobe_form_ok else []
+    )
+    stichprobe_laenge_ok = k is not None and len(stichprobe) == k
+    befund("stichprobe_laenge", stichprobe_laenge_ok,
+           f"Stichprobe hat {len(stichprobe)} Items, erwartet wird k={k_roh!r}.")
     befund("stichprobe_im_rahmen",
-           len(set(stichprobe)) == len(stichprobe) and set(stichprobe) <= set(eindeutig),
+           stichprobe_form_ok and len(set(stichprobe)) == len(stichprobe)
+           and set(stichprobe) <= set(eindeutig),
            "Stichprobe enthält Doppelungen oder Items außerhalb des Rahmens.")
 
-    entropie = nachweis.get("entropie") or {}
+    entropie_roh = nachweis.get("entropie")
+    entropie_ok = isinstance(entropie_roh, dict)
+    befund("entropie_struktur", entropie_ok,
+           "Feld 'entropie' muss ein JSON-Objekt sein.")
+    entropie: dict[str, Any] = (
+        entropie_roh if isinstance(entropie_roh, dict) else {}
+    )
+    quelle_roh = entropie.get("quelle_klasse")
+    quelle = (quelle_roh if isinstance(quelle_roh, str)
+              and quelle_roh in _BEKANNTE_QUELLEN else None)
+    befund("entropie_quelle", quelle is not None,
+           f"quelle_klasse muss eine bekannte Protokollquelle sein (bekommen: {quelle_roh!r}).")
+    roh_hash = entropie.get("roh_counts_sha256")
+    roh_hash_ok = _ist_sha256_hex(roh_hash)
+    befund("entropie_roh_hash", roh_hash_ok,
+           "roh_counts_sha256 muss ein kanonischer SHA-256-Hexwert sein.")
 
+    job_id_roh = entropie.get("job_id")
+    qpu_job_ok = (isinstance(job_id_roh, str) and bool(job_id_roh.strip())
+                  and len(job_id_roh) <= _MAX_JOB_ID_CHARS)
+    qpu_n_qubits = entropie.get("qpu_n_qubits")
+    qpu_shots = entropie.get("qpu_shots")
+    qpu_payload_sha = entropie.get("qpu_payload_sha256")
+    qpu_bindung_sha = entropie.get("qpu_payload_bindung_sha256")
+    qpu_parameter_ok = False
+    qpu_payload_ok = False
+    if quelle == "qpu":
+        befund("qpu_job_id", qpu_job_ok,
+               "QPU-Nachweise brauchen eine nichtleere, begrenzte job_id.")
+        job_tags = entropie.get("job_tags")
+        tags_form_ok = (isinstance(job_tags, list)
+                        and all(isinstance(tag, str) for tag in job_tags))
+        job_tags_liste = cast(list[str], job_tags) if tags_form_ok else []
+        befund("qpu_job_tags_struktur", tags_form_ok,
+               "QPU-Nachweise brauchen ein String-Array job_tags.")
+        befund("qpu_job_tag_commitment",
+               tags_form_ok and erwartet[:32] in job_tags_liste,
+               "Nachweis-Metadaten tragen das Commitment-Tag nicht.")
+        qpu_parameter_ok = (
+            isinstance(qpu_n_qubits, int) and not isinstance(qpu_n_qubits, bool)
+            and qpu_n_qubits > 0
+            and isinstance(qpu_shots, int) and not isinstance(qpu_shots, bool)
+            and qpu_shots > 0 and qpu_n_qubits * qpu_shots >= MIN_ROH_BITS
+        )
+        befund("qpu_parameter", qpu_parameter_ok,
+               "QPU-Nachweis braucht erwartete positive Shots/Qubits mit genügend Roh-Bits.")
+        qpu_payload_ok = (
+            _ist_sha256_hex(qpu_payload_sha)
+            and _ist_sha256_hex(qpu_bindung_sha)
+            and qpu_parameter_ok
+            and qpu_bindung_sha == _qpu_payload_bindung_sha256(
+                erwartet, cast(int, qpu_n_qubits), cast(int, qpu_shots))
+            and entropie.get("primitive_id") == _QPU_PRIMITIVE_ID
+            and entropie.get("backend_simulator") is False
+        )
+        befund("qpu_payload_bindung", qpu_payload_ok,
+               "QPU-Nachweis ist nicht an Sampler-Payload, Commitment und non-simulator gebunden.")
+    elif quelle is not None:
+        befund("job_id_nur_qpu", job_id_roh in (None, ""),
+               "Nur die Quelle qpu darf eine IBM-job_id tragen.")
+
+    if quelle == "csprng_fallback":
+        befund("entropie_backend", entropie.get("backend") == "secrets.token_bytes",
+               "csprng_fallback muss backend=secrets.token_bytes ausweisen.")
+    elif quelle == "simulator":
+        befund("entropie_backend", entropie.get("backend") == "aer_simulator",
+               "simulator muss backend=aer_simulator ausweisen.")
+    elif quelle == "drand_beacon":
+        runde = entropie.get("runde")
+        befund("drand_runde", isinstance(runde, int) and not isinstance(runde, bool)
+               and runde > 0, "drand-Belege brauchen eine positive Ganzzahl-Runde.")
+
+    ableitung_roh = nachweis.get("ableitung")
+    ableitung_ok = (isinstance(ableitung_roh, dict)
+                    and ableitung_roh.get("extraktor") == "hmac-sha256"
+                    and ableitung_roh.get("drbg") == "sha256-ctr")
+    befund("ableitung_struktur", ableitung_ok,
+           "Feld 'ableitung' muss den v1-Algorithmen hmac-sha256/sha256-ctr entsprechen.")
+
+    online_form_ok = isinstance(online, bool)
+    befund("online_struktur", online_form_ok, "online muss ein boolescher Wert sein.")
+    online = online if online_form_ok else False
+    online_erfolgreich = False
     if online:
-        job_id = entropie.get("job_id")
-        if not job_id:
-            hinweise.append("Online-Prüfung übersprungen: kein job_id im Nachweis "
-                            f"(Quelle: {entropie.get('quelle_klasse')!r}).")
+        if quelle != "qpu":
+            befund("online_quelle", False,
+                   "Die IBM-Online-Prüfung ist nur für quelle_klasse=qpu definiert.")
+        elif not qpu_job_ok:
+            befund("online_abruf", False, "Ohne gültige job_id ist kein Abruf möglich.")
         else:
+            job_id = cast(str, job_id_roh)
             try:
                 lauf = (job_abrufen or _qpu_job_abrufen)(job_id, token=token)
-            except Exception as exc:  # noqa: BLE001 — Netz/Token/Paket: Hinweis, kein Fehlschlag
-                hinweise.append(f"Online-Prüfung nicht möglich ({exc}) — kein Fehlschlag.")
+                if not isinstance(lauf, dict):
+                    raise QuantenlosBindungsFehler("IBM-Jobabruf lieferte kein Objekt.")
+                online_attestierung = _qpu_attestierungsfelder(lauf, erwartet)
+                counts_dict = _qpu_counts_pruefen(
+                    lauf.get("counts"), online_attestierung["qpu_n_qubits"],
+                    online_attestierung["qpu_shots"])
+                online_roh = _kanonische_counts_bytes(counts_dict)
+            except QuantenlosBindungsFehler as exc:
+                befund("online_job_metadaten", False, str(exc))
+            except Exception as exc:  # noqa: BLE001 — jede Abrufstörung ist fail-closed
+                befund("online_abruf", False,
+                       f"Online-Prüfung nicht möglich ({type(exc).__name__}).")
             else:
-                online_roh = _kanonische_counts_bytes(lauf["counts"])
-                befund("online_counts_hash",
-                       _sha256_hex(online_roh) == entropie.get("roh_counts_sha256"),
+                online_hash_ok = roh_hash_ok and _sha256_hex(online_roh) == roh_hash
+                befund("online_counts_hash", online_hash_ok,
                        "frisch abgerufene Job-Counts hashen anders als im Nachweis.")
-                soll_tag = (rahmen.get("commitment") or "")[:32]
-                befund("online_job_tags", soll_tag in (lauf.get("tags") or []),
+                lauf_tags = lauf.get("tags")
+                online_tags_ok = (isinstance(lauf_tags, list)
+                                  and all(isinstance(tag, str) for tag in lauf_tags)
+                                  and erwartet[:32] in lauf_tags)
+                befund("online_job_tags", online_tags_ok,
                        "Job trägt das Commitment-Tag nicht — Job gehört nicht zu diesem Rahmen.")
+                proof_felder = {
+                    "primitive_id": entropie.get("primitive_id"),
+                    "backend_simulator": entropie.get("backend_simulator"),
+                    "backend_n_qubits": entropie.get("backend_n_qubits"),
+                    "qpu_n_qubits": qpu_n_qubits,
+                    "qpu_shots": qpu_shots,
+                    "qpu_payload_sha256": qpu_payload_sha,
+                    "qpu_payload_bindung_sha256": qpu_bindung_sha,
+                }
+                online_payload_ok = proof_felder == online_attestierung
+                befund("online_qpu_payload", online_payload_ok,
+                       "Provider-Jobmetadaten weichen von Payload/Backend im Nachweis ab.")
+                online_backend_ok = lauf.get("backend") == entropie.get("backend")
+                befund("online_qpu_backend", online_backend_ok,
+                       "Provider-Backend weicht vom Backend im Nachweis ab.")
+                online_erfolgreich = (online_hash_ok and online_tags_ok
+                                      and online_payload_ok and online_backend_ok
+                                      and qpu_payload_ok)
                 if roh_bits is None:
                     roh_bits = online_roh
+                else:
+                    befund("online_roh_bits_uebereinstimmung", roh_bits == online_roh,
+                           "archivierte Roh-Bits weichen von den IBM-Counts ab.")
 
+    roh_bits_ok = roh_bits is None or isinstance(roh_bits, bytes)
+    if not roh_bits_ok:
+        befund("roh_bits_struktur", False,
+               "roh_bits muss ein Byte-String sein.")
+        roh_bits = None
+
+    ableitung_vollstaendig = False
     if roh_bits is not None:
-        befund("roh_bits_hash",
-               _sha256_hex(roh_bits) == entropie.get("roh_counts_sha256"),
+        mindestlaenge = len(roh_bits) >= MIN_ROH_BITS // 8
+        if quelle == "drand_beacon":
+            mindestlaenge = len(roh_bits) == 96
+        befund("roh_bits_mindestlaenge", mindestlaenge,
+               "Roh-Bits sind leer/zu kurz für die behauptete Quelle.")
+        roh_hash_stimmt = roh_hash_ok and _sha256_hex(roh_bits) == roh_hash
+        befund("roh_bits_hash", roh_hash_stimmt,
                "sha256 der übergebenen Roh-Bits != roh_counts_sha256 im Nachweis.")
         seed = konditioniere(erwartet, roh_bits)
-        nachgerechnet = mische_deterministisch(eindeutig, seed)[:int(nachweis.get("k") or 0)]
-        befund("ableitungskette", nachgerechnet == stichprobe,
-               "Seed→Fisher-Yates reproduziert die Stichprobe des Nachweises nicht.")
+        if k is not None and stichprobe_form_ok and ableitung_ok:
+            nachgerechnet = mische_deterministisch(eindeutig, seed)[:k]
+            ableitung_stimmt = nachgerechnet == stichprobe
+            befund("ableitungskette", ableitung_stimmt,
+                   "Seed→Fisher-Yates reproduziert die Stichprobe des Nachweises nicht.")
+            ableitung_vollstaendig = mindestlaenge and roh_hash_stimmt and ableitung_stimmt
+        else:
+            befund("vollstaendige_ableitung", False,
+                   "Ableitung wegen ungültigem k/Stichproben-/Algorithmusfeld nicht prüfbar.")
     else:
-        hinweise.append("Roh-Bits nicht verfügbar — Ableitungskette nicht nachgerechnet "
-                        "(Offline-Vollprüfung: roh_bits übergeben oder --online).")
+        befund("vollstaendige_ableitung", False,
+               "Roh-Bits nicht verfügbar — Ableitungskette wurde nicht nachgerechnet.")
 
-    return {"gueltig": gueltig, "geprueft": geprueft, "hinweise": hinweise}
+    if quelle == "qpu":
+        befund("qpu_attestierung", online_erfolgreich,
+               "QPU-Attestierung erfordert eine erfolgreiche Prüfung mit online=True.")
+    elif quelle == "drand_beacon":
+        # Der Nachweis speichert derzeit weder Chain-Public-Key noch vollständige
+        # Beacon-Antwort; ein Hash der Signatur beweist ihre BLS-Gültigkeit nicht.
+        befund("drand_attestierung", False,
+               "drand-BLS-Attestierung ist im Protokoll v1 nicht vollständig prüfbar.")
+
+    if not ableitung_vollstaendig:
+        gueltig = False
+
+    return {"gueltig": gueltig,
+            "vollstaendig_verifiziert": gueltig,
+            "geprueft": geprueft,
+            "hinweise": hinweise}

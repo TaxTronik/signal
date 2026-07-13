@@ -72,6 +72,9 @@ class NormID:
 
     def to_id(self) -> str:
         kopf = f"art{self.artikel}" if self.artikel else self.para
+        # Durch __post_init__ garantiert; das Assert dokumentiert die Invariante
+        # zugleich fuer statische Typpruefer.
+        assert kopf is not None
         teile = [f"{label}{wert}" for label, wert in self.tiefe]
         return ":".join(["norm", self.law, kopf, *teile])
 

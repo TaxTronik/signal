@@ -183,6 +183,7 @@ def test_ner_person_ohne_anrede_wird_ersetzt(monkeypatch):
     _mit_fake_ner(monkeypatch, [("Max Mustermann", "PER")])
     r = anonymisiere("Max Mustermann verkaufte das Grundstück.")
     assert r.abstrahiert == "[Person A] verkaufte das Grundstück."
+    assert r.ner_verwendet is True and r.ner_grund is None
     assert any(e.typ == "person" and e.original == "Max Mustermann" for e in r.ersetzungen)
 
 
@@ -228,6 +229,7 @@ def test_ohne_spacy_exakt_bisheriges_verhalten():
     r = anonymisiere(text)
     assert r.abstrahiert == text
     assert r.ersetzungen == []
+    assert r.ner_verwendet is False and r.ner_grund
 
 
 def test_env_schalter_deaktiviert_ner(monkeypatch):
@@ -243,6 +245,7 @@ def test_env_schalter_deaktiviert_ner(monkeypatch):
     r = anonymisiere(text)
     assert r.abstrahiert == text
     assert r.ersetzungen == []
+    assert r.ner_verwendet is False and "deaktiviert" in (r.ner_grund or "")
 
 
 # --- ner_status(): Engine-Status der NER-Schicht (OHNE Modell-Laden) ---------

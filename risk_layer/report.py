@@ -194,8 +194,11 @@ def _anker_html(karte: Begriffskarte) -> str:
         return "—"
     teile = []
     for zitat in karte.eintrag.norm_anker:
-        anker = [a for a in parse_normzitat(zitat) if a.norm_id]
-        ids = " ".join(f"<code class='nodeid'>{html.escape(a.norm_id.to_id())}</code>" for a in anker)
+        norm_ids = [a.norm_id for a in parse_normzitat(zitat) if a.norm_id is not None]
+        ids = " ".join(
+            f"<code class='nodeid'>{html.escape(norm_id.to_id())}</code>"
+            for norm_id in norm_ids
+        )
         teile.append(f"{html.escape(zitat)}{(' ' + ids) if ids else ''}")
     return "; ".join(teile)
 

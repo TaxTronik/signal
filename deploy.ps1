@@ -7,8 +7,8 @@
   Idempotent - vorhandene Artefakte werden uebersprungen (ausser -Force).
 
 .PARAMETER WithEmbedding
-  Zusaetzlich den semantischen BGE-M3-Index bauen (installiert sentence-transformers
-  + torch, ~2 GB, und laedt das Modell beim ersten Build).
+  Zusaetzlich den semantischen BGE-M3-Index bauen (installiert den hash-gepinnten
+  Windows/Python-3.12-CPU-Stack und laedt das Modell beim ersten Build).
 .PARAMETER WithQuanten
   Quantenlos-Extras fuer /v1/los/* installieren (qiskit, qiskit-aer,
   qiskit-ibm-runtime).
@@ -72,6 +72,68 @@ function Cli([string[]]$cmd) {
 }
 function PyOk([string]$code) { & python -c $code 2>$null; return ($LASTEXITCODE -eq 0) }
 
+function Set-EngineTokenAcl([string]$Path) {
+    # Sprachunabhaengige SIDs halten die ACL auf lokalisierten Windows-Systemen
+    # portabel. Der Autostart laeuft als aktueller Benutzer; SYSTEM bleibt fuer
+    # administrative Wiederherstellung leseberechtigt.
+    $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    if ($null -eq $currentSid) { throw "Aktuelle Windows-Benutzer-SID konnte nicht ermittelt werden." }
+
+    # Bestehenden Descriptor als Basis verwenden, damit Owner/Group unveraendert
+    # bleiben und Set-Acl keine sonst unnoetigen Privilegien benoetigt.
+    $acl = Get-Acl -LiteralPath $Path
+    [void]$acl.SetAccessRuleProtection($true, $false)
+    foreach ($existingRule in @($acl.Access)) {
+        [void]$acl.RemoveAccessRuleAll($existingRule)
+    }
+    $allow = [System.Security.AccessControl.AccessControlType]::Allow
+    $rules = @(
+        [pscustomobject]@{ Sid = $currentSid; Rights = [System.Security.AccessControl.FileSystemRights]::FullControl },
+        [pscustomobject]@{ Sid = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-18"); Rights = [System.Security.AccessControl.FileSystemRights]::Read },
+        [pscustomobject]@{ Sid = New-Object System.Security.Principal.SecurityIdentifier("S-1-5-32-544"); Rights = [System.Security.AccessControl.FileSystemRights]::FullControl }
+    )
+    foreach ($entry in $rules) {
+        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($entry.Sid, $entry.Rights, $allow)
+        [void]$acl.AddAccessRule($rule)
+    }
+    # Direkt nur die Datei-DACL setzen. Set-Acl versucht bei bereits
+    # geschuetzten Dateien teils auch privilegierte Security-Sektionen zu setzen.
+    [System.IO.File]::SetAccessControl([System.IO.Path]::GetFullPath($Path), $acl)
+}
+
+function Write-EngineTokenAtomically([string]$Path, [string]$Value) {
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $directory = [System.IO.Path]::GetDirectoryName($fullPath)
+    $leaf = [System.IO.Path]::GetFileName($fullPath)
+    $tempPath = Join-Path $directory (".$leaf.tmp." + [guid]::NewGuid().ToString("N"))
+    $backupPath = Join-Path $directory (".$leaf.bak." + [guid]::NewGuid().ToString("N"))
+    $stream = $null
+    try {
+        # Leere Datei exklusiv anlegen, ACL einschraenken, erst dann das Secret
+        # schreiben. Replace/Move im selben Verzeichnis ist atomar.
+        $stream = [System.IO.File]::Open(
+            $tempPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None
+        )
+        $stream.Dispose()
+        $stream = $null
+        Set-EngineTokenAcl -Path $tempPath
+        [System.IO.File]::WriteAllText($tempPath, $Value, [System.Text.Encoding]::ASCII)
+        if ([System.IO.File]::Exists($fullPath)) {
+            [System.IO.File]::Replace($tempPath, $fullPath, $backupPath, $true)
+        } else {
+            [System.IO.File]::Move($tempPath, $fullPath)
+        }
+        Set-EngineTokenAcl -Path $fullPath
+    } finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if (Test-Path -LiteralPath $tempPath) { Remove-Item -LiteralPath $tempPath -Force }
+        if (Test-Path -LiteralPath $backupPath) { Remove-Item -LiteralPath $backupPath -Force }
+    }
+}
+
 function Test-Interactive {
     return [Environment]::UserInteractive
 }
@@ -89,17 +151,17 @@ function Detect-Implementation {
 }
 
 function Apply-ImplementationChoice([string]$Choice) {
-    $emb = "cuda"
+    $emb = "cpu"
     $label = "Auto"
     switch ($Choice.ToLowerInvariant()) {
         { $_ -in @("1","nvidia","cuda") } {
-            $script:Backend = "cuda"; $emb = "cuda"; $label = "NVIDIA/CUDA"
-            Info "NVIDIA: llama.cpp nutzt CUDA-Builds, Embeddings/Reranker laufen ueber torch CUDA."
+            $script:Backend = "cuda"; $emb = "cpu"; $label = "NVIDIA/CUDA"
+            Info "NVIDIA: llama.cpp nutzt CUDA; der sichere Embedding-Bootstrap bleibt auf hash-gepinntem CPU-Torch."
             break
         }
         { $_ -in @("2","amd","rocm","hip") } {
-            $script:Backend = "rocm"; $emb = "cuda"; $label = "AMD/ROCm"
-            Info "AMD: llama.cpp nutzt ROCm/HIP, wenn verfuegbar. PyTorch/ROCm meldet Geraete als cuda, daher bleibt RISK_LAYER_EMB_DEVICE=cuda korrekt."
+            $script:Backend = "rocm"; $emb = "cpu"; $label = "AMD/ROCm"
+            Info "AMD: llama.cpp nutzt ROCm/HIP, wenn verfuegbar; Windows-PyTorch hat keinen ROCm-Pfad, Embeddings bleiben auf CPU."
             break
         }
         { $_ -in @("3","intel","vulkan") } {
@@ -113,7 +175,7 @@ function Apply-ImplementationChoice([string]$Choice) {
             break
         }
         default {
-            $script:Backend = "auto"; $emb = "cuda"; $label = "Auto"
+            $script:Backend = "auto"; $emb = "cpu"; $label = "Auto"
             Info "Auto: Vendor-Erkennung entscheidet beim Engine-Download."
         }
     }
@@ -206,30 +268,35 @@ Choose-QuantenExtras
 # --- Abhaengigkeiten -------------------------------------------------------
 if (-not $SkipDeps) {
     Schritt "Abhaengigkeiten installieren"
-    # Kern (PyYAML + numpy), dev und Build-Backend exakt aus dem Hash-Lock
-    # (deterministisch ueber die Flotte, identisch zu CI/Dockerfile).
-    & python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+    # Schlanker Produktionskern (PyYAML + numpy + Build-Backend), ohne pytest.
+    & python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
     if ($LASTEXITCODE -ne 0) { throw "pip install (Hash-Lock) fehlgeschlagen." }
     & python -m pip install --no-build-isolation --no-deps -e .
     if ($LASTEXITCODE -ne 0) { throw "pip install (Kern) fehlgeschlagen." }
     if ($WithEmbedding) {
-        # Bewusste Luecke: kein --cuda-wheel-Pendant zu deploy.sh (torch-CUDA-Vorabinstallation) — Windows-Hosts nutzen das torch, das sentence-transformers waehlt.
-        Info "Embedding+Reranker gewuenscht -> sentence-transformers (+ torch, gross) + hf_transfer"
-        # bewusst ungepinnt (GPU-/Plattform-Matrix) — ML-Extras sind nicht im Lock.
-        & python -m pip install "sentence-transformers>=2.7" hf_transfer
-        if ($LASTEXITCODE -ne 0) { throw "pip install sentence-transformers fehlgeschlagen." }
-        OkMsg "Abhaengigkeiten installiert (PyYAML + numpy + sentence-transformers + hf_transfer)"
+        if ($pv -ne "3.12") { throw "-WithEmbedding ist nur mit dem vorhandenen Windows/Python-3.12-Hashlock erlaubt (gefunden: $pv)." }
+        if (([string]$env:RISK_LAYER_EMB_DEVICE).Trim().ToLowerInvariant() -ne "cpu") {
+            throw "Der automatische Embedding-Bootstrap ist CPU-only. GPU-Torch separat auditiert bereitstellen und -SkipDeps nutzen."
+        }
+        Info "Embedding+Reranker -> hash-gepinnter Windows/Python-3.12-CPU-Lock"
+        & python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-windows-cpu-py312-lock.txt
+        if ($LASTEXITCODE -ne 0) { throw "pip install (Embedding-Hashlock) fehlgeschlagen." }
+        OkMsg "Abhaengigkeiten installiert (Runtime + sentence-transformers + CPU-Torch)"
     } else {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy)"
     }
     if ($script:InstallQuanten) {
-        Info "Quantenlos-Extras gewuenscht -> qiskit + qiskit-aer + qiskit-ibm-runtime"
-        & python -m pip install --only-binary=:all: "qiskit>=1.0" "qiskit-ibm-runtime>=0.30" "qiskit-aer>=0.15"
+        if ($pv -ne "3.12") { throw "-WithQuanten ist nur mit dem vorhandenen Windows/Python-3.12-Hashlock erlaubt (gefunden: $pv)." }
+        Info "Quantenlos-Extras -> hash-gepinnter Windows/Python-3.12-Lock"
+        & python -m pip install --require-hashes --only-binary=:all: -r requirements-quanten-windows-py312-lock.txt
         if ($LASTEXITCODE -ne 0) { throw "pip install Quantenlos-Extras fehlgeschlagen." }
         OkMsg "Quantenlos-Extras installiert"
     } else {
         Info "Quantenlos-Extras uebersprungen - /v1/los qpu/simulator meldet sonst fehlende Betriebsvoraussetzung"
     }
+    & python -m pip check
+    if ($LASTEXITCODE -ne 0) { throw "Installierte Python-Abhaengigkeiten sind inkonsistent (pip check)." }
+    OkMsg "Python-Abhaengigkeiten konsistent (pip check)"
 } else { Info "Deps uebersprungen (-SkipDeps)" }
 
 # --- NER-Schicht (Anonymisierung, Par. 203 StGB) -----------------------------
@@ -252,6 +319,7 @@ if (-not $OhneNer) {
         if ($LASTEXITCODE -eq 0) {
             & python -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('de_core_news_lg') else 1)"
         }
+        if ($LASTEXITCODE -eq 0) { & python -m pip check }
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  [warnung] NER-Provisionierung fehlgeschlagen - NER-Schicht inaktiv," -ForegroundColor Yellow
             Write-Host "  Engine laeuft regex-only weiter. Nachholen mit:" -ForegroundColor Yellow
@@ -265,14 +333,30 @@ if (-not $OhneNer) {
 
 # --- Auth-Token ------------------------------------------------------------
 Schritt "Auth-Token (.engine_token)"
-if ((-not (Test-Path -LiteralPath ".engine_token")) -or $Force) {
+$tokenPath = Join-Path $PSScriptRoot ".engine_token"
+if (Test-Path -LiteralPath $tokenPath) {
+    $tokenItem = Get-Item -LiteralPath $tokenPath -Force
+    if ($tokenItem.PSIsContainer -or (($tokenItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw ".engine_token muss eine regulaere Datei sein und darf kein Link sein."
+    }
+    # Auch Dateien aus aelteren Deploy-Laeufen auf die restriktive ACL heben.
+    Set-EngineTokenAcl -Path $tokenPath
+}
+if ((-not (Test-Path -LiteralPath $tokenPath)) -or $Force) {
     $tok = & python -c "import secrets; print(secrets.token_hex(32))"
-    Set-Content -LiteralPath ".engine_token" -Value $tok -NoNewline -Encoding ascii
-    OkMsg "neues Token erzeugt (.engine_token, gitignored)"
+    $tokenExitCode = $LASTEXITCODE
+    $tok = ([string]$tok).Trim()
+    if ($tokenExitCode -ne 0 -or $tok -notmatch "^[0-9a-f]{64}$") {
+        throw "Auth-Token konnte nicht sicher erzeugt werden."
+    }
+    Write-EngineTokenAtomically -Path $tokenPath -Value $tok
+    OkMsg "neues Token erzeugt (.engine_token, restriktive ACL, gitignored)"
 } else { OkMsg ".engine_token vorhanden (wiederverwendet)" }
-$token = (Get-Content -LiteralPath ".engine_token" -Raw).Trim()
-# Token NICHT auf die Konsole drucken (Scrollback/Logs) — nur den Speicherort nennen.
-Info "RISK_LAYER_TOKEN liegt in .engine_token (nicht angezeigt)"
+Set-EngineTokenAcl -Path $tokenPath
+$token = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
+# Token NICHT auf die Konsole drucken (Scrollback/Logs) - nur Pfad und bewussten Abruf nennen.
+Info "Token gespeichert: $tokenPath (nicht angezeigt)"
+Info "Bewusst anzeigen: Get-Content -LiteralPath .engine_token -Raw"
 
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if (-not $SkipModel) {
@@ -338,8 +422,6 @@ if (-not $SkipCorpus) {
 
     if ($WithEmbedding) {
         Schritt "Embedding-Index (BGE-M3) + Reranker (Schicht 1.7 / 1.7b)"
-        python -c "import hf_transfer" 2>$null
-        if ($LASTEXITCODE -eq 0) { $env:HF_HUB_ENABLE_HF_TRANSFER = "1" }
         # Bauen, wenn Index fehlt, -Force, der Katalog NEUER ist (neue Paraphrasen-
         # Anker in catalog/begriffe.yaml) ODER der Graph neuer ist (Korpus-Aenderung,
         # z. B. neue Gesetze/DVs) — beides MUSS mit-eingebettet werden.
@@ -354,7 +436,7 @@ if (-not $SkipCorpus) {
         # Reranker (Schicht 1.7b) ist in der Engine fest aktiv (GPU). Modell vorab
         # cachen, sonst laedt der ERSTE Request ~600 MB nach. Nur Download, kein GPU.
         Info "cacht den Reranker (bge-reranker-v2-m3, ~600 MB) ..."
-        & python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3')"
+        & python -c "from huggingface_hub import snapshot_download; snapshot_download('BAAI/bge-reranker-v2-m3', revision='953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e')"
         if ($LASTEXITCODE -eq 0) { OkMsg "Reranker gecacht" } else { Info "Reranker-Cache fehlgeschlagen (laedt sonst beim 1. Request)" }
     }
 } else { Info "Korpus uebersprungen (-SkipCorpus)" }
@@ -382,30 +464,33 @@ $baseUrl = Client-BaseUrl
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
 Write-Host "Kanzleikonsole .env (Host-Prozess, nicht Docker):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=$baseUrl"
-Write-Output "RISK_LAYER_TOKEN=$token"
+Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 Write-Host "Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=http://risk-layer:8000"
-Write-Output "RISK_LAYER_TOKEN=$token"
+Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 if ($script:DockerNativeUrl) {
     Write-Host "Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):" -ForegroundColor Yellow
     Write-Output "RISK_LAYER_URL=$script:DockerNativeUrl"
-    Write-Output "RISK_LAYER_TOKEN=$token"
+    Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
     Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
     Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 }
+Write-Host "Token bei Bedarf bewusst anzeigen:" -ForegroundColor Yellow
+Write-Host "  Get-Content -LiteralPath .engine_token -Raw"
 Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
 Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
 Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"
-Write-Host "Doppelklick-Alltagsstart: start.cmd   |   Als Dienst: ./deploy.ps1 -Service" -ForegroundColor Yellow
+Write-Host "Doppelklick-Alltagsstart: start.cmd   |   Sicherer Autostart: ./deploy.ps1 -Service" -ForegroundColor Yellow
 
 if ($Service) {
-    Schritt "Windows-Autostart einrichten (Dienst/Task, --llm-autostart)"
-    & "$PSScriptRoot/install-service.ps1" -Port $Port -BindHost $BindHost
-    Write-Host "`nDienst eingerichtet - startet mit dem Rechner. (Foreground-Start uebersprungen.)" -ForegroundColor Green
+    Schritt "Windows-Autostart einrichten (begrenzter Benutzer-Task, --llm-autostart)"
+    & "$PSScriptRoot/install-service.ps1" -Port $Port -BindHost $BindHost `
+        -EmbeddingDevice $env:RISK_LAYER_EMB_DEVICE
+    Write-Host "`nAutostart eingerichtet - startet bei Benutzeranmeldung. (Foreground-Start uebersprungen.)" -ForegroundColor Green
 }
 elseif ($Start) {
     Schritt "Engine starten (Engine + LLM, Vordergrund)"

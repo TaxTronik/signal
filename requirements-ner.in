@@ -10,6 +10,7 @@
 #   python -m pip install pip-tools
 #   python -m piptools compile --generate-hashes --allow-unsafe --strip-extras --output-file=requirements-ner-lock.txt requirements-ner.in
 # =============================================================================
+-c requirements-runtime-lock.txt
 spacy==3.8.14
 numpy>=1.26,<2.3
 de-core-news-lg @ https://github.com/explosion/spacy-models/releases/download/de_core_news_lg-3.8.0/de_core_news_lg-3.8.0-py3-none-any.whl

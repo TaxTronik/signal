@@ -150,3 +150,60 @@ def test_wiederherstellen_zip_slip_abgewehrt(tmp_path, boese):
     with pytest.raises(SicherungsFehler):
         stelle_wieder_her(arch, tmp_path / "ziel")
     assert not (tmp_path / "boese.yaml").exists()
+
+
+def test_wiederherstellen_begrenzt_archiv_dateianzahl_vor_extraktion(
+        tmp_path, monkeypatch):
+    arch = tmp_path / "zu-viele.zip"
+    with zipfile.ZipFile(arch, "w") as zf:
+        zf.writestr("personal.yaml", "[]")
+        zf.writestr("geteilt.yaml", "[]")
+    monkeypatch.setattr("risk_layer.sicherung._MAX_ARCHIV_DATEIEN", 1)
+    monkeypatch.setattr(
+        zipfile.ZipFile, "extract",
+        lambda *args, **kwargs: pytest.fail("Extraktion vor Limitpruefung"))
+    ziel = tmp_path / "ziel"
+
+    with pytest.raises(SicherungsFehler, match="Dateien/Eintraege"):
+        stelle_wieder_her(arch, ziel)
+    assert not ziel.exists()
+
+
+def test_wiederherstellen_begrenzt_unkomprimierte_einzelgroesse(
+        tmp_path, monkeypatch):
+    arch = tmp_path / "zu-gross.zip"
+    with zipfile.ZipFile(arch, "w") as zf:
+        zf.writestr("personal.yaml", "1234")
+    monkeypatch.setattr("risk_layer.sicherung._MAX_DATEI_UNKOMPRIMIERT", 3)
+    ziel = tmp_path / "ziel"
+
+    with pytest.raises(SicherungsFehler, match="personal\\.yaml.*unkomprimiert"):
+        stelle_wieder_her(arch, ziel)
+    assert not ziel.exists()
+
+
+def test_wiederherstellen_begrenzt_unkomprimierte_gesamtgroesse(
+        tmp_path, monkeypatch):
+    arch = tmp_path / "gesamt-zu-gross.zip"
+    with zipfile.ZipFile(arch, "w") as zf:
+        zf.writestr("personal.yaml", "1234")
+        zf.writestr("geteilt.yaml", "5678")
+    monkeypatch.setattr("risk_layer.sicherung._MAX_ARCHIV_UNKOMPRIMIERT", 7)
+    ziel = tmp_path / "ziel"
+
+    with pytest.raises(SicherungsFehler, match="insgesamt"):
+        stelle_wieder_her(arch, ziel)
+    assert not ziel.exists()
+
+
+def test_wiederherstellen_blockt_extremes_kompressionsverhaeltnis(
+        tmp_path, monkeypatch):
+    arch = tmp_path / "zip-bomb.zip"
+    with zipfile.ZipFile(arch, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("personal.yaml", "A" * 1000)
+    monkeypatch.setattr("risk_layer.sicherung._MAX_KOMPRESSIONSVERHAELTNIS", 2)
+    ziel = tmp_path / "ziel"
+
+    with pytest.raises(SicherungsFehler, match="Kompressionsverhaeltnis"):
+        stelle_wieder_her(arch, ziel)
+    assert not ziel.exists()

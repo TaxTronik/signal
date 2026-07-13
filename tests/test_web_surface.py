@@ -50,6 +50,7 @@ def test_ist_loopback():
     assert not _ist_loopback("0.0.0.0") and not _ist_loopback("192.168.1.5")
     # leerer/None-Host = alle Interfaces, NICHT loopback (sonst ungewollt ans Netz)
     assert not _ist_loopback("") and not _ist_loopback(None)
+    assert not _ist_loopback("127.attacker.example")  # DNS-Name, kein Prefix-Trick
 
 
 def test_v1_braucht_korrekten_token(tmp_path, monkeypatch):
@@ -99,8 +100,22 @@ def test_head_root_ist_reachability_statt_501(tmp_path, monkeypatch):
         r = c.getresponse()
         assert r.status == 200
         assert r.getheader("Server", "").startswith("RiskLayer/")
+        assert "Python" not in r.getheader("Server", "")
         assert r.read() == b""
         c.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_auth_bleibt_nach_env_verlust_fail_closed(tmp_path, monkeypatch):
+    """Ein gelöschtes Env-Secret darf den laufenden Handler nicht entsperren."""
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, base = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        monkeypatch.delenv("RISK_LAYER_TOKEN")
+        assert _get(f"{base}/v1/health")[0] == 401
+        assert _get(f"{base}/v1/health", token="geheim")[0] == 200
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -198,6 +213,85 @@ def test_post_ohne_content_length_411(tmp_path, monkeypatch):
         c2.send(b"0\r\n\r\n")
         assert c2.getresponse().status == 411
         c2.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_post_mit_mehreren_content_lengths_400(tmp_path, monkeypatch):
+    """Mehrdeutiges HTTP-Framing wird vor dem Body-Read abgelehnt."""
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, _ = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.putrequest("POST", "/v1/analyse", skip_accept_encoding=True)
+        c.putheader("Authorization", "Bearer geheim")
+        c.putheader("Content-Type", "application/json")
+        c.putheader("Content-Length", "2")
+        c.putheader("Content-Length", "3")
+        c.endheaders(b"{}")
+        assert c.getresponse().status == 400
+        c.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_post_erfordert_application_json(tmp_path, monkeypatch):
+    """text/plain/Form-Posts dürfen die JSON-API nicht browser-simple machen."""
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    httpd, _ = _starte(Anwendung(None, str(tmp_path)))
+    try:
+        _, port = httpd.server_address
+        for medientyp in ("text/plain", "application/x-www-form-urlencoded", ""):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            headers = {"Authorization": "Bearer geheim"}
+            if medientyp:
+                headers["Content-Type"] = medientyp
+            c.request("POST", "/v1/llm/stop", body=b"{}", headers=headers)
+            assert c.getresponse().status == 415
+            c.close()
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_tokenloser_loopback_blockt_browser_origin_und_dns_rebinding(
+        tmp_path, monkeypatch):
+    """Ohne Token dürfen fremde Webseiten keine mutierenden Requests auslösen."""
+    monkeypatch.delenv("RISK_LAYER_TOKEN", raising=False)
+    app = Anwendung(None, str(tmp_path))
+    aufgerufen = False
+
+    def stop():
+        nonlocal aufgerufen
+        aufgerufen = True
+        return {"ok": True}
+
+    monkeypatch.setattr(app, "llm_stop", stop)
+    httpd, _ = _starte(app)
+    try:
+        _, port = httpd.server_address
+
+        # Browser-CSRF: auch korrektes JSON wird mit fremder Origin abgewiesen.
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c.request("POST", "/v1/llm/stop", body=b"{}", headers={
+            "Content-Type": "application/json",
+            "Origin": "https://evil.example",
+        })
+        assert c.getresponse().status == 403
+        c.close()
+
+        # DNS-Rebinding: kein Origin-Header, aber der Host ist nicht Loopback.
+        c2 = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        c2.request("POST", "/v1/llm/stop", body=b"{}", headers={
+            "Content-Type": "application/json",
+            "Host": "evil.example",
+        })
+        assert c2.getresponse().status == 403
+        c2.close()
+        assert aufgerufen is False
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -357,10 +451,16 @@ def test_main_gibt_fehlstart_exit_code_durch(monkeypatch, capsys):
     assert web.main(["--host", "0.0.0.0", "--port", "1"]) != 0
 
 
+def test_serve_verweigert_zu_kurzes_token(monkeypatch, capsys):
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "viel-zu-kurz")
+    assert web.serve(host="127.0.0.1", port=1) == 2
+    assert "zu kurz" in capsys.readouterr().err
+
+
 def test_serve_belegter_port_exit_ungleich_null_und_tls_warnung(tmp_path, monkeypatch, capsys):
     # Bind schlägt fehl (OSError) → Exit-Code != 0; vorher MUSS beim Netz-Bind
     # die Klartext-/TLS-Warnung auf stderr erscheinen (Reverse-Proxy-Pflicht).
-    monkeypatch.setenv("RISK_LAYER_TOKEN", "geheim")
+    monkeypatch.setenv("RISK_LAYER_TOKEN", "a" * 32)
 
     class _BindFehlschlag:
         def __init__(self, *a, **k):
@@ -536,3 +636,56 @@ def test_engine_status_reranker_grund_ohne_gpu(tmp_path, monkeypatch):
     assert st["embedding"]["aktiv"] is True
     assert st["reranker"]["aktiv"] is False
     assert "GPU" in st["reranker"]["grund"]
+
+
+def test_engine_status_markiert_alt_index_ohne_revision(tmp_path, monkeypatch):
+    import risk_layer.embedding as emb
+
+    modell_revision = emb.HF_MODELL_REVISIONEN["BAAI/bge-m3"]
+
+    class FakeIdx:
+        encoder_name = "bge-m3"
+        encoder_revision = None
+        graph_fingerprint = None
+
+    class FakeEncoder:
+        name = "bge-m3"
+        revision = modell_revision
+
+    monkeypatch.setenv("RISK_LAYER_EMB_DEVICE", "cpu")
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+    monkeypatch.setattr(emb, "encoder_oeffnen", lambda *a, **k: FakeEncoder())
+    monkeypatch.setattr(web, "graph_oeffnen", lambda *a, **k: None)
+    st = Anwendung(None, str(tmp_path)).engine_status()["schichten"]["embedding"]
+    assert st["revision"] == modell_revision
+    assert st["index_revision"] is None
+    assert st["revision_aktuell"] is False
+
+
+def test_engine_status_weist_aktive_reranker_revision_aus(tmp_path, monkeypatch):
+    import risk_layer.embedding as emb
+    import risk_layer.reranker as rr
+
+    modell_revision = rr.HF_MODELL_REVISIONEN["BAAI/bge-reranker-v2-m3"]
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        encoder_revision = None
+        graph_fingerprint = None
+
+    class FakeEncoder:
+        name = "hash512"
+        revision = None
+
+    class FakeReranker:
+        name = "bge-reranker-v2-m3"
+        revision = modell_revision
+
+    monkeypatch.setenv("RISK_LAYER_EMB_DEVICE", "cuda")
+    monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
+    monkeypatch.setattr(emb, "encoder_oeffnen", lambda *a, **k: FakeEncoder())
+    monkeypatch.setattr(rr, "reranker_oeffnen", lambda *a, **k: FakeReranker())
+    monkeypatch.setattr(web, "graph_oeffnen", lambda *a, **k: None)
+    st = Anwendung(None, str(tmp_path)).engine_status()["schichten"]["reranker"]
+    assert st["aktiv"] is True
+    assert st["revision"] == modell_revision

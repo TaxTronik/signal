@@ -9,7 +9,8 @@ requires-python = ">=3.11.4"
 authors = [
     { name = "Hirschmann & Koxha GbR", email = "rey.koxha@gmail.com" },
 ]
-license = { text = "AGPL-3.0-or-later" }
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = [
     "PyYAML>=6.0",
     "numpy>=1.26,<2.3",
@@ -19,16 +20,21 @@ dependencies = [
 # Stufe 0 (MVP) läuft ohne diese Extras. Sie gehören zu den Ausbaustufen.
 nlp = ["spacy>=3.7", "click>=8.1"]  # /LF50/ Lemmatisierung (de_core_news_lg) – optionaler Robustheitspfad
 llm = ["llama-cpp-python>=0.2"]  # Schicht 2 (Stufe 1) – Kandidatenerkennung
-embedding = ["sentence-transformers>=2.7"]  # Schicht 1.7 (BGE-M3; numpy ist Kernabhängigkeit)
-quanten = ["qiskit>=1.0", "qiskit-ibm-runtime>=0.30", "qiskit-aer>=0.15"]  # Quantenlos (Entropie-Notar) – risk_layer/quantenlos.py
-dev = ["pytest>=8.0"]
+embedding = ["sentence-transformers==5.6.0"]  # Produktion: zielsystemspezifischen CPU-Hashlock verwenden
+quanten = ["qiskit==2.5.0", "qiskit-ibm-runtime==0.47.0", "qiskit-aer==0.17.2"]  # Produktion: Plattform-Hashlock verwenden
+dev = [
+    "coverage>=7.6,<8",
+    "mypy>=2.2,<3",
+    "pytest>=8.0",
+    "ruff>=0.15,<0.16",
+]
 
 [project.scripts]
 risk-layer = "risk_layer.cli:main"
 risk-layer-web = "risk_layer.web:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools==81.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -43,3 +49,28 @@ testpaths = ["tests"]
 # auch ohne vorheriges `pip install --no-build-isolation --no-deps -e .`
 # (sonst ModuleNotFoundError: risk_layer).
 pythonpath = ["."]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["risk_layer"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+check_untyped_defs = true
+files = ["risk_layer"]
+ignore_missing_imports = true
+python_version = "3.11"
+show_error_codes = true
+
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# Produktionscode: Ruff-Default (Import-/Namens-/Syntaxfehler + grundlegende
+# pycodestyle-Regeln). Forschungs-Tools bleiben vorerst beim Runtime-Fehler-Gate.
+select = ["E4", "E7", "E9", "F"]

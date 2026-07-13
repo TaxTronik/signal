@@ -7,11 +7,16 @@ exakt dieselbe Index-/Such-Logik, nur mit stärkeren Vektoren.
 
 import json
 import logging
+import sys
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from risk_layer.catalog import lade_katalog
-from risk_layer.embedding import (EmbeddingIndex, HashEncoder, encoder_oeffnen,
+from risk_layer.embedding import (HF_MODELL_REVISIONEN, BgeM3Encoder,
+                                  EmbeddingIndex, GraniteR2Encoder, HashEncoder,
+                                  JinaV5Encoder, Qwen3Encoder, encoder_oeffnen,
                                   pruefe_aktualitaet)
 from risk_layer.gii import NormKnoten
 from risk_layer.graph import NormGraph
@@ -107,6 +112,71 @@ def test_hash_encoder_explizit_ohne_modell():
     assert abs(float(np.linalg.norm(v[0])) - 1.0) < 1e-3   # L2-normiert
 
 
+@pytest.mark.parametrize(("encoder", "modell"), [
+    (BgeM3Encoder(), "BAAI/bge-m3"),
+    (GraniteR2Encoder(), "ibm-granite/granite-embedding-311m-multilingual-r2"),
+    (JinaV5Encoder(), "jinaai/jina-embeddings-v5-text-small-retrieval"),
+    (Qwen3Encoder(variante="0.6B"), "Qwen/Qwen3-Embedding-0.6B"),
+    (Qwen3Encoder(variante="4B"), "Qwen/Qwen3-Embedding-4B"),
+    (Qwen3Encoder(variante="8B"), "Qwen/Qwen3-Embedding-8B"),
+])
+def test_kuratierte_encoder_laden_exakten_commit(monkeypatch, encoder, modell):
+    aufrufe = []
+
+    class FakeModell:
+        @staticmethod
+        def get_embedding_dimension():
+            return 64
+
+    def fake_sentence_transformer(name, **kwargs):
+        aufrufe.append((name, kwargs))
+        return FakeModell()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=fake_sentence_transformer),
+    )
+    encoder._laden()
+    assert encoder.revision == HF_MODELL_REVISIONEN[modell]
+    assert aufrufe == [(modell, {
+        "device": None,
+        "trust_remote_code": isinstance(encoder, JinaV5Encoder),
+        "revision": HF_MODELL_REVISIONEN[modell],
+    })]
+
+
+def test_lokaler_encoder_pfad_bleibt_ohne_hf_revision(monkeypatch, tmp_path):
+    modellpfad = tmp_path / "lokales-modell"
+    modellpfad.mkdir()
+    aufrufe = []
+
+    class FakeModell:
+        @staticmethod
+        def get_embedding_dimension():
+            return 64
+
+    def fake_sentence_transformer(name, **kwargs):
+        aufrufe.append((name, kwargs))
+        return FakeModell()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "sentence_transformers",
+        SimpleNamespace(SentenceTransformer=fake_sentence_transformer),
+    )
+    encoder = encoder_oeffnen(str(modellpfad))
+    encoder._laden()
+    assert encoder.revision is None
+    assert aufrufe[0][0] == str(modellpfad)
+    assert aufrufe[0][1]["revision"] is None
+
+
+def test_kuratierter_encoder_laesst_pin_nicht_ueberschreiben():
+    with pytest.raises(ValueError, match="ausschließlich Revision"):
+        BgeM3Encoder(revision="0" * 40)
+
+
 # --- Staleness-Erkennung (graph_fingerprint / pruefe_aktualitaet) ------------
 # Problemfall: corpus/Graph wird neu gebaut, der Embedding-Index vergessen ⇒
 # stille, plausible, FALSCHE Semantik-Vorschläge. Der Fingerprint des Quell-
@@ -139,6 +209,25 @@ def test_build_brennt_graph_fingerprint_ein_und_meta_roundtrip(tmp_path):
     assert wieder.graph_fingerprint == g.fingerprint()
 
 
+def test_build_persistiert_encoder_revision(tmp_path):
+    class FakeEncoder:
+        name = "bge-m3"
+        revision = HF_MODELL_REVISIONEN["BAAI/bge-m3"]
+        dim = 8
+
+        @staticmethod
+        def encode(texts):
+            return np.zeros((len(texts), 8), dtype=np.float32)
+
+    idx = EmbeddingIndex.build(_graph(tmp_path), FakeEncoder())
+    idx.save(tmp_path / "emb")
+    meta = json.loads((tmp_path / "emb" / "meta.json").read_text(encoding="utf-8"))
+    assert meta["encoder_revision"] == FakeEncoder.revision
+    wieder = EmbeddingIndex.load(tmp_path / "emb")
+    assert wieder is not None
+    assert wieder.encoder_revision == FakeEncoder.revision
+
+
 def test_load_alt_index_ohne_fingerprint_tolerant(tmp_path):
     # Alt-Index simulieren: meta.json OHNE das Feld (vor der Einführung gebaut).
     g = _graph(tmp_path)
@@ -146,10 +235,12 @@ def test_load_alt_index_ohne_fingerprint_tolerant(tmp_path):
     mp = tmp_path / "emb" / "meta.json"
     meta = json.loads(mp.read_text(encoding="utf-8"))
     del meta["graph_fingerprint"]
+    del meta["encoder_revision"]
     mp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     alt = EmbeddingIndex.load(tmp_path / "emb")
     assert alt is not None                                 # lädt weiter (tolerant)
     assert alt.graph_fingerprint is None                   # … nur ohne Fingerprint
+    assert alt.encoder_revision is None                    # … und ohne Modell-SHA
 
 
 def test_pruefe_aktualitaet_match_still_und_true(tmp_path, caplog):
@@ -185,6 +276,46 @@ def test_pruefe_aktualitaet_alt_index_info_einmalig(tmp_path, caplog):
     assert len(infos) == 1                                 # … loggt NICHT erneut
     assert "risk-layer embedding build" in infos[0].getMessage()
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_alt_index_ohne_encoder_revision_ist_klar_veraltet(tmp_path, caplog):
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex(
+        np.zeros((0, 0), np.float32),
+        [],
+        [],
+        [],
+        "bge-m3",
+        graph_fingerprint=g.fingerprint(),
+    )
+    with caplog.at_level(logging.WARNING, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(idx, g) is False
+        assert pruefe_aktualitaet(idx, g) is False
+    warnungen = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnungen) == 1
+    assert "encoder_revision fehlt" in warnungen[0].getMessage()
+    assert "risk-layer embedding build" in warnungen[0].getMessage()
+
+
+def test_alt_index_ohne_revision_wird_nicht_still_abgefragt():
+    class FakeEncoder:
+        name = "bge-m3"
+        revision = HF_MODELL_REVISIONEN["BAAI/bge-m3"]
+        dim = 2
+
+        @staticmethod
+        def encode(_texts):
+            return np.array([[1.0, 0.0]], dtype=np.float32)
+
+    idx = EmbeddingIndex(
+        np.array([[1.0, 0.0]], dtype=np.float32),
+        ["norm:AO:1"],
+        ["§ 1 AO"],
+        ["Test"],
+        "bge-m3",
+    )
+    with pytest.raises(ValueError, match="keine encoder_revision"):
+        idx.suche("test", FakeEncoder())
 
 
 def test_pruefe_aktualitaet_ohne_index_oder_graph(tmp_path):

@@ -42,6 +42,42 @@ _log = logging.getLogger(__name__)
 DEFAULT_DIR = Path("corpus") / "embedding"
 _TOKEN = re.compile(r"[a-zäöüß]+")
 
+# Hugging-Face-Modellnamen sind bewegliche Referenzen: auch ein unveränderter
+# Repository-Name kann morgen andere Gewichte oder anderen Remote-Code liefern.
+# Alle von uns kuratierten Remote-Modelle werden deshalb auf einen vollständigen
+# Commit-SHA festgelegt. Lokale Modellverzeichnisse bleiben bewusst zulässig und
+# haben keine HF-Revision.
+HF_MODELL_REVISIONEN: dict[str, str] = {
+    "BAAI/bge-m3": "5617a9f61b028005a4858fdac845db406aefb181",
+    "ibm-granite/granite-embedding-311m-multilingual-r2": (
+        "44399559930365213510b1ee2eb15ded83374f0e"
+    ),
+    "jinaai/jina-embeddings-v5-text-small-retrieval": (
+        "6856e76bb72982e58de0620458a4e8b3614da340"
+    ),
+    "Qwen/Qwen3-Embedding-0.6B": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "Qwen/Qwen3-Embedding-4B": "5cf2132abc99cad020ac570b19d031efec650f2b",
+    "Qwen/Qwen3-Embedding-8B": "1d8ad4ca9b3dd8059ad90a75d4983776a23d44af",
+}
+
+_ENCODER_REVISIONEN: dict[str, str] = {
+    "bge-m3": HF_MODELL_REVISIONEN["BAAI/bge-m3"],
+    "granite-311m-r2": HF_MODELL_REVISIONEN[
+        "ibm-granite/granite-embedding-311m-multilingual-r2"
+    ],
+    "jina-v5-small-retrieval": HF_MODELL_REVISIONEN[
+        "jinaai/jina-embeddings-v5-text-small-retrieval"
+    ],
+    "qwen3-emb-0.6b": HF_MODELL_REVISIONEN["Qwen/Qwen3-Embedding-0.6B"],
+    "qwen3-emb-4b": HF_MODELL_REVISIONEN["Qwen/Qwen3-Embedding-4B"],
+    "qwen3-emb-8b": HF_MODELL_REVISIONEN["Qwen/Qwen3-Embedding-8B"],
+}
+
+
+def encoder_revision_fuer_name(name: str | None) -> str | None:
+    """Liefert den kuratierten Commit-SHA eines kanonischen Encoder-Namens."""
+    return _ENCODER_REVISIONEN.get(name or "")
+
 
 def _tokens(text: str) -> list[str]:
     return [w for w in _TOKEN.findall(text.lower()) if len(w) >= 3]
@@ -60,6 +96,7 @@ def _l2(matrix: np.ndarray) -> np.ndarray:
 class Encoder(Protocol):
     name: str
     dim: int
+    revision: str | None
 
     def encode(self, texts: list[str]) -> np.ndarray:
         ...
@@ -76,6 +113,7 @@ class HashEncoder:
     def __init__(self, dim: int = 512):
         self.dim = dim
         self.name = f"hash{dim}"
+        self.revision: str | None = None
 
     def _vec(self, text: str) -> np.ndarray:
         v = np.zeros(self.dim, dtype=np.float32)
@@ -101,10 +139,21 @@ class BgeM3Encoder:
     dim = 1024
 
     def __init__(self, modell: str = "BAAI/bge-m3", device: str | None = None,
-                 trust_remote_code: bool = False):
+                 trust_remote_code: bool = False, revision: str | None = None):
         self._modell_name = modell
         self._device = device
         self._trust = trust_remote_code
+        # Bekannte Remote-Modelle werden immer gepinnt. Für einen lokalen Pfad
+        # oder ein explizit vom Aufrufer verwaltetes Fremdmodell bleibt None
+        # zulässig; der Wert wird trotzdem explizit an SentenceTransformer
+        # durchgereicht.
+        kuratierte_revision = HF_MODELL_REVISIONEN.get(modell)
+        if (kuratierte_revision is not None and revision is not None
+                and revision != kuratierte_revision):
+            raise ValueError(
+                f"Für das kuratierte Modell {modell!r} ist ausschließlich Revision "
+                f"{kuratierte_revision} zugelassen.")
+        self.revision = kuratierte_revision if kuratierte_revision is not None else revision
         self._modell = None
         # Der Encoder ist im ThreadingHTTPServer prozessweit GETEILT. torch/das
         # ST-Modell sind nicht thread-sicher (gemeinsamer CUDA/ROCm-Context). Ein
@@ -119,8 +168,12 @@ class BgeM3Encoder:
                     patch_rocm_dist()      # ROCm: fehlendes is_initialized abfangen
                     try:
                         from sentence_transformers import SentenceTransformer  # lazy
-                        modell = SentenceTransformer(self._modell_name, device=self._device,
-                                                     trust_remote_code=self._trust)
+                        modell = SentenceTransformer(
+                            self._modell_name,
+                            device=self._device,
+                            trust_remote_code=self._trust,
+                            revision=self.revision,
+                        )
                     except Exception as exc:
                         # Lazy-Load schlaegt erst beim ERSTEN encode() fehl – dann
                         # braucht der Aufrufer eine handelbare Meldung statt eines
@@ -273,12 +326,14 @@ class EmbeddingIndex:
 
     def __init__(self, vectors: np.ndarray, ids: list[str], zitate: list[str],
                  titel: list[str], encoder_name: str,
-                 graph_fingerprint: str | None = None):
+                 graph_fingerprint: str | None = None,
+                 encoder_revision: str | None = None):
         self.vectors = vectors
         self.ids = ids
         self.zitate = zitate
         self.titel = titel
         self.encoder_name = encoder_name
+        self.encoder_revision = encoder_revision
         self.dim = int(vectors.shape[1]) if vectors.size else 0
         # Fingerprint des Quell-Graphen zur Staleness-Erkennung (Abgleich über
         # ``pruefe_aktualitaet``). None bei Alt-Indizes, die vor Einführung des
@@ -288,6 +343,7 @@ class EmbeddingIndex:
         # EINMAL ins Log, nicht pro Aufruf – Info-Spam würde echte Warnungen
         # verwässern.
         self._aktualitaet_hinweis_geloggt = False
+        self._revision_hinweis_geloggt = False
         # Anker-Statistik: von build() befuellt. Reguläre Attribute mit Defaults,
         # damit sie auch nach load() existieren (Persistenz fuehrt sie nicht) –
         # sonst AttributeError je nach Entstehungsweg des Index.
@@ -421,8 +477,15 @@ class EmbeddingIndex:
         # und wuerde eine falsche Dimension in den persistierten Index schreiben.
         # self.dim ist fuer leere Matrizen ohnehin definiert 0.
         vecs = encoder.encode(texte) if texte else np.zeros((0, 0), np.float32)
-        idx = cls(vecs.astype(np.float32), ids, zitate, titel, encoder.name,
-                  graph_fingerprint=fp)
+        idx = cls(
+            vecs.astype(np.float32),
+            ids,
+            zitate,
+            titel,
+            encoder.name,
+            graph_fingerprint=fp,
+            encoder_revision=getattr(encoder, "revision", None),
+        )
         idx.n_paraphrase_anker = n_anker
         idx.verlorene_anker = verlorene_anker
         return idx
@@ -434,6 +497,7 @@ class EmbeddingIndex:
         np.save(d / "vectors.npy", self.vectors)
         (d / "meta.json").write_text(json.dumps({
             "encoder": self.encoder_name, "dim": self.dim,
+            "encoder_revision": self.encoder_revision,
             "ids": self.ids, "zitate": self.zitate, "titel": self.titel,
             # Staleness-Erkennung: Fingerprint des Quell-Graphen zum Build-Zeitpunkt.
             "graph_fingerprint": self.graph_fingerprint,
@@ -449,7 +513,11 @@ class EmbeddingIndex:
         return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"],
                    # tolerant via .get: Alt-Indizes (vor dem Feld gebaut) laden
                    # weiter – graph_fingerprint bleibt dann None.
-                   graph_fingerprint=meta.get("graph_fingerprint"))
+                   graph_fingerprint=meta.get("graph_fingerprint"),
+                   # Gleiches gilt fuer Indizes vor der Supply-Chain-Haertung:
+                   # sie bleiben lesbar, gelten bei kuratierten HF-Encodern aber
+                   # als veraltet und muessen neu gebaut werden.
+                   encoder_revision=meta.get("encoder_revision"))
 
     # -- Laufzeit -----------------------------------------------------------
     def _encoder_pruefen(self, encoder: Encoder, qdim: int) -> None:
@@ -463,6 +531,20 @@ class EmbeddingIndex:
                 f"Encoder-Mismatch: Index wurde mit {self.encoder_name!r} gebaut, "
                 f"abgefragt mit {encoder.name!r}. Encoder über "
                 "encoder_oeffnen(index.encoder_name) öffnen oder Index neu bauen.")
+        aktuelle_revision = getattr(encoder, "revision", None)
+        erwartete_revision = encoder_revision_fuer_name(self.encoder_name)
+        if erwartete_revision is not None and aktuelle_revision != erwartete_revision:
+            raise ValueError(
+                f"Encoder-Revision unzulässig: für {self.encoder_name!r} ist "
+                f"{erwartete_revision} kuratiert, geladen wurde {aktuelle_revision!r}.")
+        if erwartete_revision is not None and self.encoder_revision is None:
+            raise ValueError(
+                f"Embedding-Index für {self.encoder_name!r} enthält keine "
+                "encoder_revision und ist deshalb veraltet. Index neu bauen.")
+        if self.encoder_revision is not None and aktuelle_revision != self.encoder_revision:
+            raise ValueError(
+                f"Encoder-Revision-Mismatch: Index wurde mit {self.encoder_revision!r} "
+                f"gebaut, geladen ist {aktuelle_revision!r}. Index neu bauen.")
         if self.dim and qdim != self.dim:
             raise ValueError(
                 f"Dimensions-Mismatch: Index hat dim={self.dim}, Query-Vektor "
@@ -552,13 +634,38 @@ def pruefe_aktualitaet(index: EmbeddingIndex | None, graph) -> bool:
     Übereinstimmung – ein Alt-Index ohne Fingerprint ist "nicht prüfbar", kein
     stilles Okay.
 
-    Bewusst degradierend (/LF-Philosophie): wirft NIE. Ein veralteter Index
-    bleibt nutzbar (Schicht 1.7 ist nie Show-Stopper), aber das Log nennt die
-    Abhilfe laut. Gedacht für den Server-/CLI-Start (ein Voll-Scan des Graphen),
+    Bewusst degradierend (/LF-Philosophie): wirft NIE. Eine Graph-Abweichung
+    bleibt nutzbar (Schicht 1.7 ist nie Startup-Show-Stopper), aber das Log nennt
+    die Abhilfe laut. Bei fehlender/falscher Modellrevision verhindert die
+    spätere Query-Prüfung dagegen bewusst eine Vermischung inkompatibler
+    Vektorräume. Gedacht für den Server-/CLI-Start (ein Voll-Scan des Graphen),
     NICHT pro Request.
     """
-    if index is None or graph is None:
+    if index is None:
         return False                # nichts zu prüfen ⇒ keine nachgewiesene Aktualität
+
+    # Ein Graph-Fingerprint allein belegt nicht, mit welchen (potenziell
+    # inzwischen geänderten) Modellgewichten die Vektoren entstanden sind.
+    # Alte Metadaten bleiben ladbar, werden für kuratierte HF-Encoder aber klar
+    # als veraltet markiert. Hash-Encoder und lokale Modellpfade brauchen keine
+    # HF-Revision.
+    erwartete_revision = encoder_revision_fuer_name(index.encoder_name)
+    index_revision = getattr(index, "encoder_revision", None)
+    if erwartete_revision is not None and index_revision != erwartete_revision:
+        if not getattr(index, "_revision_hinweis_geloggt", False):
+            index._revision_hinweis_geloggt = True
+            grund = ("encoder_revision fehlt" if index_revision is None else
+                     f"encoder_revision {index_revision!r} weicht vom kuratierten SHA ab")
+            _log.warning(
+                "Embedding-Index ist VERALTET: %s (Encoder %s). Abhilfe: "
+                "'risk-layer embedding build' ausführen.",
+                grund,
+                index.encoder_name,
+            )
+        return False
+
+    if graph is None:
+        return False
     fp_index = getattr(index, "graph_fingerprint", None)
     if fp_index is None:
         # Alt-Index (vor Einführung des Felds gebaut): weder Beleg für Staleness

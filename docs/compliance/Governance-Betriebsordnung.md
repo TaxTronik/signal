@@ -38,9 +38,11 @@ und dem gelebten Stand in [README.md](../../README.md)):
 spricht keine Empfehlungen aus. **Jede Markierung und jeder Vorschlag ist ein
 Vorschlag an den Berater; die menschliche Letztentscheidung ist garantiert** —
 KI-Ausgaben können übersteuert werden, Freigaben sind ausschließlich
-menschliche Akte, automatische Status-Änderungen gibt es nicht (Mapping § 6.1
-A1). Die fachliche Bewertung schuldet der Berufsträger höchstpersönlich
-(§§ 33, 57 StBerG).
+menschliche Akte; automatische Freigaben oder Heraufstufungen gibt es nicht
+(Mapping § 6.1 A1). Einzige technische Statusänderung ohne Fachentscheidung ist
+die fail-closed Herabstufung unsicherer Legacy-Provenienz in die unten geregelte
+Upgrade-Quarantäne. Die fachliche Bewertung schuldet der Berufsträger
+höchstpersönlich (§§ 33, 57 StBerG).
 
 ## 2. Rollen und Verantwortlichkeiten
 
@@ -52,13 +54,21 @@ A1). Die fachliche Bewertung schuldet der Berufsträger höchstpersönlich
 | **Operator** | Deploy/Releases, Korpus-Rebuilds (`korpus fetch` → `graph build` → `embedding build`), Radar-Lauf + Archivierung, Datensicherung (§ 6), Token-Verwaltung (§ 9) | benannte Person mit Systemzugang |
 
 **Rollenkumulierung (ehrlich benannt):** Das Team der Betreiberin ist klein; eine Person
-darf mehrere Rollen tragen, einschließlich aller vier. Damit entfällt eine
-strukturelle Funktionstrennung. Ausgleichsregel: **Jede Freigabe** (geteilte
-Definitionen, Fine-Tuning-Übernahme, Schwellenänderung nach § 4) erfordert
-entweder eine **dokumentierte Zweitperson** (Vier-Augen) **oder** eine
-**dokumentierte Selbst-Freigabe mit Begründung** (wer, wann, was, warum —
-abgelegt im Aufgaben-/Audit-System des Hosts). Eine undokumentierte Freigabe
-ist unzulässig.
+darf mehrere Rollen tragen. Für dasselbe Artefakt dürfen Autor und Freigeber
+jedoch nicht identisch sein. **Jede Freigabe** (geteilte Definitionen,
+Fine-Tuning-Übernahme, Schwellenänderung nach § 4) erfordert eine
+**dokumentierte Zweitperson** (Vier-Augen; wer, wann, was — abgelegt im
+Aufgaben-/Audit-System des Hosts). Ist keine Zweitperson verfügbar, bleibt das
+Artefakt Entwurf beziehungsweise nicht-produktiv. Die Engine erzwingt diese
+Trennung für geteilte Berater-Definitionen zusätzlich technisch.
+
+**Upgrade-Quarantäne:** Erkennt die Engine einen Altbestand ohne benannten,
+vom Autor getrennten Reviewer, stuft sie ausschließlich den betroffenen
+geteilten Eintrag sicher auf `entwurf` zurück. Der Operator prüft
+`GET /v1/status` (`festwissen_status.review_migrationen`), legt je ID eine
+Review-Aufgabe im Host an und lässt den vollständigen Lebenszyklus erneut
+durchlaufen. Die Migration ist keine Freigabe; bis zum abgeschlossenen
+Vier-Augen-Review bleibt der Eintrag nicht-kanonisch.
 
 Die personelle Zuordnung je Rolle wird bei Abnahme dieser Ordnung von der
 Leitung schriftlich festgehalten und bei Personalwechsel fortgeschrieben.
@@ -160,7 +170,7 @@ ist ein **experimenteller Pfad**. Es gilt:
    Lauf-Protokolls **und** eines Kennzahlen-Vergleichs nach § 4 (harte
    Guardrail von `tools/embedding_bench.py`: u. a. held-out nicht schlechter,
    MRR nicht schlechter, Negativ-Floor nicht höher). Die Freigabe folgt § 2
-   (Zweitperson oder begründete Selbst-Freigabe).
+   (dokumentierte Zweitperson; keine Selbst-Freigabe).
 4. Die technischen Leitplanken des Pfads (neues Artefakt statt Überschreiben,
    Leckage-Ausschluss der Bench-Gold-Anfragen) dürfen nicht umgangen werden.
 

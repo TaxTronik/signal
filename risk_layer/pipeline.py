@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from . import ingest as ingest_mod
 from .berater import BeraterStore
@@ -170,7 +170,9 @@ def _pruefe_norm_vorschlag(nv: str, graph: NormGraph | None,
         if not anker.norm_id:
             continue
         nid = anker.norm_id.to_id()
-        res = graph.aufloesen(nid) if graph is not None else {"gefunden": False}
+        res: dict[str, Any] = (
+            graph.aufloesen(nid) if graph is not None else {"gefunden": False}
+        )
         out.append({
             "zitat": nv, "id": nid,
             "im_korpus": bool(res.get("gefunden")),
@@ -686,6 +688,7 @@ class Pipeline:
                 normen = m["normen"]
                 if rr_doc is not None:
                     if fusion:
+                        assert trigger is not None
                         # Trigger-Top-20 DESSELBEN Satzes lexikalisch zumischen;
                         # Top-N der fusionierten Liste in den Reranker (wie Harness).
                         normen = rrf_fusion(

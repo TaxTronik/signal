@@ -162,11 +162,18 @@ freigegebener, abstrahierter Recherche-Export mit Default-deny-Allowlist und
 der RSS-Abgleich). Betriebsformen: Docker (Dockerfile mit per Digest gepinntem
 Basis-Image, Healthcheck `/v1/health`, Festwissen-Volume `/app/corpus`;
 `docker-compose.yml` bindet den Port nur an Loopback), systemd
-(`deploy/risk-layer.service.in`, Token in separater EnvironmentFile mit
-`chmod 600`) oder Windows-Dienst via NSSM (`install-service.ps1`). Builds sind
-reproduzierbar (`requirements-lock.txt`/`requirements-ner-lock.txt` mit
-`==`-Pins und sha256-Hashes; CI, Docker und Deploy-Skripte installieren per
-`pip --require-hashes --only-binary=:all:` denselben autorisierten Stand). Der HTTP-Server ist
+(`deploy/risk-layer.service.in`, unprivilegierte User-Unit, Root-Start wird
+verweigert, Token in separater EnvironmentFile mit `chmod 600`) oder Windows-
+Autostart als begrenzter Benutzer-Task (`RunLevel Limited`, Token-Gate im
+PowerShell-Wrapper). Ein Windows-Boot-Dienst aus dem benutzerschreibbaren
+Checkout wird nicht angeboten. Builds sind
+reproduzierbar (getrennte Hash-Locks für Runtime, NER, CPU-Embedding und
+Quanten je Zielplattform sowie Quality/Security; `==`-Pins und sha256-Hashes;
+CI, Docker und Deploy-Skripte installieren per
+`pip --require-hashes --only-binary=:all:` autorisierte Stände). Auch
+der native Engine-Download ist autorisiert: `llama_cpp_manifest.py` bindet einen
+konkreten llama.cpp-Release samt SHA-256 je Windows-/Ubuntu-x64-Asset; `modell.py` prüft ihn vor
+der Extraktion; eine dynamische `latest`-Auflösung findet nicht statt. Der HTTP-Server ist
 Standardbibliothek; das LLM läuft als separater lokaler Prozess; GPU ist
 optional mit definierter CPU-Degradation.
 
@@ -218,7 +225,12 @@ dargestellt und werden hier nicht dupliziert. Schwerpunkte:
   Git nachvollziehbar; Berater-Definitionen wachsen über define-on-the-fly und
   durchlaufen den Review-Lebenszyklus `entwurf → geprüft → freigegeben` (nur
   vorwärts, Freigabe über `POST /v1/katalog/review`, protokolliert in der
-  Host-Audit-Chain). Re-Reviews stößt das Radar an; der Rechtsprechungs-Monitor
+  Host-Audit-Chain). Legacy-Records ohne nachweislich getrennten Reviewer
+  werden beim Laden pro Eintrag auf `entwurf` quarantänisiert; Grund und
+  früherer Status bleiben in der Festwissens-YAML sowie über
+  `GET /v1/status` sichtbar. Sie werden nie automatisch freigegeben und müssen
+  den vollständigen Vier-Augen-Lebenszyklus erneut durchlaufen. Re-Reviews
+  stößt das Radar an; der Rechtsprechungs-Monitor
   (BFH-/BMF-RSS) konfrontiert neue Veröffentlichungen mit verankerten
   Begriffen.
 - **Modellwechsel:** neue Modellartefakte nur mit `.sha256`-Sidecar und

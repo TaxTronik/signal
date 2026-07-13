@@ -1,0 +1,6 @@
+# Optionale semantische Schicht fuer Linux x86_64 / Python 3.12 (CPU).
+# In genau der Zielumgebung erzeugen; siehe Lock-Header.
+--extra-index-url https://download.pytorch.org/whl/cpu
+-c requirements-runtime-lock.txt
+sentence-transformers==5.6.0
+torch==2.11.0+cpu

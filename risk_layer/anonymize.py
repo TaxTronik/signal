@@ -129,12 +129,17 @@ class Ersetzung:
 class AnonymisierungsErgebnis:
     abstrahiert: str
     ersetzungen: list[Ersetzung] = field(default_factory=list)
+    # ``True`` nur, wenn ein NER-Modell diesen konkreten Text erfolgreich
+    # verarbeitet hat. Installationsprognosen reichen fuer Export-Gates nicht.
+    ner_verwendet: bool = False
+    ner_grund: str | None = None
 
     def as_dict(self) -> dict:
         return {
             "abstrahiert": self.abstrahiert,
             "ersetzungen": [{"original": e.original, "platzhalter": e.platzhalter, "typ": e.typ}
                             for e in self.ersetzungen],
+            "ner": {"verwendet": self.ner_verwendet, "grund": self.ner_grund},
         }
 
 
@@ -305,7 +310,7 @@ def ner_status() -> dict[str, Any]:
     return {"verfuegbar": False, "modell": None, "grund": _NER_INSTALL_HINWEIS}
 
 
-def _ner_pass(text: str, z: _Zaehler) -> str:
+def _ner_pass(text: str, z: _Zaehler) -> tuple[str, bool, str | None]:
     """NER-Nachlauf über den bereits regex-ersetzten Text.
 
     Der Regex-Pass bleibt FÜHREND: Spans, die einen bereits vergebenen
@@ -317,10 +322,10 @@ def _ner_pass(text: str, z: _Zaehler) -> str:
     # Env-Check VOR dem Loader: RISK_LAYER_NER=aus darf das Modell gar nicht
     # erst laden (Determinismus + Startzeit).
     if _ner_deaktiviert():
-        return text
+        return text, False, "deaktiviert (RISK_LAYER_NER)"
     nlp = _lade_nlp()
     if nlp is None:
-        return text
+        return text, False, _NER_INSTALL_HINWEIS
     try:
         doc = nlp(text)
     except Exception as exc:  # noqa: BLE001
@@ -328,7 +333,7 @@ def _ner_pass(text: str, z: _Zaehler) -> str:
         # der Regex-Pfad; ein kaputtes Modell darf den Export-Pfad nicht legen.
         _log.warning("NER-Pass fehlgeschlagen (%s: %s) — nur Regex-Ergebnis",
                      type(exc).__name__, exc)
-        return text
+        return text, False, f"NER-Pass fehlgeschlagen ({type(exc).__name__})"
     # Tabu-Spans: alle Vorkommen der von UNS vergebenen Platzhalter. Warum kein
     # generisches „[…]"-Regex: eckige Klammern können legitim im Sachverhalt
     # stehen – nur echte Platzhalter dürfen vor NER geschützt sein.
@@ -362,7 +367,7 @@ def _ner_pass(text: str, z: _Zaehler) -> str:
             continue
         text = text[:start] + z.platzhalter(original, typ) + text[ende:]
         grenze = start
-    return text
+    return text, True, None
 
 
 def anonymisiere(text: str) -> AnonymisierungsErgebnis:
@@ -380,5 +385,10 @@ def anonymisiere(text: str) -> AnonymisierungsErgebnis:
         ergebnis = regex.sub(_ersetze, ergebnis)
     # NER ergänzt NACH den Regexen; ohne spaCy/Modell oder mit
     # RISK_LAYER_NER=aus ist das ein No-Op (exakt bisheriges Verhalten).
-    ergebnis = _ner_pass(ergebnis, z)
-    return AnonymisierungsErgebnis(abstrahiert=ergebnis, ersetzungen=z.ersetzungen)
+    ergebnis, ner_verwendet, ner_grund = _ner_pass(ergebnis, z)
+    return AnonymisierungsErgebnis(
+        abstrahiert=ergebnis,
+        ersetzungen=z.ersetzungen,
+        ner_verwendet=ner_verwendet,
+        ner_grund=ner_grund,
+    )

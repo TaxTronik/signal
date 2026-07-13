@@ -87,6 +87,38 @@ def test_definiere_blockt_mandantengeheimnis_203(app):
     assert obj["rest"]                  # nennt die erkannten identifizierenden Angaben
 
 
+@pytest.mark.parametrize("zusatz", [
+    {"autor": "Muster GmbH"},
+    {"norm_anker": ["§ 2 UStG für Muster GmbH"]},
+    {"katalog_id": "Muster GmbH"},
+])
+def test_definiere_prueft_alle_persistierten_freitexte_auf_pii(app, zusatz):
+    payload = {
+        "begriff": "Abstrakter Spezialfall",
+        "definition_text": "Mandantenfreie Arbeitsdefinition.",
+        **zusatz,
+    }
+
+    code, obj = dispatch(app, "POST", "/v1/katalog/definiere", payload, {})
+
+    assert code == 422 and obj["rest"]
+
+
+@pytest.mark.parametrize(("feld", "wert"), [
+    ("autor", "a" * 257),
+    ("datum", "d" * 65),
+    ("katalog_id", "k" * 513),
+])
+def test_definiere_begrenzt_persistierte_metadaten(app, feld, wert):
+    code, obj = dispatch(app, "POST", "/v1/katalog/definiere", {
+        "begriff": "Abstrakter Spezialfall",
+        "definition_text": "Mandantenfreie Arbeitsdefinition.",
+        feld: wert,
+    }, {})
+
+    assert code == 413 and feld in obj["error"]
+
+
 def test_v1_analyse_ignoriert_client_llm_url_ssrf(app, monkeypatch):
     """Ein client-geliefertes llm_url darf die LLM-Calls der Engine NICHT umlenken
     (blinde SSRF auf der netz-exponierten Maschinen-API)."""
@@ -104,11 +136,16 @@ def test_v1_analyse_ignoriert_client_llm_url_ssrf(app, monkeypatch):
     assert erfasst["llm_url"] is None
 
 
-def test_embedding_suche_robust_gegen_unsinniges_k(app):
-    """k aus dem Body wird robust geparst/geclamped – kein 500, kein DoS."""
-    for k in ("abc", -1, 10 ** 9):
+def test_embedding_suche_k_ist_strikt_und_begrenzt(app):
+    """Nur JSON-Ganzzahlen werden akzeptiert; Werte werden weiter geclamped."""
+    for k in (-1, 10 ** 9):
         code, _ = dispatch(app, "POST", "/v1/embedding/suche", {"text": "x", "k": k}, {})
         assert code == 200
+    for k in ("abc", True, 1e999):
+        code, obj = dispatch(app, "POST", "/v1/embedding/suche", {"text": "x", "k": k}, {})
+        assert code == 400 and "k" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/embedding/suche", {"text": ["x"]}, {})
+    assert code == 400 and "text" in obj["error"]
 
 
 def test_embedding_suche_dedupliziert(app):
@@ -165,22 +202,41 @@ def test_review_antwort_traegt_vollstaendigen_uebergang(app):
     assert obj["pruefer"] == "senior"
 
 
-def test_review_rueckwaerts_uebergang_400(app):
-    """Nur Vorwärts-Schritte (berater.setze_review_status): freigegeben →
-    geprüft ist unzulässig → 400 mit Fehlertext."""
+def test_review_pruefer_muss_internes_pii_freies_actor_tag_sein(app):
     eid = _geteilter_entwurf(app)
-    code, _ = dispatch(app, "POST", "/v1/katalog/review",
-                       {"id": eid, "status": "freigegeben", "pruefer": "senior"}, {})
-    assert code == 200
+
+    code, obj = dispatch(app, "POST", "/v1/katalog/review", {
+        "id": eid, "status": "geprüft", "pruefer": "Muster GmbH",
+    }, {})
+
+    assert code == 422 and obj["rest"]
+    eintrag = next(e for e in BeraterStore(app.berater_dir).alle() if e.id == eid)
+    assert eintrag.review_status == "entwurf" and eintrag.reviewer is None
+
+
+def test_review_sprung_und_rueckwaerts_uebergang_400(app):
+    """Nur der exakt nächste Schritt ist erlaubt: Entwurf → Freigabe und
+    Freigabe → geprüft liefern jeweils 400 mit Fehlertext."""
+    eid = _geteilter_entwurf(app)
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": eid, "status": "freigegeben", "pruefer": "senior"}, {})
+    assert code == 400 and obj["ok"] is False
+    assert "nächste Status" in obj["fehler"]
+
+    for status in ("geprüft", "freigegeben"):
+        code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                             {"id": eid, "status": status, "pruefer": "senior"}, {})
+        assert code == 200 and obj["ok"] is True
+
     code, obj = dispatch(app, "POST", "/v1/katalog/review",
                          {"id": eid, "status": "geprüft", "pruefer": "senior"}, {})
     assert code == 400 and obj["ok"] is False
-    assert "vorwärts" in obj["fehler"]
+    assert "nächste Status" in obj["fehler"]
 
 
 def test_review_unbekannte_id_400(app):
     code, obj = dispatch(app, "POST", "/v1/katalog/review",
-                         {"id": "gibtsnicht", "status": "geprüft"}, {})
+                         {"id": "gibtsnicht", "status": "geprüft", "pruefer": "senior"}, {})
     assert code == 400 and obj["ok"] is False
     assert "gibtsnicht" in obj["fehler"]
 
@@ -198,13 +254,34 @@ def test_review_fehlender_oder_ungueltiger_status(app):
     # fehlende id → 400
     code, obj = dispatch(app, "POST", "/v1/katalog/review", {"status": "geprüft"}, {})
     assert code == 400 and "id" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/katalog/review",
+                         {"id": "x", "status": "geprüft", "pruefer": 7}, {})
+    assert code == 400 and "pruefer" in obj["error"]
+    for pruefer in (None, "", "   "):
+        payload = {"id": "x", "status": "geprüft"}
+        if pruefer is not None:
+            payload["pruefer"] = pruefer
+        code, obj = dispatch(app, "POST", "/v1/katalog/review", payload, {})
+        assert code == 400 and "pruefer" in obj["error"]
 
 
-def test_analyse_optionen_nicht_objekt_400(app):
-    """{"optionen": "x"} (truthy Nicht-Dict) → klarer 400, kein AttributeError/500."""
+@pytest.mark.parametrize("optionen", ["x", [], False, 0, None])
+def test_analyse_optionen_nicht_objekt_400(app, optionen):
+    """Auch falsy Nicht-Objekte dürfen nicht still wie ein fehlendes Feld gelten."""
     code, obj = dispatch(app, "POST", "/v1/analyse",
-                         {"text": "x", "optionen": "x"}, {})
+                         {"text": "x", "optionen": optionen}, {})
     assert code == 400 and "optionen" in obj["error"]
+
+
+def test_analyse_bool_und_text_felder_sind_strikt(app):
+    """Strings wie 'false' dürfen keine teuren/optionalen Pfade aktivieren."""
+    for payload, feld in (
+        ({"text": "x", "mitLLM": "false"}, "mitLLM"),
+        ({"text": "x", "optionen": {"unknown": "false"}}, "unknown"),
+        ({"text": ["kein", "string"]}, "text"),
+    ):
+        code, obj = dispatch(app, "POST", "/v1/analyse", payload, {})
+        assert code == 400 and feld in obj["error"]
 
 
 def test_definiere_norm_anker_string_422(app, tmp_path):
@@ -216,6 +293,39 @@ def test_definiere_norm_anker_string_422(app, tmp_path):
     }, {})
     assert code == 422 and "norm_anker" in obj["error"]
     assert list(tmp_path.rglob("*.yaml")) == []      # nichts persistiert
+
+
+@pytest.mark.parametrize("feld,wert", [
+    ("begriff", ["kein String"]),
+    ("definition_text", {"kein": "String"}),
+    ("autor", 7),
+    ("scope", False),
+    ("katalog_id", ["x"]),
+])
+def test_definiere_string_felder_sind_strikt(app, tmp_path, feld, wert):
+    body = {"begriff": "Testbegriff", "definition_text": "Arbeitsdefinition.",
+            feld: wert}
+    code, obj = dispatch(app, "POST", "/v1/katalog/definiere", body, {})
+    assert code == 400 and feld in obj["error"]
+    assert list(tmp_path.rglob("*.yaml")) == []
+
+
+def test_norm_kuratierung_string_felder_sind_strikt(app):
+    code, obj = dispatch(app, "POST", "/v1/katalog/norm_kuratieren", {
+        "katalog_id": ["x"], "norm": "§ 1 AO", "aktion": "ergaenzen",
+    }, {})
+    assert code == 400 and "katalog_id" in obj["error"]
+
+
+def test_norm_kuratierung_prueft_persistierte_metadaten_auf_pii(app):
+    code, obj = dispatch(app, "POST", "/v1/katalog/norm_kuratieren", {
+        "katalog_id": "kst_finanzielle_eingliederung",
+        "norm": "§ 14 KStG",
+        "aktion": "ergaenzen",
+        "autor": "Muster GmbH",
+    }, {})
+
+    assert code == 422 and obj["rest"]
 
 
 def test_normgraph_aufloesen_ohne_id_400(app):
@@ -253,11 +363,42 @@ def test_v1_llm_status_traegt_queue(app, monkeypatch):
     assert obj["queue"]["slots_gesamt"] == 4 and obj["queue"]["aktiv"] == 1
 
 
+def test_llm_status_gibt_keine_url_secrets_aus(app, monkeypatch):
+    """Statusantworten duerfen Userinfo, Pfad und Query nicht archivieren."""
+    app.llm_url = "https://user:secret@llm.example:8443/v1?api_key=vertraulich"
+    monkeypatch.setattr("risk_layer.llm.server_status", lambda _url: {
+        "erreichbar": True,
+        "queue": {},
+    })
+    monkeypatch.setattr("risk_layer.modell.finde_llama_server", lambda _binary: None)
+
+    status = app.llm_status()
+
+    assert status["url"] == "llm.example:8443"
+    assert "secret" not in json.dumps(status)
+    assert "api_key" not in json.dumps(status)
+
+
 def test_v1_llm_start_route(app, monkeypatch):
     """POST /v1/llm/start reicht das Ergebnis durch (+ engineVersion); kein Subprozess."""
     monkeypatch.setattr(app, "llm_start", lambda: {"ok": False, "fehler": "kein Modell (Test)"})
     code, obj = dispatch(app, "POST", "/v1/llm/start", {}, {})
     assert code == 200 and obj["ok"] is False and obj["engineVersion"]
+
+
+def test_llm_start_verweigert_managed_netz_bind(app, monkeypatch):
+    """Der unauthentisierte Managed-Sidecar darf nicht im Netz exponiert werden."""
+    app.llm_url = "http://0.0.0.0:8080"
+    monkeypatch.setattr("risk_layer.llm.server_verfuegbar", lambda _url: False)
+
+    erg = app.llm_start()
+
+    assert erg["ok"] is False
+    assert "Loopback" in erg["fehler"]
+
+    app.llm_url = "http://localhost:kaputt"
+    erg = app.llm_start()
+    assert erg["ok"] is False and "Port" in erg["fehler"]
 
 
 def test_v1_llm_stop_route(app, monkeypatch):
@@ -367,6 +508,38 @@ def test_v1_status_vertrag(app):
     # LLM: nur Konfiguration (KEINE Live-Prüfung beim Status); url nur host:port
     llm = st["schichten"]["llm"]
     assert llm["konfiguriert"] is True and llm["url"] == "127.0.0.1:8080"
+    festwissen = obj["festwissen_status"]
+    assert festwissen == {
+        "verfuegbar": True,
+        "grund": None,
+        "review_quarantaene": 0,
+        "review_migrationen": [],
+    }
+
+
+def test_v1_status_macht_legacy_review_quarantaene_pro_eintrag_sichtbar(app):
+    store = BeraterStore(app.berater_dir)
+    d = store.definiere("Legacy-Freigabe", "…", autor="autor", datum="d", scope="geteilt")
+    pfad = app.berater_dir / "geteilt.yaml"
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace(
+            "review_status: entwurf", "review_status: freigegeben"),
+        encoding="utf-8",
+    )
+
+    code, obj = dispatch(app, "GET", "/v1/status", {}, {})
+
+    assert code == 200
+    festwissen = obj["festwissen_status"]
+    assert festwissen["verfuegbar"] is True
+    assert festwissen["review_quarantaene"] == 1
+    assert festwissen["review_migrationen"] == [{
+        "id": d.id,
+        "grund": "legacy_review_ohne_reviewer",
+        "status_vor_migration": "freigegeben",
+        "aktueller_status": "entwurf",
+        "quarantiniert": True,
+    }]
 
 
 def test_v1_status_post_405(app):
@@ -600,6 +773,21 @@ def test_los_ziehen_form_validierung_400(app):
         assert code == 400 and "'k'" in obj["error"], k
 
 
+def test_los_rahmen_hat_ressourcenlimits(app, monkeypatch):
+    """Sehr viele oder extrem lange IDs werden vor Hashing/QPU-Code gestoppt."""
+    monkeypatch.setattr("risk_layer.api_v1._MAX_LOS_RAHMEN_ITEMS", 2)
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen", {
+        "rahmen": ["a", "b", "c"], "k": 1, "backend": "csprng",
+    }, {})
+    assert code == 413 and "zu viele" in obj["error"]
+
+    monkeypatch.setattr("risk_layer.api_v1._MAX_LOS_ITEM_CHARS", 3)
+    code, obj = dispatch(app, "POST", "/v1/los/ziehen", {
+        "rahmen": ["abcd"], "k": 1, "backend": "csprng",
+    }, {})
+    assert code == 413 and "zu lang" in obj["error"]
+
+
 def test_los_ziehen_backend_ist_pflicht_400(app):
     """backend ist PFLICHT — der Host wählt die Entropie-Quelle bewusst, es
     gibt keinen stillen Default (Attestierungs-Anspruch des Quantenlos)."""
@@ -629,7 +817,7 @@ def test_los_ziehen_qpu_ohne_credentials_503(app, monkeypatch):
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
     assert code == 503 and obj["ok"] is False
     assert "IBM" in obj["fehler"] and "Credentials" in obj["fehler"]
-    assert "pip install" in obj["fehler"] and "[quanten]" in obj["fehler"]
+    assert "deploy.sh --with-quanten" in obj["fehler"]
     assert obj["engineVersion"] == V1_VERSION
 
 
@@ -641,7 +829,7 @@ def test_los_ziehen_ohne_quanten_extras_503(app, monkeypatch):
     code, obj = dispatch(app, "POST", "/v1/los/ziehen",
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "simulator"}, {})
     assert code == 503 and obj["ok"] is False
-    assert "pip install" in obj["fehler"] and "[quanten]" in obj["fehler"]
+    assert "deploy.sh --with-quanten" in obj["fehler"]
 
 
 class _FakeQpuSeite:
@@ -655,7 +843,21 @@ class _FakeQpuSeite:
 
     def counts(self, commitment):
         basis = hashlib.sha256(commitment.encode()).hexdigest()
-        return {bin(i)[2:].zfill(8): int(basis[i], 16) + 1 for i in range(8)}
+        versatz = int(basis[:8], 16) % 16
+        return {bin((i + versatz) % 16)[2:].zfill(8): 256 for i in range(16)}
+
+    @staticmethod
+    def attestierung(commitment, n_qubits=8, shots=4096):
+        bindung = QM._qpu_payload_bindung_sha256(commitment, n_qubits, shots)
+        return {
+            "primitive_id": "sampler", "backend_simulator": False,
+            "backend_n_qubits": 133, "qpu_n_qubits": n_qubits,
+            "qpu_shots": shots,
+            "qpu_payload_sha256": hashlib.sha256(
+                f"fake-isa:{bindung}".encode()).hexdigest(),
+            "qpu_payload_bindung_sha256": bindung,
+            "qpu_payload_commitment": commitment,
+        }
 
     def einreichen(self, *, commitment, n_qubits, shots, backend_name=None,
                    service=None, token=None):
@@ -673,7 +875,8 @@ class _FakeQpuSeite:
         c = self.commitments[job_id]
         return {"fertig": True, "status": "DONE", "counts": self.counts(c),
                 "tags": ["quantenlos", c[:32]], "backend": "fake_torino",
-                "creation_date": "2026-06-11T12:00:00+00:00"}
+                "creation_date": "2026-06-11T12:00:00+00:00",
+                **self.attestierung(c)}
 
 
 @pytest.fixture()
@@ -709,10 +912,10 @@ def test_los_abholen_wartet_solange_job_in_queue(app, fake_qpu):
     assert obj["engineVersion"] == V1_VERSION
 
 
-def test_los_abholen_fertig_rekonstruiert_und_prueft_roundtrip(app, fake_qpu):
+def test_los_abholen_fertig_braucht_zur_gueltigkeit_online_attestierung(app, fake_qpu):
     """Voller qpu-Durchstich: ziehen (wartet) → abholen (fertig — Nachweis
-    REKONSTRUIERT aus job_id+rahmen+k, kein Job-Registry) → pruefen gültig
-    inkl. voller Ableitungskette über roh_bits_hex."""
+    REKONSTRUIERT aus job_id+rahmen+k, kein Job-Registry) → Ableitung offline
+    prüfen; QPU-Attestierung bleibt ohne Online-Refetch ungültig."""
     _, start = dispatch(app, "POST", "/v1/los/ziehen",
                         {"rahmen": _LOS_RAHMEN, "k": 4, "backend": "qpu"}, {})
     code, obj = dispatch(app, "POST", "/v1/los/abholen",
@@ -724,12 +927,14 @@ def test_los_abholen_fertig_rekonstruiert_und_prueft_roundtrip(app, fake_qpu):
     e = n["entropie"]
     assert e["quelle_klasse"] == "qpu" and e["job_id"] == start["job_id"]
     assert e["job_tags"] == ["quantenlos", start["commitment"][:32]]
-    # Roundtrip über die API: gleicher Rahmen → gültig, volle Kette
+    # Archivierte Bits belegen die Ableitung, aber noch nicht den behaupteten
+    # IBM-Job. Ohne Online-Attestierung bleibt ein QPU-Nachweis fail-closed.
     code, erg = dispatch(app, "POST", "/v1/los/pruefen",
                          {"nachweis": n, "rahmen": _LOS_RAHMEN,
                           "roh_bits_hex": obj["roh_bits_hex"]}, {})
-    assert code == 200 and erg["ok"] is True and erg["gueltig"] is True
+    assert code == 200 and erg["ok"] is True and erg["gueltig"] is False
     assert {"rahmen_commitment", "roh_bits_hash", "ableitungskette"} <= set(erg["geprueft"])
+    assert any("FEHLSCHLAG qpu_attestierung" in h for h in erg["hinweise"])
 
 
 def test_los_abholen_fremder_job_bindung_400(app, fake_qpu):
@@ -750,6 +955,9 @@ def test_los_abholen_form_und_credentials(app, monkeypatch):
     code, obj = dispatch(app, "POST", "/v1/los/abholen",
                          {"rahmen": ["a", "b"], "k": 1}, {})
     assert code == 400 and "job_id" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/los/abholen",
+                         {"job_id": ["kein String"], "rahmen": ["a", "b"], "k": 1}, {})
+    assert code == 400 and "job_id" in obj["error"]
     # ohne IBM-Credentials kann nichts abgeholt werden → 503
     monkeypatch.setattr(QM, "ibm_credentials_vorhanden", lambda token=None: False)
     code, obj = dispatch(app, "POST", "/v1/los/abholen",
@@ -757,16 +965,16 @@ def test_los_abholen_form_und_credentials(app, monkeypatch):
     assert code == 503 and obj["ok"] is False and "Credentials" in obj["fehler"]
 
 
-def test_los_pruefen_roundtrip_und_manipulierter_rahmen(app):
-    """Kern-Vertrag: ziehen → pruefen gültig (Commitment ist ordnungs-
-    invariant); EIN getauschtes Rahmen-Item → gueltig:false, benannt."""
+def test_los_pruefen_ohne_roh_bits_fail_closed_und_manipulierter_rahmen(app):
+    """Commitment allein belegt keine Zufallsableitung; Rahmenbruch bleibt benannt."""
     _, zug = dispatch(app, "POST", "/v1/los/ziehen",
                       {"rahmen": _LOS_RAHMEN, "k": 5, "backend": "csprng"}, {})
     code, obj = dispatch(app, "POST", "/v1/los/pruefen",
                          {"nachweis": zug["nachweis"],
                           "rahmen": list(reversed(_LOS_RAHMEN))}, {})
-    assert code == 200 and obj["ok"] is True and obj["gueltig"] is True
+    assert code == 200 and obj["ok"] is True and obj["gueltig"] is False
     assert "rahmen_commitment" in obj["geprueft"]
+    assert any("FEHLSCHLAG vollstaendige_ableitung" in h for h in obj["hinweise"])
     assert obj["engineVersion"] == V1_VERSION
 
     boese = _LOS_RAHMEN[:-1] + ["text_hash:9999"]
@@ -809,7 +1017,8 @@ def test_los_pruefen_online_mit_gemocktem_refetch(app, fake_qpu, monkeypatch):
     monkeypatch.setattr(QM, "_qpu_job_abrufen", lambda job_id, **kw: {
         "counts": fake_qpu.counts(start["commitment"]),
         "tags": ["quantenlos", start["commitment"][:32]],
-        "backend": "fake_torino", "creation_date": "2026-06-11T12:00:00+00:00"})
+        "backend": "fake_torino", "creation_date": "2026-06-11T12:00:00+00:00",
+        **fake_qpu.attestierung(start["commitment"])})
     code, obj = dispatch(app, "POST", "/v1/los/pruefen",
                          {"nachweis": abh["nachweis"], "rahmen": _LOS_RAHMEN,
                           "online": True}, {})
@@ -828,6 +1037,19 @@ def test_los_pruefen_form_validierung_400(app):
                          {"nachweis": {"x": 1}, "rahmen": ["a"],
                           "roh_bits_hex": "zz"}, {})
     assert code == 400 and "roh_bits_hex" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": {"x": 1}, "rahmen": ["a"],
+                          "online": "false"}, {})
+    assert code == 400 and "online" in obj["error"]
+    code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                         {"nachweis": {"x": 1}, "rahmen": ["a"],
+                          "roh_bits_hex": 123}, {})
+    assert code == 400 and "roh_bits_hex" in obj["error"]
+    for roh in ("", "  ", "0", None):
+        code, obj = dispatch(app, "POST", "/v1/los/pruefen",
+                             {"nachweis": {"x": 1}, "rahmen": ["a"],
+                              "roh_bits_hex": roh}, {})
+        assert code == 400 and "roh_bits_hex" in obj["error"]
 
 
 def test_los_ibm_token_pro_request_wird_durchgereicht(app, fake_qpu, monkeypatch):
@@ -858,7 +1080,8 @@ def test_los_ibm_token_pro_request_wird_durchgereicht(app, fake_qpu, monkeypatch
         gesehen.append(token)
         return {"counts": fake_qpu.counts(start["commitment"]),
                 "tags": ["quantenlos", start["commitment"][:32]],
-                "backend": "fake_torino", "creation_date": None}
+                "backend": "fake_torino", "creation_date": None,
+                **fake_qpu.attestierung(start["commitment"])}
     monkeypatch.setattr(QM, "_qpu_job_abrufen", abrufen)
     code, erg = dispatch(app, "POST", "/v1/los/pruefen",
                          {"nachweis": obj["nachweis"], "rahmen": _LOS_RAHMEN,

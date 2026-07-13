@@ -16,12 +16,12 @@ import hashlib
 import re
 import sqlite3
 import threading
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
 from .gii import NormKnoten
-from .zitate import KONFIDENZ_STUFEN, extrahiere_anker
+from .zitate import KONFIDENZ_STUFEN, Konfidenz, extrahiere_anker
 
 # Rang je Konfidenz (niedrig < mittel < hoch) – für „höchste Konfidenz gewinnt"
 # beim Kantenbau. Skala kommt zentral aus zitate (eine Quelle der Wahrheit).
@@ -83,7 +83,7 @@ class NormGraph:
         # Nummer-Knoten enthalten Textausschnitte ihres §-Elterns mehrfach, der
         # Zitat-Scan läuft also über teils redundante Texte – bewusst toleriert,
         # das ist reine BUILD-Zeit (einmaliger Wartungsschritt), kein Laufzeitpfad.
-        kanten: dict[tuple[str, str, str], tuple[str, int]] = {}
+        kanten: dict[tuple[str, str, str], tuple[Konfidenz, int]] = {}
         for k in knoten:
             for anker in extrahiere_anker(k.text, default_law=k.law):
                 if not anker.norm_id:
@@ -141,7 +141,8 @@ class NormGraph:
             return {"id": norm_id, "gefunden": False, "verwendet": None,
                     "verweist_auf": [], "verweise": [], "dangling": []}
 
-        verweise, dangling = [], []
+        verweise: list[str] = []
+        dangling: list[str] = []
         for e in self._query("SELECT * FROM kanten WHERE src=? AND typ='verweist_auf'", (verwendet,)):
             (verweise if e["vorhanden"] else dangling).append(e["dst"])
         return {
@@ -222,7 +223,7 @@ class NormGraph:
         if not qwords or not self._vt_nodes:
             return []
         grenze = max(25, int(len(self._vt_nodes) * 0.03))
-        score: Counter = Counter()
+        score: defaultdict[int, float] = defaultdict(float)
         for w in qwords:
             treffer = self._vt_index.get(w)
             if not treffer:
@@ -230,7 +231,14 @@ class NormGraph:
             gewicht = 1.0 if len(treffer) <= grenze else 0.2
             for idx in treffer:
                 score[idx] += gewicht
-        top = [(i, s) for i, s in score.most_common(k * 2) if s >= min_score][:k]
+        # Ein ``set`` liefert die Query-Woerter pro Prozess in anderer Reihenfolge.
+        # Counter.most_common() brach Score-Gleichstaende nach dieser Einfuege-
+        # reihenfolge und machte Retrieval damit hash-seed-abhaengig. Die Knoten-ID
+        # ist ein stabiler, fachlich neutraler Tie-Breaker.
+        top = sorted(
+            ((i, s) for i, s in score.items() if s >= min_score),
+            key=lambda paar: (-paar[1], self._vt_nodes[paar[0]]["id"]),
+        )[:k]
         return [self._vt_nodes[i] for i, _ in top]
 
     def dangling(self, limit: int = 1000) -> list[dict[str, Any]]:

@@ -6,7 +6,6 @@ der Spezifikation handannotierten Beispiele.
 
 import pytest
 
-from risk_layer.idschema import NormID
 from risk_layer.zitate import (
     extrahiere_anker,
     finde_normzitate,

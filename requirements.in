@@ -3,13 +3,14 @@
 #
 # Gespiegelt aus pyproject.toml:
 #   * [project].dependencies  -> PyYAML + numpy
-#   * dev-Extra               -> pytest
+#   * Test-Runner aus dev     -> pytest
 #   * [build-system].requires -> setuptools (fuer --no-build-isolation)
+# Coverage/Ruff/Mypy liegen getrennt in requirements-quality.in.
 #
-# Die schweren ML-/NER-/Quanten-Extras (sentence-transformers, llama-cpp-python,
-# spacy, qiskit) sind BEWUSST NICHT im Lock: hardware-/plattformspezifisch
-# (GPU-/Plattform-Matrix: CUDA-/ROCm-/Vulkan-Wheels, torch-Varianten) und in
-# pyproject.toml bewusst optional — sie bleiben Range-basiert.
+# Dieser Lock ist nur fuer Tests/Entwicklung. Produktion nutzt
+# requirements-runtime-lock.txt; NER, CPU-Embedding und Quanten besitzen eigene
+# Hash-Locks je Zielplattform. llama-cpp-python bleibt optional, die verwaltete
+# native llama.cpp-Engine ist stattdessen release- und hash-gepinnt.
 #
 # Regenerieren (z. B. nach pyproject-Aenderung an Kern/dev):
 #   python -m pip install pip-tools
@@ -18,4 +19,4 @@
 PyYAML>=6.0
 numpy>=1.26,<2.3
 pytest>=8.0
-setuptools>=68
+setuptools>=77

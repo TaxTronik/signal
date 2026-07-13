@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from risk_layer import gii
-from risk_layer.catalog import Katalog
 from risk_layer.graph import NormGraph
 from risk_layer.models import (
     Begriffskarte, Definitionsquelle, GovernanceTyp, Katalogeintrag, Status, Treffer,
@@ -102,6 +101,21 @@ def test_suche_text_findet_relevante_paragraphen(tmp_path):
     g = NormGraph.build(knoten, tmp_path / "vt.sqlite")
     ids = {r["id"] for r in g.suche_text("Die Aufzeichnungen und die Buchführung sind mangelhaft.")}
     assert "norm:AO:146" in ids
+
+
+def test_suche_text_bricht_score_gleichstand_stabil_nach_id(tmp_path):
+    """Gleiche Scores duerfen nicht von Set-/Hash-Reihenfolgen abhaengen."""
+    knoten = [
+        gii.NormKnoten(id="norm:Z:2", law="Z", para="2", titel="Alpha",
+                       text="Alpha Begriff gemeinsam"),
+        gii.NormKnoten(id="norm:A:1", law="A", para="1", titel="Alpha",
+                       text="Alpha Begriff gemeinsam"),
+    ]
+    graph = NormGraph.build(knoten, tmp_path / "tie.sqlite")
+
+    assert [treffer["id"] for treffer in graph.suche_text(
+        "Alpha Begriff gemeinsam", min_score=1.0
+    )] == ["norm:A:1", "norm:Z:2"]
 
 
 def test_fingerprint_stabil_ueber_zwei_builds(tmp_path):
@@ -209,7 +223,6 @@ def test_graph_anreicherung_haengt_gesetzestext_an(tmp_path):
         definitionsquelle=(Definitionsquelle("Verwaltung", "Abschn. 2.8 UStAE"),),
         governance_typ=GovernanceTyp.FF,
     )
-    kat = Katalog("t", [eintrag])
     treffer = Treffer("x", 0, 5, "xxxxx", "organisatorische Eingliederung", 0)
     karte = Begriffskarte(treffer=treffer, eintrag=eintrag, status=Status.TREFFER,
                           quellen=list(eintrag.definitionsquelle))

@@ -1,0 +1,13 @@
+# =============================================================================
+# Quelle fuer requirements-quality-lock.txt (pip-tools) — lokale/CI-Qualitaet.
+#
+# Bewusst getrennt vom Kern-Lock: Docker/Produktion brauchen weder Coverage noch
+# Linter oder Typpruefer. Tests installieren beide Locks; der Lint-Job nur diesen.
+#
+# Regenerieren:
+#   python -m pip install pip-tools
+#   python -m piptools compile --generate-hashes --strip-extras --output-file=requirements-quality-lock.txt requirements-quality.in
+# =============================================================================
+coverage>=7.6,<8
+mypy>=2.2,<3
+ruff>=0.15,<0.16

@@ -133,3 +133,64 @@ def test_hole_gesetz_cap_lehnt_riesendownload_ab(tmp_path, monkeypatch):
     g = corpus.Gesetz(law="TestG", slug="testg", url="http://x/testg/xml.zip")
     with pytest.raises(ValueError, match=r"größer als"):
         corpus.hole_gesetz(g, tmp_path)
+
+
+def test_hole_gesetz_begrenzt_archiv_dateianzahl_vor_read(tmp_path, monkeypatch):
+    import pytest
+    import zipfile
+
+    daten = _zip_mit({"a.xml": "<a/>", "hinweis.txt": "x"})
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=30.0: _FakeResp(daten))
+    monkeypatch.setattr(corpus, "_MAX_ARCHIV_DATEIEN", 1)
+    monkeypatch.setattr(
+        zipfile.ZipFile, "read",
+        lambda *args, **kwargs: pytest.fail("ZIP-Mitglied wurde vor Limitpruefung gelesen"))
+    g = corpus.Gesetz(law="TestG", slug="testg", url="http://x/testg/xml.zip")
+
+    with pytest.raises(corpus.KorpusArchivFehler, match="Dateien/Eintraege"):
+        corpus.hole_gesetz(g, tmp_path)
+    assert not (tmp_path / "gii" / "TestG.xml").exists()
+
+
+def test_hole_gesetz_begrenzt_unkomprimierte_einzelgroesse(tmp_path, monkeypatch):
+    import pytest
+
+    daten = _zip_mit({"a.xml": "<a/>"})
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=30.0: _FakeResp(daten))
+    monkeypatch.setattr(corpus, "_MAX_DATEI_UNKOMPRIMIERT", 3)
+    g = corpus.Gesetz(law="TestG", slug="testg", url="http://x/testg/xml.zip")
+
+    with pytest.raises(corpus.KorpusArchivFehler, match="a\\.xml.*unkomprimiert"):
+        corpus.hole_gesetz(g, tmp_path)
+
+
+def test_hole_gesetz_begrenzt_unkomprimierte_gesamtgroesse(tmp_path, monkeypatch):
+    import pytest
+
+    daten = _zip_mit({"a.xml": "<a/>", "b.xml": "<b/>"})
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=30.0: _FakeResp(daten))
+    monkeypatch.setattr(corpus, "_MAX_ARCHIV_UNKOMPRIMIERT", 7)
+    g = corpus.Gesetz(law="TestG", slug="testg", url="http://x/testg/xml.zip")
+
+    with pytest.raises(corpus.KorpusArchivFehler, match="insgesamt"):
+        corpus.hole_gesetz(g, tmp_path)
+
+
+def test_hole_gesetz_blockt_extremes_kompressionsverhaeltnis(tmp_path, monkeypatch):
+    import io
+    import pytest
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("a.xml", "A" * 1000)
+    monkeypatch.setattr("urllib.request.urlopen",
+                        lambda req, timeout=30.0: _FakeResp(buf.getvalue()))
+    monkeypatch.setattr(corpus, "_MAX_KOMPRESSIONSVERHAELTNIS", 2)
+    g = corpus.Gesetz(law="TestG", slug="testg", url="http://x/testg/xml.zip")
+
+    with pytest.raises(corpus.KorpusArchivFehler, match="Kompressionsverhaeltnis"):
+        corpus.hole_gesetz(g, tmp_path)

@@ -26,6 +26,15 @@ from .torch_compat import patch_rocm_dist
 # einen vom Bi-Encoder vergrabenen Treffer hochzuholen).
 RERANK_TOPN = 20
 
+# Vollständige Hugging-Face-Commit-SHAs statt beweglicher Modellnamen. Das gilt
+# auch für Tokenizer/Remote-Code, nicht nur für die Gewichtsdateien.
+HF_MODELL_REVISIONEN: dict[str, str] = {
+    "BAAI/bge-reranker-v2-m3": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+    "Qwen/Qwen3-Reranker-0.6B": "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+    "Qwen/Qwen3-Reranker-4B": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
+    "Qwen/Qwen3-Reranker-8B": "77d193c791ed757ca307ee72715aa132723da912",
+}
+
 
 def rerank_schwelle() -> float:
     """Mindest-Rerank-Score, ab dem ein Vorschlag überhaupt erscheint (Abstention).
@@ -61,6 +70,7 @@ def sim_rettung() -> float:
 @runtime_checkable
 class Reranker(Protocol):
     name: str
+    revision: str | None
 
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
         ...
@@ -72,9 +82,17 @@ class CrossEncoderReranker:
 
     name = "bge-reranker-v2-m3"
 
-    def __init__(self, modell: str = "BAAI/bge-reranker-v2-m3", device: str | None = None):
+    def __init__(self, modell: str = "BAAI/bge-reranker-v2-m3",
+                 device: str | None = None, revision: str | None = None):
         self._modell_name = modell
         self._device = device
+        kuratierte_revision = HF_MODELL_REVISIONEN.get(modell)
+        if (kuratierte_revision is not None and revision is not None
+                and revision != kuratierte_revision):
+            raise ValueError(
+                f"Für das kuratierte Modell {modell!r} ist ausschließlich Revision "
+                f"{kuratierte_revision} zugelassen.")
+        self.revision = kuratierte_revision if kuratierte_revision is not None else revision
         self._modell = None
         self._lock = threading.Lock()
 
@@ -85,7 +103,11 @@ class CrossEncoderReranker:
                     patch_rocm_dist()          # ROCm: fehlendes is_initialized abfangen
                     try:
                         from sentence_transformers import CrossEncoder  # lazy
-                        modell = CrossEncoder(self._modell_name, device=self._device)
+                        modell = CrossEncoder(
+                            self._modell_name,
+                            device=self._device,
+                            revision=self.revision,
+                        )
                     except Exception as exc:
                         # Lazy-Load schlaegt erst beim ERSTEN Request fehl – dann
                         # braucht der Aufrufer eine handelbare Meldung statt eines
@@ -132,6 +154,7 @@ class Qwen3Reranker:
     def __init__(self, variante: str = "4B", device: str | None = None):
         self.name = f"qwen3-reranker-{variante.lower()}"
         self._modell_name = f"Qwen/Qwen3-Reranker-{variante}"
+        self.revision: str | None = HF_MODELL_REVISIONEN[self._modell_name]
         self._device = device
         self._model = None
         self._lock = threading.Lock()
@@ -144,11 +167,18 @@ class Qwen3Reranker:
                     try:
                         import torch
                         from transformers import AutoModelForCausalLM, AutoTokenizer
-                        tok = AutoTokenizer.from_pretrained(self._modell_name, padding_side="left")
+                        tok = AutoTokenizer.from_pretrained(
+                            self._modell_name,
+                            padding_side="left",
+                            revision=self.revision,
+                        )
                         dev = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
                         dtype = torch.float16 if "cuda" in str(dev) else torch.float32
                         model = AutoModelForCausalLM.from_pretrained(
-                            self._modell_name, torch_dtype=dtype).to(dev).eval()
+                            self._modell_name,
+                            torch_dtype=dtype,
+                            revision=self.revision,
+                        ).to(dev).eval()
                     except Exception as exc:
                         # s. CrossEncoderReranker._laden: handelbare Meldung, kein
                         # halb-initialisierter Zustand, Retry beim naechsten Aufruf.
@@ -168,7 +198,9 @@ class Qwen3Reranker:
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
         if not paare:
             return []
-        self._laden()    # ZUERST: klare RuntimeError statt nacktem ImportError von torch
+        model = self._laden()  # ZUERST: klare RuntimeError statt nacktem ImportError von torch
+        if model is None:  # defensive Invariante fuer fremde/teilgemockte Backends
+            raise RuntimeError("Reranker-Modell wurde nicht initialisiert")
         import torch
         out: list[float] = []
         with self._lock:                            # forward-Pass serialisieren
@@ -181,7 +213,7 @@ class Qwen3Reranker:
                     ids.append(self._pre + mid + self._suf)
                 inp = self._tok.pad({"input_ids": ids}, padding=True, return_tensors="pt").to(self._dev)
                 with torch.no_grad():
-                    logits = self._model(**inp).logits[:, -1, :]   # links gepaddet -> letztes Token real
+                    logits = model(**inp).logits[:, -1, :]   # links gepaddet -> letztes Token real
                 yn = logits[:, [self._no, self._yes]].float()
                 out.extend(float(x) for x in torch.softmax(yn, dim=1)[:, 1])
         return out
