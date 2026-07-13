@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import stat
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -624,7 +625,7 @@ class UpdateLock:
 
     def _try_lock(self, descriptor: int) -> bool:
         try:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import msvcrt
                 os.lseek(descriptor, 0, os.SEEK_SET)
                 msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
@@ -674,7 +675,7 @@ class UpdateLock:
         if descriptor is None:
             return
         try:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import msvcrt
                 os.lseek(descriptor, 0, os.SEEK_SET)
                 msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)

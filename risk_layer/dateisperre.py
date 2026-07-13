@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import stat
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -361,7 +362,7 @@ def _oeffne_lockdatei(pfad: Path) -> BinaryIO:
 
 def _versuche_sperren(datei: BinaryIO) -> bool:
     datei.seek(0)
-    if os.name == "nt":
+    if sys.platform == "win32":
         import msvcrt
 
         try:
@@ -384,7 +385,7 @@ def _versuche_sperren(datei: BinaryIO) -> bool:
 
 def _entsperren(datei: BinaryIO) -> None:
     datei.seek(0)
-    if os.name == "nt":
+    if sys.platform == "win32":
         import msvcrt
 
         msvcrt.locking(datei.fileno(), msvcrt.LK_UNLCK, 1)

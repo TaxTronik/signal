@@ -81,11 +81,17 @@ jobs:
           grep -q '^\[Service\]' /tmp/u.service && ! grep -qE '@[A-Z_]+@' /tmp/u.service && echo "systemd-template ok"
           sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer-release.service.in > /tmp/release.service
           grep -q '^\[Service\]' /tmp/release.service
-          grep -q 'risk_layer.ops_cli service run' /tmp/release.service
+          grep -Fq 'ExecStart="@PYTHON@" -I "@LAUNCHER@" --home "@RELEASE_HOME@" -- service run --home "@RELEASE_HOME@"' deploy/risk-layer-release.service.in || {
+            echo "::error file=deploy/risk-layer-release.service.in::Release-Unit muss ueber den manifestgebundenen Release-Launcher starten"
+            exit 1
+          }
           ! grep -qE '@[A-Z_]+@' /tmp/release.service
           echo "release-systemd-template ok"
           grep -q '^\[Service\]' deploy/risk-layer-backup.service
-          grep -q 'release-launcher' deploy/risk-layer-backup.service
+          grep -Fq 'ExecStart=/usr/bin/env python3.12 -I ${RISK_LAYER_RELEASE_LAUNCHER} --home ${RISK_LAYER_RELEASE_HOME} -- backup create' deploy/risk-layer-backup.service || {
+            echo "::error file=deploy/risk-layer-backup.service::Backup-Unit muss ueber den manifestgebundenen Release-Launcher starten"
+            exit 1
+          }
           grep -q -- '--retention-keep-last 30 --retention-keep-days 90' deploy/risk-layer-backup.service
           grep -q '^\[Timer\]' deploy/risk-layer-backup.timer
           echo "backup-units ok"
