@@ -78,8 +78,9 @@ Leitung schriftlich festgehalten und bei Personalwechsel fortgeschrieben.
 | Anlass / Turnus | Pflichthandlung | Verantwortlich |
 |---|---|---|
 | **Nach jedem Korpus-Rebuild** | Radar prüfen: `risk-layer radar --archiv DIR` (datierter JSON-Bericht), Archiv nach `out/berichte/`; je `betroffen[]`-Eintrag Review-Aufgabe im Host anlegen | Operator (Lauf), Kurator (Befunde) |
+| **Täglich** | Letzten Festwissen-Backup-Lauf, Verifikation und Erreichbarkeit des Off-host-Ziels prüfen; Fehler in den Mängelweg geben | Operator |
 | **Wöchentlich** | Ausgaben des RSS-Abgleichs (`risk-layer abgleich`, BFH/BMF) sichten; einschlägige Befunde dem Kurator zur Prüfung vorlegen | Kurator |
-| **Je Release** | CI-Gates müssen grün sein: Lint (ruff, Runtime-Fehler-Niveau), Testsuite (Python 3.11/3.12), Gold-Gate (Kennzahlen nach § 4 gegen `fixtures/gold`, datierter Bericht nach `out/berichte/`) | Operator |
+| **Je Release** | CI-Gates müssen grün sein: Lint (ruff, Runtime-Fehler-Niveau), Testsuite (Python 3.11/3.12), Gold-Gate (Kennzahlen nach § 4 gegen `fixtures/gold`, datierter Bericht nach `out/berichte/`); unmittelbar vor Aktivierung aktuelles Backup erstellen und verifizieren | Operator |
 | **Quartalsweise** | Kennzahlen-Review (§ 4): aktuelle Berichte gegen Vorquartal; Auffälligkeiten in den Mängelweg (§ 5); zugleich Restore-Probe nach § 6 | Leitung |
 | **Jährlich** | Bias-Würdigung erneuern (§ 8); diese Ordnung und die Systembeschreibung auf Aktualität prüfen | Leitung |
 
@@ -140,20 +141,38 @@ Schutzbedarf nach Regenerierbarkeit (Regel zur Lücke L5 des Mappings):
 
 - **Nicht regenerierbar — sicherungspflichtig:** die Berater-YAMLs des
   Festwissens (`personal.yaml`, `geteilt.yaml`, `norm_kuratierung.yaml` im
-  Berater-Store, Deploy-Standard `definitionen/`). Sicherung per
-  `risk-layer festwissen sichern [--ziel DIR]` (Zip-Sicherung) **vor jedem
-  Deploy** und **wöchentlich**; Ablage auf einem vom Engine-Host getrennten,
-  zugriffsbeschränkten Speicherort der Betreiberin. Der Git-versionierte Katalog
-  (`catalog/begriffe.yaml`) ist über das Repository gesichert.
-- **Regenerierbar — keine Sicherungspflicht:** Korpus, Normgraph,
-  Trigger-Index, Embedding-Index und Modellartefakte; die Rebuild-Anleitung
-  steht im [README](../../README.md) (`korpus fetch` → `graph build` →
-  `embedding build`; Modelle via `risk-layer modell download`).
+  Berater-Store, Deploy-Standard `definitionen/`). Konsistente Sicherung per
+  `risk-layerctl backup create --berater DIR --ziel OFFHOST_DIR` **vor jedem
+  Deploy** und standardmäßig **täglich**. Das Werkzeug nimmt den Snapshot unter
+  demselben Interprozess-Lock wie Store-Schreibvorgänge auf, bindet Dateien an
+  ein Hashmanifest und verifiziert das atomar geschriebene Zip. Das Ziel liegt
+  auf einem vom Engine-Host getrennten, zugriffsbeschränkten Speicherort der
+  Betreiberin. Mitgelieferte systemd-/Windows-Scheduler müssen bei
+  Betriebsaufnahme explizit aktiviert und überwacht werden.
+- **Regenerierbar, aber releasegebunden aufzubewahren:** Korpus, Normgraph,
+  Trigger-Index, Embedding-Index, Katalog und Modellartefakte werden nicht in
+  das Berater-Backup kopiert. Die tatsächlich betriebenen, manifestierten
+  Release-Artefakte bleiben jedoch für exakte Wiederherstellung und RTO in
+  Forgejo oder einem getrennten Release-Spiegel erhalten.
+- **Secrets getrennt:** Bearer-/Registry-Token und Schlüssel externer
+  Backupsysteme stehen nie im Festwissen-Zip. Sie liegen im Secret-Manager und
+  werden im Desasterfall rotiert beziehungsweise neu ausgestellt.
 - **Wiederherstellungsprobe:** einmal je Quartal (gekoppelt an das
-  Kennzahlen-Review, § 3) wird eine Sicherung per
-  `risk-layer festwissen wiederherstellen <ARCHIV>` in eine Testumgebung
-  eingespielt und stichprobenartig geprüft (Einträge vorhanden,
-  Review-Status korrekt). Die Probe wird datiert dokumentiert.
+  Kennzahlen-Review, § 3) wird eine Sicherung zunächst mit
+  `risk-layerctl backup verify ARCHIV` geprüft und danach per
+  `risk-layerctl backup restore ARCHIV --berater LEERES_TESTVERZEICHNIS` in
+  eine isolierte Testumgebung eingespielt. Der Restore baut und validiert einen
+  vollständigen Staging-Store vor dem atomaren Wechsel; bei einem nichtleeren
+  produktiven Ziel ist eine persistente, verifizierte Vorher-Sicherung technisch
+  erzwungen. Einträge und
+  Review-Status werden stichprobenartig geprüft; Archiv-Hash, Ergebnis,
+  ausführende und prüfende Person werden datiert dokumentiert.
+
+Installation, Monitoring, Retention, verschlüsselte externe Snapshots und die
+vollständige Probe regelt das
+[Betriebs-Runbook](../BETRIEB_DEPLOY_UPDATE_BACKUP.md). Restic wird dort als
+externe Option beschrieben, ist aber keine automatisch konfigurierte
+Runtime-Abhängigkeit.
 
 ## 7. Fine-Tuning (Regel zur Lücke L6)
 
@@ -269,7 +288,7 @@ folgende **datierte Artefakte** geführt:
 | Radar-Archive | Norm-Änderungen + betroffene Anker je Korpus-Rebuild | `risk-layer radar --archiv DIR` → `out/berichte/` |
 | Eval-/Kennzahlen-Berichte | Gold-Recall@5, MRR, Abstention-Quote u. a. (§ 4) | Benchmark-Läufe je Release/Quartal → `out/berichte/` |
 | CI-Läufe | Lint-, Test-, Audit- und Build-Ergebnisse je Commit/Release | Forgejo (`.forgejo/workflows/`), in der Instanz historisiert |
-| Sicherungs-/Restore-Nachweise | Zip-Sicherungen + dokumentierte Restore-Proben | § 6 |
+| Sicherungs-/Restore-Nachweise | Manifestierte Zip-Sicherungen, Scheduler-/Fehlernachweise + dokumentierte Restore-Proben | § 6 |
 | Fine-Tuning-Protokolle | `finetune_protokoll_<zeitstempel>.json` + Freigaben | § 7 |
 | Host-Audit-Chain | je Analyse Ergebnis inkl. `engine_status`; Freigaben (`katalog/review`-Übergänge); Review-Aufgaben aus Radar-Befunden | TaxTronik (Hash-Kette, RFC-3161) |
 

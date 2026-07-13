@@ -8,9 +8,9 @@ Stores reichen nur Separator/Default durch.
 
 Grenze ehrlich benannt: ``atomar_schreiben`` verhindert torn reads/halbe
 Dateien, NICHT verlorene Updates konkurrierender Read-Modify-Write-Zyklen.
-Dagegen müssen die Stores selbst vorgehen (frischen Datei-Stand vor dem
-Schreiben neu laden, s. BeraterStore); ohne File-Locking (bewusst weggelassen –
-Windows/Unix-Portabilität) bleibt ein schmales Cross-Prozess-Restrisiko.
+Dagegen müssen die Stores selbst vorgehen. Der mehrdateilige BeraterStore hält
+hierfür die plattformübergreifende Sperre aus ``dateisperre`` über den gesamten
+Read-Modify-Write-Zyklus; einfachere Stores können eine eigene Strategie wählen.
 """
 
 from __future__ import annotations

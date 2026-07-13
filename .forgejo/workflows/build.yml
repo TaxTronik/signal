@@ -1,7 +1,10 @@
 # Forgejo-nativer BUILD-Workflow. Schwester-Workflows im selben Verzeichnis:
 # ci.yml (Quality/Tests) + security.yml (pip-audit/gitleaks) — hier NUR:
-# Deploy-Artefakte validieren + die zustandslose Engine als Container bauen
-# (und optional in die Forgejo-Registry pushen).
+# Deploy-Artefakte validieren + die zustandslose Engine als Container bauen.
+# Veröffentlicht wird ausschließlich aus einem geschützten, annotierten
+# vMAJOR.MINOR.PATCH-Tag: OCI-Digest, natives Bundle, Festwissen und Deployment-
+# Manifest bilden eine Einheit; der SemVer-Image-Tag wird als Commit-Marker
+# absichtlich erst nach allen verifizierten Uploads gesetzt.
 name: Build
 
 on:
@@ -32,20 +35,22 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-runtime-lock.txt
 
-      - name: Bash-Syntax (deploy.sh, build-release-artifact.sh)
-        run: bash -n deploy.sh && bash -n build-release-artifact.sh
+      - name: Bash-Syntax (Deploy-/Release-Skripte)
+        run: |
+          bash -n deploy.sh
+          bash -n build-release-artifact.sh
 
       # PowerShell-Parse-Check OPPORTUNISTISCH: läuft nur, falls pwsh im
       # Runner-Image vorhanden ist (kein Windows-Runner in der Flotte — bewusst
       # KEIN runs-on: windows, das würde ohne Runner ewig queuen; vgl. den
       # Kommentarblock in ci.yml). Reiner Syntax-Gate via PowerShell-Parser,
       # kein PSScriptAnalyzer.
-      - name: PowerShell-Syntax (deploy.ps1, install-service.ps1, build-release-artifact.ps1)
+      - name: PowerShell-Syntax (Deploy-, Service-, Backup- und Release-Skripte)
         run: |
           if command -v pwsh >/dev/null 2>&1; then
             pwsh -NoProfile -Command '
               $gesamt = 0
-              foreach ($f in "deploy.ps1","install-service.ps1","build-release-artifact.ps1") {
+              foreach ($f in "deploy.ps1","install-service.ps1","build-release-artifact.ps1","deploy/install-backup-task.ps1","deploy/restart-risk-layer-task.ps1") {
                 $tokens = $null; $fehler = $null
                 [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$tokens, [ref]$fehler)
                 if ($fehler.Count -gt 0) {
@@ -60,15 +65,30 @@ jobs:
           fi
 
       - name: Python byte-compile (Engine)
-        run: python -m compileall -q risk_layer
+        run: python -m compileall -q risk_layer tools
 
       - name: YAML + systemd-Template prüfen
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
-          python -c "import yaml; yaml.safe_load(open('docker-compose.yml',encoding='utf-8')); print('compose ok')"
+          python - <<'PY'
+          import pathlib, yaml
+          for path in (pathlib.Path('docker-compose.yml'), pathlib.Path('docker-compose.dev.yml')):
+              yaml.safe_load(path.read_text(encoding='utf-8'))
+              print(f'{path}: yaml ok')
+          PY
           # systemd-Template: nach Render bleibt kein @PLATZHALTER@ und [Service] existiert
           sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer.service.in > /tmp/u.service
           grep -q '^\[Service\]' /tmp/u.service && ! grep -qE '@[A-Z_]+@' /tmp/u.service && echo "systemd-template ok"
+          sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer-release.service.in > /tmp/release.service
+          grep -q '^\[Service\]' /tmp/release.service
+          grep -q 'risk_layer.ops_cli service run' /tmp/release.service
+          ! grep -qE '@[A-Z_]+@' /tmp/release.service
+          echo "release-systemd-template ok"
+          grep -q '^\[Service\]' deploy/risk-layer-backup.service
+          grep -q 'release-launcher' deploy/risk-layer-backup.service
+          grep -q -- '--retention-keep-last 30 --retention-keep-days 90' deploy/risk-layer-backup.service
+          grep -q '^\[Timer\]' deploy/risk-layer-backup.timer
+          echo "backup-units ok"
 
   engine-image:
     name: Engine-Image bauen
@@ -91,50 +111,461 @@ jobs:
       - name: Compose config (best-effort)
         run: |
           if docker compose version >/dev/null 2>&1; then
-            RISK_LAYER_TOKEN=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci docker compose config -q && echo "compose config ok"
+            export RISK_LAYER_TOKEN=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci
+            export RISK_LAYER_ENGINE_DIGEST=sha256:0000000000000000000000000000000000000000000000000000000000000000
+            export RISK_LAYER_RELEASE_ID=v0.0.0
+            export RISK_LAYER_RELEASE_GIT_SHA=0000000000000000000000000000000000000000
+            export RISK_LAYER_RELEASE_MANIFEST_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+            export RISK_LAYER_FESTWISSEN_DIR="$PWD"
+            export RISK_LAYER_DEFINITIONEN_DIR="$PWD/definitionen"
+            docker compose config -q
+            docker compose -f docker-compose.dev.yml config -q
+            echo "production + development compose config ok"
           else
             echo "docker-compose-v2-Plugin im Runner-Image nicht vorhanden — uebersprungen (YAML bereits geprueft)"
           fi
 
-  publish-image:
-    name: Engine-Image veröffentlichen
-    if: vars.PUBLISH == 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
-    needs: [validate-deploy, engine-image]
+  # ci.yml/security.yml laufen bei Tags nicht und parallele Workflows lassen
+  # sich nicht per needs koppeln. Release-Tags erhalten deshalb eigene,
+  # schreibrechtlose Gates; erst deren Erfolg entsperrt publish-release.
+  release-quality:
+    name: Release-Quality (Python ${{ matrix.python-version }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-lock.txt
+            requirements-quality-lock.txt
+
+      - name: Gelockte Test-/Quality-Abhängigkeiten installieren
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-lock.txt
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-quality-lock.txt
+          python -m pip install --no-build-isolation --no-deps -e .
+
+      - name: Ruff + Mypy (einmal unter Python 3.12)
+        if: matrix.python-version == '3.12'
+        run: |
+          python -m ruff check risk_layer tests
+          python -m ruff check --select E9,F63,F7,F82 tools
+          python -m mypy
+
+      - name: Vollständige Tests + Branch-Coverage
+        run: |
+          python -m compileall -q risk_layer tests tools
+          python -m coverage run -m pytest -q
+          python -m coverage report
+          python tools/gold_gate.py
+
+  release-security:
+    name: Release-Security
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_LINUX_X64_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-security-lock.txt
+
+      - name: Alle produktiven Locks auditieren
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-security-lock.txt
+          python -m pip_audit -r requirements-lock.txt --desc
+          python -m pip_audit -r requirements-runtime-lock.txt --desc
+          python -m pip_audit -r requirements-ner-lock.txt --desc
+          python -m pip_audit -r requirements-embedding-linux-cpu-py312-lock.txt --desc
+          python -m pip_audit -r requirements-quanten-linux-py312-lock.txt --desc
+          python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-cpu-py312-lock.txt --desc
+          python -m pip_audit --no-deps --disable-pip -r requirements-quanten-windows-py312-lock.txt --desc
+
+      - name: Vollständige Git-Historie auf Secrets prüfen
+        run: |
+          curl -fsSL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_LINUX_X64_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks detect --source . --redact --verbose
+
+  publish-release:
+    name: Release veröffentlichen (nur vMAJOR.MINOR.PATCH)
+    if: vars.PUBLISH == 'true' && startsWith(github.ref, 'refs/tags/v')
+    needs: [validate-deploy, engine-image, release-quality, release-security]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
     permissions:
       contents: read
       packages: write
     env:
       REGISTRY: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}
       IMAGE: ${{ vars.REGISTRY || 'git.hirschmann-koxha.de' }}/taxtronik/risk-layer-engine
+      PACKAGE_SERVER: ${{ vars.PACKAGE_SERVER || github.server_url }}
+      PACKAGE_OWNER: ${{ github.repository_owner }}
+      # Versioniertes Produktionsprofil: Release-Image und Festwissen werden
+      # immer gemeinsam mit der semantischen Embedding-Schicht gebaut.
+      RELEASE_WITH_EMBEDDING: 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime-lock.txt
+            requirements-embedding-linux-cpu-py312-lock.txt
+            requirements-embedding-windows-cpu-py312-lock.txt
+
+      # Publikationsgrenze: kein main/latest, kein Prä-/Build-Suffix und kein
+      # Lightweight-Tag. Schreibrechte für v* müssen zusätzlich in Forgejo auf
+      # die Release-Verantwortlichen beschränkt werden (siehe Betriebs-Runbook).
+      - name: Geschlossenes Tag-Gate
+        id: release
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "Nur vMAJOR.MINOR.PATCH darf veröffentlicht werden: $tag" >&2
+            exit 1
+          }
+          [[ "$(git cat-file -t "$tag")" == "tag" ]] || {
+            echo "Release-Tags müssen annotiert sein: $tag" >&2
+            exit 1
+          }
+          [[ "$(git rev-list -n 1 "$tag")" == "$GITHUB_SHA" ]] || {
+            echo "Tag und Workflow-Commit weichen ab" >&2
+            exit 1
+          }
+          RELEASE_TAG_CANDIDATE="$tag" python - <<'PY'
+          import ast
+          import os
+          from pathlib import Path
+          import tomllib
+
+          project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+          version = project["project"]["version"]
+          tree = ast.parse(Path("risk_layer/__init__.py").read_text(encoding="utf-8"))
+          internal = None
+          for node in tree.body:
+              if isinstance(node, ast.Assign) and any(
+                  isinstance(target, ast.Name) and target.id == "__version__"
+                  for target in node.targets
+              ):
+                  internal = ast.literal_eval(node.value)
+          if not isinstance(version, str) or internal != version:
+              raise SystemExit(
+                  f"Versionsdivergenz: pyproject={version!r}, __version__={internal!r}"
+              )
+          if os.environ["RELEASE_TAG_CANDIDATE"] != f"v{version}":
+              raise SystemExit(
+                  f"Tag {os.environ['RELEASE_TAG_CANDIDATE']} passt nicht zur "
+                  f"Projektversion {version}"
+              )
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"version={version}", file=output)
+          PY
+          [[ "$RELEASE_WITH_EMBEDDING" == "true" || "$RELEASE_WITH_EMBEDDING" == "false" ]] || {
+            echo "RELEASE_WITH_EMBEDDING muss für Releases explizit true oder false sein" >&2
+            exit 1
+          }
+          epoch="$(git for-each-ref --format='%(taggerdate:unix)' "refs/tags/$tag")"
+          [[ "$epoch" =~ ^[0-9]+$ ]] || { echo "Tagger-Zeit fehlt" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
       - name: Docker-Daemon prüfen
         run: docker info >/dev/null && echo "docker-daemon ok"
 
-      # Getrennter Job: untrusted Pull Requests erhalten weder Registry-Secrets
-      # noch packages:write. Auf geschuetztem main/Tag wird reproduzierbar neu
-      # gebaut und erst danach angemeldet/gepusht.
-      - name: Build + Login + Push in die Forgejo-Registry
+      - name: Gelockte Build-Laufzeit installieren
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
+          if [[ "$RELEASE_WITH_EMBEDDING" == "true" ]]; then
+            python -m pip install --require-hashes --only-binary=:all: \
+              -r requirements-embedding-linux-cpu-py312-lock.txt
+          fi
+
+      - name: Native Runtime-Wheelhouses hashgebunden laden
+        run: |
+          mkdir -p \
+            dist/runtime-wheelhouse/linux_x86_64-cp312 \
+            dist/runtime-wheelhouse/win_amd64-cp312
+          python -m pip download --require-hashes --only-binary=:all: --no-deps \
+            --dest dist/runtime-wheelhouse/linux_x86_64-cp312 \
+            -r requirements-embedding-linux-cpu-py312-lock.txt
+          python -m pip download --require-hashes --only-binary=:all: --no-deps \
+            --platform win_amd64 --implementation cp \
+            --python-version 312 --abi cp312 \
+            --dest dist/runtime-wheelhouse/win_amd64-cp312 \
+            -r requirements-embedding-windows-cpu-py312-lock.txt
+
+      # Erst alle lokalen Artefakte bauen und verifizieren. Der Registry-Push
+      # erfolgt danach; ein kaputter Daten-Build erzeugt somit kein Image-Release.
+      - name: Engine, Wheel, Festwissen und natives Bundle bauen
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.epoch }}
+        run: |
+          if [[ "$RELEASE_WITH_EMBEDDING" == "true" ]]; then
+            embedding_build_arg=1
+            festwissen_mode=--mit-embedding
+          else
+            embedding_build_arg=0
+            festwissen_mode=--ohne-embedding
+          fi
+          docker build --build-arg "WITH_EMBEDDING=$embedding_build_arg" \
+            -t risk-layer-engine:release .
+          python -m pip wheel --no-build-isolation --no-deps --wheel-dir dist .
+          ./build-release-artifact.sh "$RELEASE_TAG" "$festwissen_mode"
+          wheel="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
+          test -n "$wheel" || { echo "Wheel fehlt" >&2; exit 1; }
+          python - "$wheel" <<'PY'
+          from email.parser import BytesParser
+          import os
+          from pathlib import Path
+          import sys
+          import zipfile
+
+          wheel = Path(sys.argv[1])
+          with zipfile.ZipFile(wheel) as archive:
+              metadata = [name for name in archive.namelist()
+                          if name.endswith(".dist-info/METADATA")]
+              if len(metadata) != 1:
+                  raise SystemExit("Wheel enthält nicht genau ein dist-info/METADATA")
+              version = BytesParser().parsebytes(
+                  archive.read(metadata[0]), headersonly=True
+              )["Version"]
+          if version != os.environ["RELEASE_VERSION"]:
+              raise SystemExit(
+                  f"Wheel-Version {version!r} widerspricht Release "
+                  f"{os.environ['RELEASE_VERSION']!r}"
+              )
+          print(f"Wheel-Version konsistent: {version}")
+          PY
+          python -m pip install --no-deps "$wheel"
+          python tools/build_native_release_bundle.py \
+            --release-id "$RELEASE_TAG" \
+            --git-sha "$GITHUB_SHA" \
+            --wheel "$wheel" \
+            --runtime-lock \
+              linux_x86_64-cp312=requirements-embedding-linux-cpu-py312-lock.txt \
+            --runtime-lock \
+              win_amd64-cp312=requirements-embedding-windows-cpu-py312-lock.txt \
+            --runtime-wheelhouse \
+              linux_x86_64-cp312=dist/runtime-wheelhouse/linux_x86_64-cp312 \
+            --runtime-wheelhouse \
+              win_amd64-cp312=dist/runtime-wheelhouse/win_amd64-cp312 \
+            --festwissen-archive "taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
+            --festwissen-manifest "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json" \
+            --output-dir "release-$RELEASE_TAG" \
+            --archive "taxtronik-native-$RELEASE_TAG.tar.gz" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+          python tools/build_release_tools_zipapp.py \
+            --output risk-layer-release-tools.pyz \
+            --source-date-epoch "$SOURCE_DATE_EPOCH"
+
+      - name: Lokale Release-Verifikation
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          risk-layerctl release verify "release-$RELEASE_TAG" --trust-local-manifest
+          sha256sum --check --strict "taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256"
+          sha256sum --check --strict "taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
+          sha256sum --check --strict risk-layer-release-tools.pyz.sha256
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from risk_layer.release_manifest import ReleaseManifest
+
+          tag = os.environ["RELEASE_TAG"]
+          expected = os.environ["RELEASE_WITH_EMBEDDING"] == "true"
+          release = ReleaseManifest.load(Path(f"release-{tag}/release.json"))
+          inner = json.loads(
+              Path(f"taxtronik-festwissen-{tag}.tar.gz.manifest.json")
+              .read_text(encoding="utf-8")
+          )
+          if ("embedding" in release.features) != expected:
+              raise SystemExit("release.json widerspricht RELEASE_WITH_EMBEDDING")
+          if inner.get("embedding") is not expected:
+              raise SystemExit("Festwissen-Manifest widerspricht RELEASE_WITH_EMBEDDING")
+          print(f"Embedding-Modus konsistent: {expected}")
+          PY
+
+      - name: OCI-Kandidat pushen und Digest erfassen
+        id: image
         env:
           REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
           REGISTRY_USER: ${{ secrets.REGISTRY_USER || github.actor }}
-          PUBLISH_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.sha }}
-          PUBLISH_LATEST: ${{ github.ref == 'refs/heads/main' && 'true' || 'false' }}
+          CANDIDATE_TAG: candidate-${{ steps.release.outputs.tag }}-${{ github.sha }}
         run: |
-          docker build -t risk-layer-engine:ci .
+          set -o pipefail
           test -n "$REGISTRY_TOKEN" || { echo "REGISTRY_TOKEN fehlt" >&2; exit 1; }
           test -n "$REGISTRY_USER" || { echo "REGISTRY_USER konnte nicht ermittelt werden" >&2; exit 1; }
-          test -n "$PUBLISH_TAG" || { echo "Publish-Tag konnte nicht ermittelt werden" >&2; exit 1; }
           printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" -u "$REGISTRY_USER" --password-stdin
-          docker tag risk-layer-engine:ci "$IMAGE:$PUBLISH_TAG"
-          docker push "$IMAGE:$PUBLISH_TAG"
-          if [[ "$PUBLISH_LATEST" == "true" ]]; then
-            docker tag risk-layer-engine:ci "$IMAGE:latest"
-            docker push "$IMAGE:latest"
-            echo "gepusht: $IMAGE:$PUBLISH_TAG (+ latest)"
-          else
-            echo "gepusht: $IMAGE:$PUBLISH_TAG"
-          fi
+          docker tag risk-layer-engine:release "$IMAGE:$CANDIDATE_TAG"
+          docker push "$IMAGE:$CANDIDATE_TAG" 2>&1 | tee /tmp/docker-push.log
+          digest="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' /tmp/docker-push.log | tail -n 1)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+            echo "OCI-Digest konnte nicht sicher ermittelt werden" >&2
+            exit 1
+          }
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Kandidat gepusht: $IMAGE@$digest ($CANDIDATE_TAG)"
+
+      - name: Container-Deployment-Manifest erzeugen
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SOURCE_DATE_EPOCH: ${{ steps.release.outputs.epoch }}
+          ENGINE_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          python tools/create_container_release_manifest.py \
+            --release-id "$RELEASE_TAG" \
+            --git-sha "$GITHUB_SHA" \
+            --source-date-epoch "$SOURCE_DATE_EPOCH" \
+            --engine-repository "$IMAGE" \
+            --engine-digest "$ENGINE_DIGEST" \
+            --festwissen "taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
+            --festwissen-manifest "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json" \
+            --native-bundle "taxtronik-native-$RELEASE_TAG.tar.gz" \
+            --native-release-manifest "release-$RELEASE_TAG/release.json" \
+            --compose docker-compose.yml \
+            --release-tools risk-layer-release-tools.pyz \
+            --verify-container-tool tools/verify_container_release_manifest.py \
+            --extract-native-tool tools/extract_release_bundle.py \
+            --deploy-container-tool tools/deploy_container_release.py \
+            --install-release-service deploy/install-release-service.py \
+            --release-launcher deploy/release-launcher.py \
+            --windows-install-service install-service.ps1 \
+            --windows-restart-task deploy/restart-risk-layer-task.ps1 \
+            --windows-install-backup-task deploy/install-backup-task.ps1 \
+            --output "taxtronik-container-$RELEASE_TAG.json"
+          python -I risk-layer-release-tools.pyz verify-container \
+            "taxtronik-container-$RELEASE_TAG.json" --artifact-dir .
+
+      # Generic-Package-Versionen werden nicht überschrieben. Das bindende
+      # Container-Manifest wird innerhalb der Artefaktversion zuletzt geladen;
+      # der produktive SemVer-Image-Tag bleibt der globale Commit-Marker.
+      - name: Release-Artefakte in Forgejo Generic Registry hochladen
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER || github.actor }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          test -n "$REGISTRY_TOKEN" || { echo "REGISTRY_TOKEN fehlt" >&2; exit 1; }
+          test -n "$REGISTRY_USER" || { echo "REGISTRY_USER fehlt" >&2; exit 1; }
+          python - <<'PY'
+          import os
+          from urllib.parse import urlsplit
+
+          value = os.environ["PACKAGE_SERVER"]
+          parsed = urlsplit(value)
+          if (
+              parsed.scheme != "https"
+              or not parsed.hostname
+              or parsed.username is not None
+              or parsed.password is not None
+              or parsed.query
+              or parsed.fragment
+          ):
+              raise SystemExit("PACKAGE_SERVER muss eine credential-freie HTTPS-URL sein")
+          PY
+          auth_dir="${RUNNER_TEMP:-/tmp}"
+          auth_file="$(mktemp "$auth_dir/risk-layer-curl-auth.XXXXXXXX")"
+          cleanup_auth() {
+            case "$auth_file" in
+              "$auth_dir"/risk-layer-curl-auth.*) rm -f -- "$auth_file" ;;
+              *) echo "Unsichere Auth-Datei wird nicht entfernt: $auth_file" >&2 ;;
+            esac
+          }
+          trap cleanup_auth EXIT
+          export RISK_LAYER_CURL_AUTH_FILE="$auth_file"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          user = os.environ["REGISTRY_USER"]
+          token = os.environ["REGISTRY_TOKEN"]
+          if any(character in user + token for character in "\x00\r\n"):
+              raise SystemExit("Registry-Credentials enthalten unzulässige Steuerzeichen")
+          credential = f"{user}:{token}".replace("\\", "\\\\").replace('"', '\\"')
+          target = Path(os.environ["RISK_LAYER_CURL_AUTH_FILE"])
+          target.write_text(f'user = "{credential}"\n', encoding="utf-8")
+          target.chmod(0o600)
+          PY
+          base="${PACKAGE_SERVER%/}/api/packages/$PACKAGE_OWNER/generic/risk-layer/$RELEASE_TAG"
+          upload() {
+            local file="$1"
+            curl --fail --show-error --silent --retry 3 \
+              --config "$auth_file" \
+              --upload-file "$file" "$base/$(basename "$file")"
+            echo "hochgeladen: $(basename "$file")"
+          }
+          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz"
+          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256"
+          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json"
+          upload "taxtronik-native-$RELEASE_TAG.tar.gz"
+          upload "taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
+          upload docker-compose.yml
+          upload .env.release.example
+          upload risk-layer-release-tools.pyz
+          upload risk-layer-release-tools.pyz.sha256
+          upload tools/verify_container_release_manifest.py
+          upload tools/extract_release_bundle.py
+          upload tools/deploy_container_release.py
+          upload deploy/install-release-service.py
+          upload deploy/release-launcher.py
+          upload install-service.ps1
+          upload deploy/restart-risk-layer-task.ps1
+          upload deploy/install-backup-task.ps1
+          upload "taxtronik-container-$RELEASE_TAG.json.sha256"
+          upload "taxtronik-container-$RELEASE_TAG.json"
+
+      # ABSICHTLICH letzter Schritt: Vorher existiert nur ein Candidate-Tag.
+      # Konsumenten dürfen ausschließlich den SemVer-Tag/Manifest-Digest nutzen.
+      - name: SemVer-Image-Tag als finalen Commit-Marker veröffentlichen
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER || github.actor }}
+          PUBLISH_TAG: ${{ steps.release.outputs.tag }}
+          EXPECTED_DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          set -o pipefail
+          test -n "$REGISTRY_TOKEN" || { echo "REGISTRY_TOKEN fehlt" >&2; exit 1; }
+          test -n "$REGISTRY_USER" || { echo "REGISTRY_USER fehlt" >&2; exit 1; }
+          printf '%s' "$REGISTRY_TOKEN" | docker login "$REGISTRY" \
+            -u "$REGISTRY_USER" --password-stdin
+          docker tag risk-layer-engine:release "$IMAGE:$PUBLISH_TAG"
+          docker push "$IMAGE:$PUBLISH_TAG" 2>&1 | tee /tmp/docker-final-push.log
+          digest="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' \
+            /tmp/docker-final-push.log | tail -n 1)"
+          [[ "$digest" == "$EXPECTED_DIGEST" ]] || {
+            echo "Finaler OCI-Digest weicht vom verifizierten Kandidaten ab" >&2
+            exit 1
+          }
+          echo "Release committed: $IMAGE:$PUBLISH_TAG@$digest (kein latest)"

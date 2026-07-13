@@ -9,8 +9,10 @@
 # Normgraph, Zitat-Parser) + NER-Schicht der Anonymisierung (spaCy +
 # de_core_news_lg, §203-Gate — exakt gepinnt, siehe Block unten). Die
 # Embedding-Schicht (Schicht 1.7, ~2,3 GB BGE-M3) ist optional über das
-# Build-Arg WITH_EMBEDDING=1 zuschaltbar – sie lädt das Modell lazy zur
-# Laufzeit; ohne sie liefert /v1/embedding/suche schlicht leer.
+# Build-Arg WITH_EMBEDDING=1 zuschaltbar. Produktiv kommen die am festen Commit
+# manifestierten Gewichte read-only aus `/release/models/bge-m3`; Netzwerk-
+# Fallback ist im Produktions-Compose gesperrt. Ohne die Python-Schicht liefert
+# /v1/embedding/suche schlicht leer.
 # Schicht 2 (LLM) läuft als SEPARATER llama-server (nicht in diesem Image).
 # =============================================================================
 # Basis-Image per DIGEST gepinnt (reproduzierbare Builds): der Tag 3.12-slim

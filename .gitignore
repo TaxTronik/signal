@@ -14,6 +14,18 @@ dist/
 venv/
 env/
 
+# Lokal gebaute, publizierbare Release-Ausgaben (nie aus dem Arbeitsbaum committen)
+taxtronik-festwissen-*.tar.gz
+taxtronik-festwissen-*.tar.gz.sha256
+taxtronik-festwissen-*.tar.gz.manifest.json
+taxtronik-native-*.tar.gz
+taxtronik-native-*.tar.gz.sha256
+taxtronik-container-v*.json
+taxtronik-container-v*.json.sha256
+risk-layer-release-tools.pyz
+risk-layer-release-tools.pyz.sha256
+release-v*/
+
 # Test / Tooling
 .pytest_cache/
 .mypy_cache/
@@ -28,6 +40,8 @@ runs/
 
 # Persönliche Berater-Definitionen (können mandantenbezogene Notizen enthalten)
 **/personal.yaml
+**/sicherungen/
+festwissen_*.zip
 # Norm-Kuratierung: lokaler Berater-Laufzeit-State (gemischte Scopes, pro Deployment);
 # die produktive Kuratierung lebt auf der deployten Engine, auditiert im Host.
 **/norm_kuratierung.yaml

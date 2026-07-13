@@ -113,7 +113,7 @@ Je Schicht (Abgrenzung KI vs. Regelwerk wie im Mapping § 4):
 |---|---|---|
 | 1 (`matcher.py`), 1b (`muster.py`), 1.5 (`triggerindex.py`) | wörtliches Matching, Ko-Okkurrenz-Muster, IDF-Trigger | nein — deterministisch |
 | Zitat-Parser, Resolver, Normgraph, Unknown-Gate | Parsing, SQLite-Lookup, Regel-/Schwellenlogik | nein — deterministisch |
-| 1.7 (`embedding.py`) | Embedding-Encoder **BGE-M3** (`BAAI/bge-m3`, neuronaler Bi-Encoder) | **ja** |
+| 1.7 (`embedding.py`) | Embedding-Encoder **BGE-M3** (`BAAI/bge-m3`, Commit `5617a9f61b028005a4858fdac845db406aefb181`, lokal manifestiert; produktiv ohne Remote-Fallback) | **ja** |
 | 1.7b (`reranker.py`) | Cross-Encoder `bge-reranker-v2-m3`, Abstention-Schwelle 0,10 (`RISK_LAYER_RERANK_SCHWELLE`) | **ja** |
 | 2 (`schicht2.py`, `llm.py`) | lokales LLM via llama.cpp/llama-server (GGUF aus kuratierter Registry in `modell.py`, Default `granite-4.1-8b` Q5_K_M); Seed = 0, Temperatur = 0, Constrained Decoding + Span-Gate | **ja** |
 | NER der Anonymisierung (`anonymize.py`) | spaCy `de_core_news_lg` (statistische NER), optional, nach den führenden Regexen; degradiert auf den Regex-Pfad (`RISK_LAYER_NER=aus`) | **ja** |
@@ -149,21 +149,25 @@ Die Engine ist headless — keine GUI, kein eigener Audit-Log. Zwei Zugänge:
   eingefrorene Antwort-Fixtures (`fixtures/v1_analyse_*.json`) sichern den
   Vertrag.
 - **CLI** (`cli.py`): `analyse`, `katalog`, `trigger`, `embedding`, `abgleich`,
-  `zitat`, `korpus`, `graph`, `radar`, `modell`, `definiere` sowie die
-  Betriebsordnungs-Werkzeuge `festwissen sichern` / `festwissen
-  wiederherstellen` und `modell verify` — für Build, Wartung und
-  Datensicherung. Das CLI-Kommando `definiere` ist als Nicht-Audit-Pfad
-  gekennzeichnet; produktive Schreibvorgänge laufen über `/v1`.
+  `zitat`, `korpus`, `graph`, `radar`, `modell` und `definiere` — einschließlich
+  `modell verify` für Analyse, Build und Wartung. Die getrennte
+  Betriebsoberfläche `risk-layerctl` stellt manifestierte Releases samt
+  `verify/install/status/rollback` sowie konsistente
+  `backup create/verify/restore` bereit. Das CLI-Kommando `definiere` ist als
+  Nicht-Audit-Pfad gekennzeichnet; produktive Schreibvorgänge laufen über `/v1`.
 
 ### 3.5 IT-Infrastruktur
 
 Lokaler On-Premises-Betrieb ohne Laufzeit-Netzzugriff (Ausnahmen: bewusst
 freigegebener, abstrahierter Recherche-Export mit Default-deny-Allowlist und
 der RSS-Abgleich). Betriebsformen: Docker (Dockerfile mit per Digest gepinntem
-Basis-Image, Healthcheck `/v1/health`, Festwissen-Volume `/app/corpus`;
-`docker-compose.yml` bindet den Port nur an Loopback), systemd
-(`deploy/risk-layer.service.in`, unprivilegierte User-Unit, Root-Start wird
-verweigert, Token in separater EnvironmentFile mit `chmod 600`) oder Windows-
+Basis-Image und authentisiertem Healthcheck `/v1/health`;
+`docker-compose.yml` verlangt das Engine-Image per OCI-Digest, mountet eine
+verifizierte Festwissen-Generation read-only und bindet den Port standardmäßig
+nur an Loopback; lokale Builds sind in `docker-compose.dev.yml` getrennt), systemd
+(`deploy/risk-layer-release.service.in`, release-aware unprivilegierte User-Unit,
+Root-Start wird verweigert, Token in separater EnvironmentFile mit `chmod 600`)
+oder Windows-
 Autostart als begrenzter Benutzer-Task (`RunLevel Limited`, Token-Gate im
 PowerShell-Wrapper). Ein Windows-Boot-Dienst aus dem benutzerschreibbaren
 Checkout wird nicht angeboten. Builds sind
@@ -176,6 +180,15 @@ konkreten llama.cpp-Release samt SHA-256 je Windows-/Ubuntu-x64-Asset; `modell.p
 der Extraktion; eine dynamische `latest`-Auflösung findet nicht statt. Der HTTP-Server ist
 Standardbibliothek; das LLM läuft als separater lokaler Prozess; GPU ist
 optional mit definierter CPU-Degradation.
+
+Der native Release-Manager prüft ein exaktes Datei-/Hashinventar, installiert
+die manifestierten, plattform- und ABI-gebundenen Runtime-Wheels ohne
+Netzzugriff in eine generationsgebundene Venv und schaltet
+`current`/`previous` atomar; ein Schemawechsel ohne Migration wird abgelehnt.
+Das gesonderte
+[Betriebs-Runbook](../BETRIEB_DEPLOY_UPDATE_BACKUP.md) beschreibt Update,
+Rollback, Backup-Scheduler und Restore-Probe und kennzeichnet externe Pflichten
+(Tag-Schutz, Off-host-Ziel, Retention/Restic, Monitoring) ausdrücklich.
 
 ## 4. Verantwortungsschnitt Engine ↔ TaxTronik (Host)
 

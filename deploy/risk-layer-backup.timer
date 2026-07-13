@@ -1,0 +1,11 @@
+[Unit]
+Description=Tägliches Risk-Layer-Festwissen-Backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=risk-layer-backup.service
+
+[Install]
+WantedBy=timers.target

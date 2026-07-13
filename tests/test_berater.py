@@ -1,9 +1,12 @@
 """Berater-Definitionen: Datenmodell, Persistenz, Lebenszyklus (Erweiterung §4)."""
 
+import threading
+
 import pytest
 import yaml
 
 from risk_layer.berater import BeraterFehler, BeraterStore
+from risk_layer.dateisperre import festwissen_sperre
 from risk_layer.models import Status
 
 
@@ -362,3 +365,60 @@ def test_markierungen_ignoriert_leeren_begriff(tmp_path):
                                               definition_text="x", scope="personal", autor="rey"))
     marks = store.markierungen("Eine Betriebsaufspaltung und mehr Text.", nutzer="rey")
     assert len(marks) == 1 and marks[0].titel == "Betriebsaufspaltung"
+
+
+def test_mutation_wartet_auf_gemeinsame_backup_sperre(tmp_path):
+    """Der komplette Store-Write teilt sich den Lock mit Backup/Restore."""
+    store = BeraterStore(tmp_path)
+    begonnen = threading.Event()
+    fertig = threading.Event()
+    fehler: list[BaseException] = []
+
+    def mutiere() -> None:
+        begonnen.set()
+        try:
+            store.definiere("Nach Lock", "sicher", autor="a", datum="d")
+        except BaseException as exc:  # im Hauptthread sichtbar machen
+            fehler.append(exc)
+        finally:
+            fertig.set()
+
+    with festwissen_sperre(tmp_path):
+        thread = threading.Thread(target=mutiere)
+        thread.start()
+        assert begonnen.wait(1)
+        assert not fertig.wait(0.05)
+    thread.join(timeout=2)
+    assert not thread.is_alive()
+    assert fehler == []
+    assert {d.id for d in BeraterStore(tmp_path).alle()} == {"nach_lock"}
+
+
+def test_mutation_bildet_lock_timeout_auf_beraterfehler_ab(tmp_path, monkeypatch):
+    import risk_layer.berater as berater_modul
+
+    store = BeraterStore(tmp_path)
+
+    def sehr_kurze_sperre(verzeichnis):
+        return festwissen_sperre(verzeichnis, timeout=0.01, poll_intervall=0.002)
+
+    monkeypatch.setattr(berater_modul, "festwissen_sperre", sehr_kurze_sperre)
+    with festwissen_sperre(tmp_path):
+        with pytest.raises(BeraterFehler, match="anderen Prozess gesperrt"):
+            BeraterStore(tmp_path)
+        with pytest.raises(BeraterFehler, match="anderen Prozess gesperrt"):
+            store.definiere("Darf nicht", "persistieren", autor="a", datum="d")
+    assert BeraterStore(tmp_path).alle() == []
+
+
+def test_store_alias_ueber_symlink_erzeugt_keinen_zweiten_lock(tmp_path):
+    real = tmp_path / "real" / "berater"
+    real.mkdir(parents=True)
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(real, target_is_directory=True)
+    except OSError:
+        pytest.skip("Verzeichnis-Symlinks stehen nicht zur Verfuegung")
+
+    with pytest.raises(BeraterFehler, match="Symlink|Reparse"):
+        BeraterStore(alias)

@@ -1,35 +1,83 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Baut das FESTWISSEN-Release-Artefakt EINMAL zentral: Korpus + Normgraph +
-# Trigger + Embedding-Index. Kanzleien ZIEHEN das Artefakt, statt es lokal aus
-# gesetze-im-internet zu bauen (Minuten statt Stunden, deterministisch über die
-# Flotte, keine Internet-Abhängigkeit beim Kunden).
+# Baut ein reproduzierbares, manifestiertes FESTWISSEN-Release. Der Default ist
+# explizit OHNE Embedding; der Inhalt hängt nicht mehr von zufällig installierten
+# Python-Paketen ab. Mandanten- und Beraterdaten werden niemals aufgenommen.
 #
-# Mandantenfrei + regenerierbar — enthält NUR Festwissen, nie Mandantendaten.
-# Aufruf:  ./build-release-artifact.sh [VERSION]   (Default: heutiges Datum)
+# Aufruf:
+#   ./build-release-artifact.sh VERSION [--mit-embedding|--ohne-embedding]
+# Für byte-identische Wiederholungen denselben SOURCE_DATE_EPOCH mitgeben.
 # =============================================================================
 set -euo pipefail
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PY=python3; command -v "$PY" >/dev/null 2>&1 || PY=python
-VER="${1:-$(date +%Y-%m-%d)}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
 
-echo "=== Festwissen bauen (Version $VER) ==="
-"$PY" -m risk_layer.cli korpus init
-"$PY" -m risk_layer.cli korpus fetch
-"$PY" -m risk_layer.cli graph build
-"$PY" -m risk_layer.cli trigger build
-if "$PY" -c "import sentence_transformers" 2>/dev/null; then
-  "$PY" -m risk_layer.cli embedding build
-  EMB="corpus/embedding"
-else
-  echo "  (sentence-transformers fehlt -> Embedding-Index NICHT im Artefakt)"; EMB=""
+PY=python3
+command -v "$PY" >/dev/null 2>&1 || PY=python
+VER="${1:-$(date +%Y-%m-%d)}"
+MODUS="${2:---ohne-embedding}"
+case "$MODUS" in
+  --mit-embedding) MIT_EMBEDDING=1 ;;
+  --ohne-embedding) MIT_EMBEDDING=0 ;;
+  *) echo "Unbekannte Option: $MODUS" >&2; exit 2 ;;
+esac
+
+GIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
+export SOURCE_DATE_EPOCH="$SOURCE_EPOCH"
+OUT="taxtronik-festwissen-$VER.tar.gz"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/risk-layer-release.XXXXXXXX")"
+cleanup() {
+  case "$STAGE" in
+    "${TMPDIR:-/tmp}"/risk-layer-release.*) rm -rf -- "$STAGE" ;;
+    *) echo "Unsicheres Staging-Verzeichnis wird nicht entfernt: $STAGE" >&2 ;;
+  esac
+}
+trap cleanup EXIT
+CORPUS="$STAGE/corpus"
+mkdir -p "$STAGE/catalog"
+install -m 0644 catalog/begriffe.yaml "$STAGE/catalog/begriffe.yaml"
+
+echo "=== Festwissen bauen (Version $VER, Embedding=$MIT_EMBEDDING) ==="
+"$PY" -m risk_layer.cli korpus init --dir "$CORPUS"
+"$PY" -m risk_layer.cli korpus fetch --dir "$CORPUS"
+# `korpus fetch` war historisch schon bei einem einzigen erfolgreichen Download
+# exit 0. Das separate Gate verlangt aus dem leeren Staging exakt jede
+# konfigurierte, parsebare XML und schließt dadurch Teil-/Altbestände aus.
+"$PY" -m tools.verify_corpus_fetch "$CORPUS"
+"$PY" -m risk_layer.cli graph build \
+  --dir "$CORPUS" --db "$CORPUS/graph.sqlite"
+"$PY" -m risk_layer.cli trigger build \
+  --db "$CORPUS/trigger.sqlite" --graph-db "$CORPUS/graph.sqlite"
+
+PAKET_ARGS=()
+if [[ "$MIT_EMBEDDING" == "1" ]]; then
+  "$PY" -c "import sentence_transformers" >/dev/null 2>&1 || {
+    echo "--mit-embedding verlangt sentence-transformers" >&2
+    exit 1
+  }
+  MODEL="$STAGE/models/bge-m3"
+  "$PY" -m tools.snapshot_embedding_model --output "$MODEL"
+  export RISK_LAYER_EMBEDDING_MODEL="$MODEL"
+  export RISK_LAYER_EMBEDDING_OFFLINE=1
+  export HF_HUB_OFFLINE=1
+  export TRANSFORMERS_OFFLINE=1
+  "$PY" -m risk_layer.cli embedding build \
+    --encoder bge-m3 --model "$MODEL" --device cpu \
+    --dir "$CORPUS/embedding" --graph-db "$CORPUS/graph.sqlite"
+  PAKET_ARGS+=(--embedding)
 fi
 
-OUT="taxtronik-festwissen-$VER.tar.gz"
-# corpus/gii (Roh-XML) bewusst NICHT mit ausliefern — nur die gebauten Artefakte.
-tar -czf "$OUT" \
-  corpus/gesetze.yaml corpus/graph.sqlite corpus/trigger.sqlite $EMB \
-  catalog/begriffe.yaml
-( command -v sha256sum >/dev/null && sha256sum "$OUT" || shasum -a 256 "$OUT" ) > "$OUT.sha256"
-echo "=== fertig: $OUT (+ .sha256) ==="
-echo "Auf dem Zielrechner:  tar -xzf $OUT   (überschreibt corpus/ + catalog/begriffe.yaml)"
+"$PY" -m tools.package_festwissen_release \
+  --release-id "$VER" \
+  --git-sha "$GIT_SHA" \
+  --source-date-epoch "$SOURCE_EPOCH" \
+  --output "$OUT" \
+  --source-root "$STAGE" \
+  "${PAKET_ARGS[@]}"
+
+echo "=== fertig ==="
+echo "  $OUT"
+echo "  $OUT.sha256"
+echo "  $OUT.manifest.json"
+echo "Installation ausschließlich über risk-layerctl release install; nicht live entpacken."

@@ -75,8 +75,13 @@ Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semanti
 `llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (NER-Anonymisierung +
 breitere Lemmatisierung).
 
-Komplett-Setup übernimmt das Deploy-Skript (`./deploy.sh` Linux, `./deploy.ps1`
-Windows). Es provisioniert die NER-Schicht der Anonymisierung (spaCy +
+Ein initiales Checkout-Setup übernimmt das Deploy-Skript (`./deploy.sh` Linux,
+`./deploy.ps1` Windows). Produktive Updates laufen dagegen über verifizierte,
+unveränderliche Releases mit `risk-layerctl`; die Deploy-Skripte sind kein
+In-place-Updater. Das vollständige Update-, Rollback-, Compose- und
+Backup-Verfahren steht im
+[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md). Das Setup provisioniert
+die NER-Schicht der Anonymisierung (spaCy +
 `de_core_news_lg`) automatisch mit — sie stärkt das §203-Gate. Opt-out für
 schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallback:
 `python -m pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt`. Zur
@@ -126,6 +131,24 @@ benutzerschreibbaren Checkout wird absichtlich nicht angeboten. Migration einer
 älteren Dienst-/SYSTEM-Installation: zuerst aus einer administrativen PowerShell
 `./install-service.ps1 -Remove`, danach als normaler Benutzer den begrenzten Task
 neu installieren.
+
+### Produktive Releases, Container und Rollback
+
+`docker-compose.yml` ist ein reines Produktions-Deployment: kein lokaler Build,
+kein `latest`, sondern ein zwingender OCI-Digest sowie ein read-only gemountetes,
+manifestiertes Festwissen-Release. Lokale Checkout-Builds verwenden ausdrücklich
+`docker-compose.dev.yml`. Das LLM läuft optional im Compose-Profil `llm` und ist
+keine Startabhängigkeit des deterministischen Engine-Kerns.
+
+Der Forgejo-Workflow veröffentlicht nur aus einem annotierten
+`vMAJOR.MINOR.PATCH`-Tag. Das native Bundle bindet Wheel, gehashte Plattform-Locks,
+Offline-Wheelhouses für Linux/Windows, Korpus, Graph, Trigger, Katalog und den
+produktiven Embedding-Index einschließlich des am festen Commit manifestierten
+lokalen BGE-M3-Modells einzeln an `release.json`; der lokale
+Release-Manager baut daraus je Generation eine Offline-Venv und hält einen
+atomaren `current`/`previous`-Zustand. Der produktive OCI-SemVer-Tag wird erst
+nach allen anderen Uploads gesetzt. Bedienung, sichere Extraktion und Rollback:
+[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md).
 
 Als Bibliothek:
 

@@ -1,92 +1,124 @@
 # =============================================================================
-# TaxTronik / Risk-Layer — zustandslose /v1-Engine + LLM-Sidecar (Schicht 2).
+# PRODUKTION: unveränderliches Engine-Image + unveränderliches Festwissen.
 #
-# § 203 StGB: nichts verlässt die Maschine; Mandantendaten werden NICHT persistiert
-# (nur Festwissen wird read-only gemountet, berater-kuratierte Definitionen RW).
+# Diese Datei baut absichtlich nichts. Image-Digest und entpacktes
+# Festwissen-Release kommen gemeinsam aus einem verifizierten Release-Manifest.
+# Entwicklungs-Builds laufen ausschließlich über docker-compose.dev.yml.
 #
-# GPU: der llm-Sidecar braucht NVIDIA (nvidia-container-toolkit). AMD/ROCm im
-# Docker ist Linux-only + schmale GPU-Liste; auf Windows/AMD-Hosts den LLM NATIV
-# fahren (llm-Service unten auskommentieren, llama-server lokal starten und
-# engine.command --llm-url auf http://host.docker.internal:8080 zeigen).
+# Erforderlich:
+#   RISK_LAYER_ENGINE_DIGEST=sha256:<64 hex>
+#   RISK_LAYER_RELEASE_ID=vX.Y.Z
+#   RISK_LAYER_RELEASE_GIT_SHA=<40 hex>
+#   RISK_LAYER_RELEASE_MANIFEST_SHA256=<64 hex>
+#   RISK_LAYER_FESTWISSEN_DIR=/opt/risk-layer/releases/vX.Y.Z
+#   RISK_LAYER_DEFINITIONEN_DIR=/var/lib/risk-layer/definitionen
+#   RISK_LAYER_TOKEN=<mindestens 32 UTF-8-Bytes>
 #
-# Linux einmalig (verhindert root-eigene, implizit erzeugte Bind-Verzeichnisse):
-#   install -d -m 0700 definitionen models
-# Bei einer Host-UID/GID ungleich 1000 vor Build/Start zusätzlich exportieren:
-#   export RISK_LAYER_UID=$(id -u) RISK_LAYER_GID=$(id -g)
-# Start:  RISK_LAYER_TOKEN=$(cat .engine_token) docker compose up -d
+# Start ohne LLM:
+#   docker compose pull engine
+#   docker compose up -d --wait --wait-timeout 180 engine
+# Optionales lokales NVIDIA-LLM:
+#   docker compose --profile llm up -d --wait --wait-timeout 300
 # =============================================================================
+name: risk-layer
+
 services:
   engine:
-    build:
-      context: .
-      args:
-        WITH_EMBEDDING: "1"
-        RISK_LAYER_UID: ${RISK_LAYER_UID:-1000}
-        RISK_LAYER_GID: ${RISK_LAYER_GID:-1000}
-    image: taxtronik/risk-layer-engine:${TAG:-latest}
+    image: "${RISK_LAYER_ENGINE_REPOSITORY:-git.hirschmann-koxha.de/taxtronik/risk-layer-engine}@${RISK_LAYER_ENGINE_DIGEST:?RISK_LAYER_ENGINE_DIGEST aus dem verifizierten Release-Manifest setzen}"
     environment:
-      - RISK_LAYER_TOKEN=${RISK_LAYER_TOKEN:?bitte RISK_LAYER_TOKEN setzen (z. B. aus .engine_token)}
-      - RISK_LAYER_EMB_DEVICE=cpu          # Embedding im Container CPU; für GPU-Embedding Host-Deploy nutzen
-    command: ["python", "-m", "risk_layer.web", "--host", "0.0.0.0", "--port", "8000",
-              "--graph", "corpus/graph.sqlite", "--llm-url", "http://llm:8080"]
+      RISK_LAYER_TOKEN: "${RISK_LAYER_TOKEN:?RISK_LAYER_TOKEN setzen}"
+      RISK_LAYER_TOKEN_VORGAENGER: "${RISK_LAYER_TOKEN_VORGAENGER:-}"
+      RISK_LAYER_EMB_DEVICE: "${RISK_LAYER_EMB_DEVICE:-cpu}"
+      RISK_LAYER_EMBEDDING_MODEL: /release/models/bge-m3
+      RISK_LAYER_EMBEDDING_OFFLINE: "1"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      # Nur Betriebsmetadatum; die verbindlichen Digests stehen im Release-Manifest.
+      RISK_LAYER_RELEASE_ID: "${RISK_LAYER_RELEASE_ID:?RISK_LAYER_RELEASE_ID aus dem Release-Manifest setzen}"
+      RISK_LAYER_RELEASE_GIT_SHA: "${RISK_LAYER_RELEASE_GIT_SHA:?Git-SHA aus dem Release-Manifest setzen}"
+      RISK_LAYER_RELEASE_MANIFEST_SHA256: "${RISK_LAYER_RELEASE_MANIFEST_SHA256:?SHA-256 des verifizierten Release-Manifests setzen}"
+    command:
+      - python
+      - -m
+      - risk_layer.web
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --katalog
+      - /release/catalog/begriffe.yaml
+      - --berater
+      - /state/definitionen
+      - --graph
+      - /release/corpus/graph.sqlite
+      - --llm-url
+      - "${RISK_LAYER_LLM_URL:-http://llm:8080}"
+    # trigger.sqlite und embedding/ werden derzeit relativ zu corpus/ geöffnet.
+    # Das Working Directory zeigt deshalb auf das atomar installierte Release.
+    working_dir: /release
     volumes:
-      - type: bind                         # Festwissen (Graph/Trigger/Embedding) — read-only
-        source: ./corpus
-        target: /app/corpus
+      - type: bind
+        source: "${RISK_LAYER_FESTWISSEN_DIR:?absoluten Pfad der aktivierten Release-Wurzel setzen}"
+        target: /release
         read_only: true
         bind:
           create_host_path: false
-      - type: bind                         # Begriffskatalog — read-only
-        source: ./catalog
-        target: /app/catalog
-        read_only: true
+      - type: bind
+        source: "${RISK_LAYER_DEFINITIONEN_DIR:?persistentes Definitionen-Verzeichnis setzen}"
+        target: /state/definitionen
         bind:
           create_host_path: false
-      - type: bind                         # berater-kuratiertes Wissen ("der Schatz") — persistent, RW
-        source: ./definitionen
-        target: /app/definitionen
-        bind:
-          create_host_path: false
-      - type: volume                       # persistenter Download-Cache für BGE-M3
+      - type: volume
         source: embedding-cache
         target: /cache
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
     init: true
-    cap_drop:
-      - ALL
+    cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
-    mem_limit: ${RISK_LAYER_ENGINE_MEMORY_LIMIT:-12g}
-    cpus: ${RISK_LAYER_ENGINE_CPU_LIMIT:-8.0}
+    mem_limit: "${RISK_LAYER_ENGINE_MEMORY_LIMIT:-12g}"
+    cpus: "${RISK_LAYER_ENGINE_CPU_LIMIT:-8.0}"
     ports:
-      - "127.0.0.1:8000:8000"              # NUR Loopback nach außen; im selben Netz spricht TaxTronik 'engine:8000'
-    depends_on:
-      llm:
-        condition: service_healthy           # erst starten, wenn das LLM /health liefert
+      - "${RISK_LAYER_BIND_ADDRESS:-127.0.0.1}:${RISK_LAYER_PORT:-8000}:8000"
+    # Explizit in Compose, damit `up --wait` auf API-Readiness statt nur auf
+    # den Containerzustand wartet. Das Token kommt nur aus der Prozess-Env.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request,sys; t=os.environ['RISK_LAYER_TOKEN']; r=urllib.request.Request('http://127.0.0.1:8000/v1/health',headers={'Authorization':'Bearer '+t}); sys.exit(0 if urllib.request.urlopen(r,timeout=4).status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     restart: unless-stopped
 
-  # ---- Schicht 2 (LLM) — NVIDIA-GPU. Auf AMD/Windows auskommentieren + nativ. ----
+  # Optional und bewusst nicht in engine.depends_on: Der deterministische Kern
+  # startet/bleibt gesund, auch wenn Schicht 2 fehlt oder noch ein Modell lädt.
   llm:
-    # Per DIGEST gepinnt (reproduzierbar über die Flotte): der Tag server-cuda
-    # dokumentiert die Intention, der Digest pinnt den Stand (OCI image index,
-    # Docker-Content-Digest der ghcr.io-Registry-API, Stand 2026-06-10).
-    # Update: neuen Digest holen via
-    #   docker buildx imagetools inspect ghcr.io/ggml-org/llama.cpp:server-cuda
-    # (oder ghcr.io-API: HEAD /v2/ggml-org/llama.cpp/manifests/server-cuda)
-    # und hier ersetzen.
+    profiles: [llm]
     image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:1c4ff61ab157cdaee20dcae39860394384e5e9703c8848a33d2e40d68b6df0fa
     user: "${RISK_LAYER_UID:-1000}:${RISK_LAYER_GID:-1000}"
     environment:
       HOME: /tmp
       CUDA_CACHE_PATH: /tmp/cuda-cache
-    command: ["-m", "/models/granite-4.1-8b-Q5_K_M.gguf", "--host", "0.0.0.0",
-              "--port", "8080", "-ngl", "99", "--jinja"]
+    command:
+      - -m
+      - "/models/${RISK_LAYER_LLM_MODEL:-granite-4.1-8b-Q5_K_M.gguf}"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -ngl
+      - "99"
+      - --jinja
     volumes:
       - type: bind
-        source: ./models
+        source: "${RISK_LAYER_MODELS_DIR:-./models}"
         target: /models
         read_only: true
         bind:
@@ -95,17 +127,14 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=1g,mode=1777
     init: true
-    cap_drop:
-      - ALL
+    cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
     pids_limit: 512
-    mem_limit: ${RISK_LAYER_LLM_MEMORY_LIMIT:-16g}
-    cpus: ${RISK_LAYER_LLM_CPU_LIMIT:-16.0}
-    # llama.cpp-server hat einen /health-Endpoint; das server-cuda-Image bringt curl mit.
-    # start_period großzügig: das GGUF (~6 GB) braucht beim Laden Zeit.
+    mem_limit: "${RISK_LAYER_LLM_MEMORY_LIMIT:-16g}"
+    cpus: "${RISK_LAYER_LLM_CPU_LIMIT:-16.0}"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: [CMD, curl, -f, http://localhost:8080/health]
       interval: 30s
       timeout: 5s
       start_period: 120s

@@ -27,6 +27,9 @@ def test_produktionsinstaller_loesen_keine_ml_ranges_mehr_auf() -> None:
         assert "hf_transfer" not in skript
         assert "qiskit>=" not in skript
         assert "requirements-runtime-lock.txt" in skript
+        assert "--no-build-isolation --no-deps -e ." not in skript
+        assert "pip wheel --no-build-isolation --no-deps" in skript
+        assert "--no-index --no-deps --force-reinstall" in skript
 
     assert "requirements-embedding-linux-cpu-py312-lock.txt" in linux
     assert "requirements-quanten-linux-py312-lock.txt" in linux

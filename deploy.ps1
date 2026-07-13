@@ -28,6 +28,9 @@
   Intel->vulkan, sonst CPU) oder explizit cuda|rocm|hip|vulkan|cpu.
 .PARAMETER Start
   Nach dem Setup die /v1-Engine starten (blockiert).
+.PARAMETER RotateToken
+  Rotiert das Auth-Token bewusst. -Force erneuert Build-Artefakte, rotiert aber
+  kein Geheimnis und sperrt dadurch nicht unbeabsichtigt bestehende Clients aus.
 
 .EXAMPLE
   ./deploy.ps1                          # Deps + Modell + Engine + Korpus/Graph/Trigger
@@ -50,6 +53,7 @@ param(
     [switch]$OhneNer,
     [switch]$Voll,
     [switch]$Force,
+    [switch]$RotateToken,
     [switch]$Start,
     [switch]$Service,
     [string]$Modell = "",
@@ -271,8 +275,23 @@ if (-not $SkipDeps) {
     # Schlanker Produktionskern (PyYAML + numpy + Build-Backend), ohne pytest.
     & python -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
     if ($LASTEXITCODE -ne 0) { throw "pip install (Hash-Lock) fehlgeschlagen." }
-    & python -m pip install --no-build-isolation --no-deps -e .
-    if ($LASTEXITCODE -ne 0) { throw "pip install (Kern) fehlgeschlagen." }
+    # Kein Editable-Install im Betrieb: Checkout-Aenderungen duerfen nicht
+    # unbemerkt den vom Dienst importierten Code austauschen.
+    $wheelDir = Join-Path ([System.IO.Path]::GetTempPath()) `
+        ("risk-layer-wheel-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        [void](New-Item -ItemType Directory -Path $wheelDir)
+        & python -m pip wheel --no-build-isolation --no-deps --wheel-dir $wheelDir .
+        if ($LASTEXITCODE -ne 0) { throw "Wheel-Build (Kern) fehlgeschlagen." }
+        $wheels = @(Get-ChildItem -LiteralPath $wheelDir -Filter "risk_layer-*.whl" -File)
+        if ($wheels.Count -ne 1) { throw "Erwartete genau ein gebautes Risk-Layer-Wheel." }
+        & python -m pip install --no-index --no-deps --force-reinstall $wheels[0].FullName
+        if ($LASTEXITCODE -ne 0) { throw "Wheel-Installation (Kern) fehlgeschlagen." }
+    } finally {
+        if (Test-Path -LiteralPath $wheelDir) {
+            Remove-Item -LiteralPath $wheelDir -Recurse -Force
+        }
+    }
     if ($WithEmbedding) {
         if ($pv -ne "3.12") { throw "-WithEmbedding ist nur mit dem vorhandenen Windows/Python-3.12-Hashlock erlaubt (gefunden: $pv)." }
         if (([string]$env:RISK_LAYER_EMB_DEVICE).Trim().ToLowerInvariant() -ne "cpu") {
@@ -342,7 +361,9 @@ if (Test-Path -LiteralPath $tokenPath) {
     # Auch Dateien aus aelteren Deploy-Laeufen auf die restriktive ACL heben.
     Set-EngineTokenAcl -Path $tokenPath
 }
-if ((-not (Test-Path -LiteralPath $tokenPath)) -or $Force) {
+# Artefakt-Rebuild (-Force) und Credential-Rotation sind getrennte
+# Betriebsereignisse. Nur -RotateToken sperrt bestehende Clients aus.
+if ((-not (Test-Path -LiteralPath $tokenPath)) -or $RotateToken) {
     $tok = & python -c "import secrets; print(secrets.token_hex(32))"
     $tokenExitCode = $LASTEXITCODE
     $tok = ([string]$tok).Trim()
@@ -490,6 +511,13 @@ if ($Service) {
     Schritt "Windows-Autostart einrichten (begrenzter Benutzer-Task, --llm-autostart)"
     & "$PSScriptRoot/install-service.ps1" -Port $Port -BindHost $BindHost `
         -EmbeddingDevice $env:RISK_LAYER_EMB_DEVICE
+    if (-not $?) { throw "Windows-Autostart konnte nicht installiert werden." }
+    $healthHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } else { $BindHost }
+    if ($healthHost.Contains(":")) { $healthHost = "[$healthHost]" }
+    & python -P -m risk_layer.ops_cli doctor `
+        --url "http://${healthHost}:$Port" --token-file $tokenPath `
+        --timeout 300 --require-layer matcher
+    if ($LASTEXITCODE -ne 0) { throw "Health/Status nach Autostart fehlgeschlagen." }
     Write-Host "`nAutostart eingerichtet - startet bei Benutzeranmeldung. (Foreground-Start uebersprungen.)" -ForegroundColor Green
 }
 elseif ($Start) {

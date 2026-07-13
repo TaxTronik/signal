@@ -1,0 +1,132 @@
+# =============================================================================
+# NUR ENTWICKLUNG: baut aus dem aktuellen, möglicherweise schmutzigen Checkout
+# und mountet dessen Arbeitsdaten direkt. Nicht für Produktion oder Rollbacks.
+#
+# Start:
+#   RISK_LAYER_TOKEN=<dev-secret-mit-mindestens-32-Bytes> \
+#     docker compose -f docker-compose.dev.yml up -d --build --wait
+# Optional mit NVIDIA-LLM: zusätzlich `--profile llm`.
+# =============================================================================
+name: risk-layer-dev
+
+services:
+  engine:
+    build:
+      context: .
+      args:
+        WITH_EMBEDDING: "${WITH_EMBEDDING:-1}"
+        RISK_LAYER_UID: "${RISK_LAYER_UID:-1000}"
+        RISK_LAYER_GID: "${RISK_LAYER_GID:-1000}"
+    image: risk-layer-engine:dev
+    environment:
+      RISK_LAYER_TOKEN: "${RISK_LAYER_TOKEN:?RISK_LAYER_TOKEN setzen}"
+      RISK_LAYER_TOKEN_VORGAENGER: "${RISK_LAYER_TOKEN_VORGAENGER:-}"
+      RISK_LAYER_EMB_DEVICE: "${RISK_LAYER_EMB_DEVICE:-cpu}"
+    command:
+      - python
+      - -m
+      - risk_layer.web
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --graph
+      - corpus/graph.sqlite
+      - --llm-url
+      - "${RISK_LAYER_LLM_URL:-http://llm:8080}"
+    volumes:
+      - type: bind
+        source: ./corpus
+        target: /app/corpus
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./catalog
+        target: /app/catalog
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./definitionen
+        target: /app/definitionen
+        bind:
+          create_host_path: false
+      - type: volume
+        source: embedding-cache-dev
+        target: /cache
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m,mode=1777
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: "${RISK_LAYER_ENGINE_MEMORY_LIMIT:-12g}"
+    cpus: "${RISK_LAYER_ENGINE_CPU_LIMIT:-8.0}"
+    ports:
+      - "127.0.0.1:${RISK_LAYER_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,urllib.request,sys; t=os.environ['RISK_LAYER_TOKEN']; r=urllib.request.Request('http://127.0.0.1:8000/v1/health',headers={'Authorization':'Bearer '+t}); sys.exit(0 if urllib.request.urlopen(r,timeout=4).status==200 else 1)"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
+  llm:
+    profiles: [llm]
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:1c4ff61ab157cdaee20dcae39860394384e5e9703c8848a33d2e40d68b6df0fa
+    user: "${RISK_LAYER_UID:-1000}:${RISK_LAYER_GID:-1000}"
+    environment:
+      HOME: /tmp
+      CUDA_CACHE_PATH: /tmp/cuda-cache
+    command:
+      - -m
+      - "/models/${RISK_LAYER_LLM_MODEL:-granite-4.1-8b-Q5_K_M.gguf}"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -ngl
+      - "99"
+      - --jinja
+    volumes:
+      - type: bind
+        source: "${RISK_LAYER_MODELS_DIR:-./models}"
+        target: /models
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=1g,mode=1777
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: "${RISK_LAYER_LLM_MEMORY_LIMIT:-16g}"
+    cpus: "${RISK_LAYER_LLM_CPU_LIMIT:-16.0}"
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:8080/health]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  embedding-cache-dev:

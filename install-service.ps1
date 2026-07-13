@@ -16,11 +16,20 @@
   Bind-Adresse (Default 127.0.0.1).
 .PARAMETER EmbeddingDevice
   Geraet fuer Embeddings/Reranker (cpu oder cuda[/cuda:N]).
+.PARAMETER ReleaseHome
+  Optionales transaktionales Release-Home. Zusammen mit -BeraterDir startet
+  der Task den stabilen risk-layerctl-Launcher aus current statt den Bootstrap.
+.PARAMETER BeraterDir
+  Persistenter Berater-Store ausserhalb der Releases (nur mit -ReleaseHome).
 
 .EXAMPLE
   ./install-service.ps1
 .EXAMPLE
   ./install-service.ps1 -EmbeddingDevice cuda
+.EXAMPLE
+  ./install-service.ps1 `
+    -ReleaseHome C:\ProgramData\TaxTronik\RiskLayer\runtime `
+    -BeraterDir C:\ProgramData\TaxTronik\RiskLayer\definitionen
 .EXAMPLE
   ./install-service.ps1 -Remove
 
@@ -35,7 +44,10 @@ param(
     [switch]$Remove,
     [ValidateRange(1, 65535)][int]$Port = 8000,
     [string]$BindHost = "127.0.0.1",
-    [ValidatePattern("^(cpu|cuda(?::[0-9]+)?)$")][string]$EmbeddingDevice = "cpu"
+    [ValidatePattern("^(cpu|cuda(?::[0-9]+)?)$")][string]$EmbeddingDevice = "cpu",
+    [string]$ReleaseHome = "",
+    [string]$BeraterDir = "",
+    [string]$ReleaseLauncher = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -137,6 +149,39 @@ begrenzten CurrentUser-Task als normaler Benutzer mit ./install-service.ps1 neu 
 Remove-RiskLayerTask
 Remove-GeneratedWrappers
 
+$releaseMode = -not [string]::IsNullOrWhiteSpace($ReleaseHome)
+if ($releaseMode -ne (-not [string]::IsNullOrWhiteSpace($BeraterDir))) {
+    throw "-ReleaseHome und -BeraterDir muessen gemeinsam angegeben werden."
+}
+$releaseHomeB64 = ""
+$beraterDirB64 = ""
+$releaseLauncherB64 = ""
+if ($releaseMode) {
+    $ReleaseHome = [IO.Path]::GetFullPath($ReleaseHome)
+    $BeraterDir = [IO.Path]::GetFullPath($BeraterDir)
+    if (-not (Test-Path -LiteralPath $ReleaseHome -PathType Container)) {
+        throw "Release-Home nicht gefunden: $ReleaseHome"
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $ReleaseHome "state.json") -PathType Leaf)) {
+        throw "Release-Home hat kein aktiviertes state.json: $ReleaseHome"
+    }
+    if (-not (Test-Path -LiteralPath $BeraterDir -PathType Container)) {
+        throw "Berater-Verzeichnis nicht gefunden: $BeraterDir"
+    }
+    if ([string]::IsNullOrWhiteSpace($ReleaseLauncher)) {
+        $ReleaseLauncher = Join-Path $PSScriptRoot "deploy\release-launcher.py"
+    }
+    $ReleaseLauncher = [IO.Path]::GetFullPath($ReleaseLauncher)
+    if (-not (Test-Path -LiteralPath $ReleaseLauncher -PathType Leaf)) {
+        throw "Release-Launcher nicht gefunden: $ReleaseLauncher"
+    }
+    # Base64 statt String-Interpolation: beliebige Unicode-/Sonderzeichen in
+    # Pfaden koennen keinen PowerShell-Code in den generierten Wrapper injizieren.
+    $releaseHomeB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReleaseHome))
+    $beraterDirB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($BeraterDir))
+    $releaseLauncherB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReleaseLauncher))
+}
+
 # Der Wrapper enthaelt keine absoluten Projektpfade: $PSScriptRoot wird erst zur
 # Laufzeit von PowerShell aufgeloest. UTF-16 mit BOM ist unter Windows PowerShell
 # 5.1 Unicode-sicher, auch wenn Benutzer- oder Projektpfade Nicht-ASCII enthalten.
@@ -159,6 +204,11 @@ try {
     $env:RISK_LAYER_TOKEN = $token
     $env:RISK_LAYER_EMB_DEVICE = "@EMBEDDING_DEVICE@"
 
+    $releaseMode = "@RELEASE_MODE@" -eq "1"
+    $releaseHome = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("@RELEASE_HOME_B64@"))
+    $beraterDir = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("@BERATER_DIR_B64@"))
+    $releaseLauncher = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("@RELEASE_LAUNCHER_B64@"))
+
     $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
     $python = if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
         $venvPython
@@ -166,7 +216,16 @@ try {
         (Get-Command python -CommandType Application -ErrorAction Stop).Source
     }
 
-    & $python -m risk_layer.web --host "@BIND_HOST@" --port @PORT@ --graph corpus/graph.sqlite --llm-autostart
+    if ($releaseMode) {
+        # Der stdlib-Launcher waehlt die current-Runtime; deren aktuelle
+        # ops_cli verifiziert Release und Runtime erneut.
+        & $python -I $releaseLauncher --home $releaseHome -- service run `
+            --home $releaseHome --berater $beraterDir --host "@BIND_HOST@" `
+            --port @PORT@ --llm-autostart
+    } else {
+        # Bootstrap-Kompatibilitaet: installiertes Wheel statt Checkout-Code.
+        & $python -P -m risk_layer.web --host "@BIND_HOST@" --port @PORT@ --graph corpus/graph.sqlite --llm-autostart
+    }
     exit $LASTEXITCODE
 } catch {
     [Console]::Error.WriteLine("Risk-Layer-Autostart verweigert Start: $($_.Exception.Message)")
@@ -176,6 +235,10 @@ try {
 $wrapperContent = $wrapperTemplate.Replace("@BIND_HOST@", $BindHost)
 $wrapperContent = $wrapperContent.Replace("@PORT@", [string]$Port)
 $wrapperContent = $wrapperContent.Replace("@EMBEDDING_DEVICE@", $EmbeddingDevice)
+$wrapperContent = $wrapperContent.Replace("@RELEASE_MODE@", $(if ($releaseMode) { "1" } else { "0" }))
+$wrapperContent = $wrapperContent.Replace("@RELEASE_HOME_B64@", $releaseHomeB64)
+$wrapperContent = $wrapperContent.Replace("@BERATER_DIR_B64@", $beraterDirB64)
+$wrapperContent = $wrapperContent.Replace("@RELEASE_LAUNCHER_B64@", $releaseLauncherB64)
 [System.IO.File]::WriteAllText($wrapper, $wrapperContent, [System.Text.Encoding]::Unicode)
 
 $powershellExe = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"

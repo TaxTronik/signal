@@ -493,6 +493,9 @@ def test_v1_status_vertrag(app):
     assert obj["engineVersion"] == V1_VERSION
     st = obj["engine_status"]
     assert st["katalog_version"] == app.katalog.version
+    assert st["release"]["software_version"]
+    assert st["release"]["api_version"] == V1_VERSION
+    assert st["release"]["release_id"] is None
     for schicht in _SCHICHTEN:
         assert schicht in st["schichten"], schicht
     # Kern-Schichten sind nie degradiert; conftest patcht index_oeffnen→None,
@@ -515,6 +518,34 @@ def test_v1_status_vertrag(app):
         "review_quarantaene": 0,
         "review_migrationen": [],
     }
+
+
+def test_v1_status_traegt_verifizierte_release_identitaet(tmp_path, monkeypatch):
+    """Der Launcher kann Code, Commit und Manifest bis in die Audit-Antwort
+    durchreichen; ungueltige Environment-Werte werden nicht gespiegelt."""
+    from risk_layer.web import Anwendung
+
+    monkeypatch.setenv("RISK_LAYER_RELEASE_ID", "v1.4.0-rc.1")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_GIT_SHA", "a" * 40)
+    monkeypatch.setenv("RISK_LAYER_RELEASE_MANIFEST_SHA256", "b" * 64)
+    app = Anwendung(None, str(tmp_path))
+
+    release = dispatch(app, "GET", "/v1/status", {}, {})[1]["engine_status"]["release"]
+    assert release["release_id"] == "v1.4.0-rc.1"
+    assert release["git_sha"] == "a" * 40
+    assert release["manifest_sha256"] == "b" * 64
+
+
+def test_v1_status_spiegelt_keine_ungueltigen_release_envwerte(tmp_path, monkeypatch):
+    from risk_layer.web import Anwendung
+
+    monkeypatch.setenv("RISK_LAYER_RELEASE_ID", "x\nsecret")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_GIT_SHA", "nicht-ein-commit")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_MANIFEST_SHA256", "C" * 64)
+    release = Anwendung(None, str(tmp_path)).engine_status()["release"]
+    assert release["release_id"] is None
+    assert release["git_sha"] is None
+    assert release["manifest_sha256"] is None
 
 
 def test_v1_status_macht_legacy_review_quarantaene_pro_eintrag_sichtbar(app):

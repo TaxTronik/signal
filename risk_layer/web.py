@@ -21,6 +21,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 import sys
 import threading
 from datetime import date, datetime
@@ -30,7 +31,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 from .anonymize import ner_status
-from .api_v1 import dispatch
+from . import __version__
+from .api_v1 import V1_VERSION, dispatch
 from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
 from .graph import DEFAULT_DB, graph_oeffnen
@@ -48,6 +50,34 @@ _log = logging.getLogger(__name__)
 
 _MAX_REQUEST_THREADS = 32
 _REQUEST_BACKLOG = 64
+
+_RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_GIT_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _release_identitaet() -> dict[str, str | None]:
+    """Liefert die nicht-geheime, deployte Release-Identitaet fuer /v1/status.
+
+    Der transaktionale Launcher setzt die drei ``RISK_LAYER_RELEASE_*``-Werte
+    aus dem bereits verifizierten Manifest. Direkte Entwicklungsstarts bleiben
+    eindeutig als ``release_id=None`` erkennbar. Ungepruefte, beliebig lange
+    Environment-Werte werden nicht in die Audit-Antwort gespiegelt.
+    """
+    release_id = os.environ.get("RISK_LAYER_RELEASE_ID")
+    git_sha = os.environ.get("RISK_LAYER_RELEASE_GIT_SHA")
+    manifest_sha256 = os.environ.get("RISK_LAYER_RELEASE_MANIFEST_SHA256")
+    return {
+        "release_id": release_id if release_id and _RELEASE_ID_RE.fullmatch(release_id) else None,
+        "git_sha": git_sha if git_sha and _GIT_SHA_RE.fullmatch(git_sha) else None,
+        "manifest_sha256": (
+            manifest_sha256
+            if manifest_sha256 and _SHA256_RE.fullmatch(manifest_sha256)
+            else None
+        ),
+        "software_version": __version__,
+        "api_version": V1_VERSION,
+    }
 
 # Ohne Token darf nur an eine echte Loopback-IP bzw. exakt ``localhost``
 # gebunden werden. Alles andere (0.0.0.0, ::, echte IPs, "" = alle Interfaces)
@@ -241,6 +271,7 @@ class Anwendung:
         # Zeitstempel/Zufallswerte (Fingerprints sind deterministisch): der
         # Determinismus-Vertrag von /v1/analyse bleibt unangetastet.
         self._engine_status: dict[str, Any] = {
+            "release": _release_identitaet(),
             "katalog_version": self.katalog.version,
             "schichten": {
                 # Matcher (Schicht 1) und Beschreibungsmuster (1b) sind der
@@ -835,7 +866,7 @@ def make_handler(app: Anwendung):
     vorgaenger_token = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "RiskLayer/0.1"
+        server_version = f"RiskLayer/{__version__}"
         sys_version = ""
 
         def version_string(self) -> str:

@@ -143,6 +143,7 @@ def test_kuratierte_encoder_laden_exakten_commit(monkeypatch, encoder, modell):
         "device": None,
         "trust_remote_code": isinstance(encoder, JinaV5Encoder),
         "revision": HF_MODELL_REVISIONEN[modell],
+        "local_files_only": False,
     })]
 
 
@@ -170,6 +171,7 @@ def test_lokaler_encoder_pfad_bleibt_ohne_hf_revision(monkeypatch, tmp_path):
     assert encoder.revision is None
     assert aufrufe[0][0] == str(modellpfad)
     assert aufrufe[0][1]["revision"] is None
+    assert aufrufe[0][1]["local_files_only"] is True
 
 
 def test_kuratierter_encoder_laesst_pin_nicht_ueberschreiben():

@@ -28,5 +28,8 @@ gelebte Stand steht immer in README/FEATURES/INTEGRATION.
 | [plan/PLAN_SUBSUMTIONSLAYER.md](plan/PLAN_SUBSUMTIONSLAYER.md) | Plan: Subsumtionslayer-Flows und -Datenflüsse in TaxTronik, UI-Heimat offen (§6) | Plan (zur Diskussion) | offen |
 
 Daneben existiert betriebliche Doku außerhalb dieses Index:
+[BETRIEB_DEPLOY_UPDATE_BACKUP.md](BETRIEB_DEPLOY_UPDATE_BACKUP.md)
+(verbindliches technisches Runbook für manifestierte Releases, atomare Updates,
+Rollback, Backup-Scheduling und Restore-Proben) sowie
 [../deploy/forgejo-runner.md](../deploy/forgejo-runner.md) (CI-Runner-Einrichtung,
 referenziert aus `.forgejo/workflows/build.yml`).

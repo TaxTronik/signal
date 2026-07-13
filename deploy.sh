@@ -24,13 +24,14 @@
 #   ./deploy.sh --with-quanten          # Quantenlos-Extras fuer /v1/los/* installieren
 #   ./deploy.sh --skip-engine           # Engine separat bereitstellen
 #   ./deploy.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
+#   ./deploy.sh --rotate-token           # Auth-Token bewusst und separat rotieren
 #   ./deploy.sh --start                 # Setup, dann Engine starten
 #
 set -euo pipefail
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; WITH_QUANTEN=0; OHNE_NER=0; VOLL=0; FORCE=0; START=0; SERVICE=0
+SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; WITH_QUANTEN=0; OHNE_NER=0; VOLL=0; FORCE=0; ROTATE_TOKEN=0; START=0; SERVICE=0
 BACKEND_EXPLICIT=0; HOST_EXPLICIT=0; QUANTEN_EXPLICIT=0
 MODELL=""; BACKEND="auto"; BIND_HOST="127.0.0.1"; PORT=8000
 DOCKER_NATIVE_URL=""
@@ -48,6 +49,7 @@ while [[ $# -gt 0 ]]; do
     --ohne-ner)       OHNE_NER=1 ;;
     --voll)           VOLL=1 ;;
     --force)          FORCE=1 ;;
+    --rotate-token)   ROTATE_TOKEN=1 ;;
     --start)          START=1 ;;
     --service)        SERVICE=1 ;;
     --modell)         MODELL="${2:?--modell braucht einen Wert}"; shift ;;
@@ -411,7 +413,18 @@ if [[ $SKIP_DEPS -eq 0 ]]; then
   ensure_pip
   # Schlanker Produktionskern (PyYAML + numpy + Build-Backend), ohne pytest.
   "$PY" -m pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt
-  "$PY" -m pip install --no-build-isolation --no-deps -e .
+  # Kein Editable-Install im Betrieb: der Dienst darf nicht bei jeder Aenderung
+  # des Git-Checkouts still anderen Code importieren. Wheel lokal mit dem
+  # bereits hash-gepinnten Build-Backend bauen und exakt dieses installieren.
+  (
+    wheel_tmp="$(mktemp -d)"
+    trap 'rm -rf -- "$wheel_tmp"' EXIT
+    "$PY" -m pip wheel --no-build-isolation --no-deps --wheel-dir "$wheel_tmp" .
+    wheels=("$wheel_tmp"/risk_layer-*.whl)
+    [[ ${#wheels[@]} -eq 1 && -f "${wheels[0]}" ]] \
+      || { echo "Erwartete genau ein gebautes Risk-Layer-Wheel." >&2; exit 1; }
+    "$PY" -m pip install --no-index --no-deps --force-reinstall "${wheels[0]}"
+  )
   if [[ $WITH_EMBEDDING -eq 1 ]]; then
     [[ "$PYV" == "3.12" ]] || { echo "--with-embedding ist nur mit dem vorhandenen Linux/Python-3.12-Hashlock erlaubt (gefunden: $PYV)." >&2; exit 2; }
     [[ "${RISK_LAYER_EMB_DEVICE:-cpu}" == "cpu" ]] || { echo "Der automatische Embedding-Bootstrap ist CPU-only. Fuer GPU-Torch eine separat auditierte Umgebung bereitstellen und --skip-deps nutzen." >&2; exit 2; }
@@ -466,7 +479,9 @@ TOKEN_FILE=".engine_token"
 TOKEN_PATH="$(pwd)/$TOKEN_FILE"
 [[ ! -L "$TOKEN_FILE" ]] || { echo "$TOKEN_FILE darf kein symbolischer Link sein." >&2; exit 1; }
 [[ ! -e "$TOKEN_FILE" || -f "$TOKEN_FILE" ]] || { echo "$TOKEN_FILE muss eine regulaere Datei sein." >&2; exit 1; }
-if [[ ! -f "$TOKEN_FILE" || $FORCE -eq 1 ]]; then
+# Artefakt-Rebuild (--force) und Credential-Rotation sind getrennte
+# Betriebsereignisse. Nur das explizite --rotate-token sperrt Clients aus.
+if [[ ! -f "$TOKEN_FILE" || $ROTATE_TOKEN -eq 1 ]]; then
   # Im selben Verzeichnis mit restriktiver umask schreiben und erst nach dem
   # vollstaendigen Write atomar auf den finalen Namen umbenennen.
   (
@@ -669,6 +684,14 @@ PY
   run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
   run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
   systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
+  HEALTH_HOST="$BIND_HOST"
+  [[ "$HEALTH_HOST" != "0.0.0.0" && "$HEALTH_HOST" != "::" && -n "$HEALTH_HOST" ]] \
+    || HEALTH_HOST="127.0.0.1"
+  [[ "$HEALTH_HOST" != *:* ]] || HEALTH_HOST="[$HEALTH_HOST]"
+  "$PY" -P -m risk_layer.ops_cli doctor \
+    --url "http://$HEALTH_HOST:$PORT" --token-file "$TOKEN_PATH" \
+    --timeout 300 --require-layer matcher
+  ok "Health/Status nach Restart erfolgreich"
   ok "User-Dienst aktiv: systemctl --user status risk-layer"
   info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
 elif [[ $START -eq 1 ]]; then

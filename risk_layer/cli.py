@@ -169,6 +169,27 @@ def _cmd_korpus(args: argparse.Namespace) -> int:
 def _cmd_graph(args: argparse.Namespace) -> int:
     from . import gii, graph as graphmod
     if args.aktion == "build":
+        from datetime import datetime, timezone
+
+        source_epoch = os.environ.get("SOURCE_DATE_EPOCH")
+        if source_epoch is None:
+            erstellt_am = datetime.now().isoformat(timespec="seconds")
+        else:
+            if not source_epoch.isascii() or not source_epoch.isdigit():
+                print(
+                    "SOURCE_DATE_EPOCH muss eine nichtnegative Ganzzahl sein.",
+                    file=sys.stderr,
+                )
+                return 2
+            try:
+                erstellt_am = (
+                    datetime.fromtimestamp(int(source_epoch), timezone.utc)
+                    .isoformat(timespec="seconds")
+                    .replace("+00:00", "Z")
+                )
+            except (OverflowError, OSError, ValueError):
+                print("SOURCE_DATE_EPOCH liegt außerhalb des Zeitbereichs.", file=sys.stderr)
+                return 2
         knoten = gii.parse_verzeichnis(Path(args.dir) / "gii")
         if not knoten:
             print(f"Keine XML in {args.dir}/gii – erst 'korpus fetch' ausführen.", file=sys.stderr)
@@ -181,7 +202,6 @@ def _cmd_graph(args: argparse.Namespace) -> int:
         # einem Rebuild keinen Vergleichsstand und Festwissens-Anker veralteten
         # weiter still. erstellt_am via Aufrufer-Uhr NUR hier (CLI = Rand),
         # der Funktionskern in radar.py bleibt uhrfrei/deterministisch.
-        from datetime import datetime
         from . import radar
         m_pfad = radar.manifest_pfad(args.db)
         v_pfad = radar.manifest_vorher_pfad(args.db)
@@ -189,7 +209,7 @@ def _cmd_graph(args: argparse.Namespace) -> int:
             os.replace(m_pfad, v_pfad)
             print(f"  Vergleichsstand rotiert: {v_pfad}")
         radar.speichere_manifest(m_pfad, radar.erstelle_manifest(
-            gebauter_graph, erstellt_am=datetime.now().isoformat(timespec="seconds")))
+            gebauter_graph, erstellt_am=erstellt_am))
         print(f"  Norm-Manifest geschrieben: {m_pfad} (Prüfung: risk-layer radar)")
         # Verbindung DETERMINISTISCH schließen (nicht auf GC verlassen): unter
         # Windows blockiert ein offenes Handle sonst das unlink() des NÄCHSTEN
@@ -493,7 +513,6 @@ def _cmd_festwissen(args: argparse.Namespace) -> int:
     NUR die nicht-regenerierbaren Berater-YAMLs — Korpus/Indizes sind
     Build-Artefakte und bewusst nicht enthalten.
     """
-    import zipfile
     from datetime import datetime
     from . import sicherung as S
 
@@ -507,10 +526,10 @@ def _cmd_festwissen(args: argparse.Namespace) -> int:
         except S.SicherungsFehler as exc:
             print(f"Sicherungs-Fehler: {exc}", file=sys.stderr)
             return 2
-        with zipfile.ZipFile(pfad) as zf:
-            if not zf.namelist():
-                print("Hinweis: Berater-Store ist leer – gültiges leeres "
-                      "Archiv erstellt.", file=sys.stderr)
+        info = S.pruefe_sicherung(pfad)
+        if not info["files"]:
+            print("Hinweis: Berater-Store ist leer – gültiger explizit leerer "
+                  "Snapshot erstellt.", file=sys.stderr)
         print(pfad)                       # Ausgabe: der Archivpfad (skriptbar)
         return 0
 
@@ -564,8 +583,8 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
             print("Kein Normgraph – erst 'graph build'.", file=sys.stderr)
             return 1
         import os
-        dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
-        enc = encoder_oeffnen(args.encoder, device=dev)
+        dev = args.device or os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
+        enc = encoder_oeffnen(args.encoder, device=dev, model_path=args.model)
         kat = lade_katalog(getattr(args, "katalog", None))
         print(f"Baue Embedding-Index mit Encoder '{enc.name}' (+ Katalog-Paraphrasen) ...")
         gebauter_index = EmbeddingIndex.build(g, enc, katalog=kat)
@@ -589,7 +608,7 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
     if args.aktion == "stats":
         print(f"{len(index.ids)} Normen, dim {index.dim}, Encoder {index.encoder_name}")
     elif args.aktion == "suche":
-        enc = encoder_oeffnen(index.encoder_name)
+        enc = encoder_oeffnen(index.encoder_name, model_path=args.model)
         for h in index.suche(" ".join(args.text or []), enc, k=args.limit, min_sim=0.0):
             print(f"  {h['zitat']:14} sim={h['sim']:6}  {h['titel'][:50]}")
     return 0
@@ -784,6 +803,14 @@ def build_parser() -> argparse.ArgumentParser:
     em.add_argument("--graph-db", default="corpus/graph.sqlite", help="Normgraph (für build)")
     em.add_argument("--encoder", default="auto", choices=["auto", "bge-m3", "hash"],
                     help="auto: BGE-M3 falls installiert, sonst Hash")
+    em.add_argument(
+        "--model",
+        help="manifestiertes lokales BGE-M3-Verzeichnis (alternativ RISK_LAYER_EMBEDDING_MODEL)",
+    )
+    em.add_argument(
+        "--device",
+        help="Torch-Gerät explizit wählen (z. B. cpu, cuda, cuda:0)",
+    )
     em.add_argument("--limit", type=int, default=8)
     em.set_defaults(func=_cmd_embedding)
 

@@ -1,0 +1,42 @@
+# systemd-User-Unit für den stabilen, release-aware Launcher.
+# Vor Installation alle @PLATZHALTER@ ersetzen; niemals direkt verwenden.
+[Unit]
+Description=Risk-Layer /v1 Engine aus verifiziertem current-Release
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'if [ "$(id -u)" -eq 0 ]; then echo "Risk-Layer verweigert root: als unprivilegierte User-Unit installieren" >&2; exit 1; fi'
+EnvironmentFile=@ENVFILE@
+Environment="RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@"
+# Der stdlib-Launcher waehlt die manifestgebundene current-Runtime; deren
+# aktuelle ops_cli verifiziert Release und Venv erneut vor dem Engine-Start.
+ExecStart="@PYTHON@" -I "@LAUNCHER@" --home "@RELEASE_HOME@" -- service run --home "@RELEASE_HOME@" --berater "@BERATER@" --host "@HOST@" --port "@PORT@" --llm-url "@LLM_URL@"
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths="@RELEASE_HOME@" "@LAUNCHER@" "@ENVFILE@"
+
+# ProtectHome/PrivateDevices/MemoryDenyWriteExecute bleiben aus: Release-Home,
+# Modellcache und optionale GPU-/JIT-Backends können sie benötigen. Die Unit
+# läuft als User-Dienst und erhält keine zusätzlichen Dateirechte.
+
+[Install]
+WantedBy=default.target

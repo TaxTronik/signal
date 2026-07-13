@@ -119,8 +119,10 @@ Mindestens: TaxTronik kann via Engine-API neue Berater-Begriffe anlegen
 ### E) Deployment (Docker-Compose)
 - Neuer Service `risk-layer` im Compose-Netz, **nicht** nach außen exponiert
   (nur intern erreichbar; Reverse-Proxy davor nur für TaxTronik selbst).
-- Volumes: Katalog + `corpus/` (Graph, Embedding) als gemountete, regenerierbare
-  Daten. **Kein** Mandanten-Volume.
+- Das Produktions-Compose baut nichts und akzeptiert kein `latest`: Engine-Image
+  per OCI-Digest sowie Katalog + `corpus/` aus derselben verifizierten,
+  unveränderlichen Release-Generation. `docker-compose.dev.yml` ist der klar
+  getrennte Checkout-/Build-Pfad. **Kein** Mandanten-Volume.
 - Beide Container laufen ohne Root-Rechte, mit verworfenem Capability-Set,
   `no-new-privileges`, schreibgeschütztem Root-Dateisystem, PID-/Speicher-/CPU-
   Grenzen und expliziten Schreibbereichen. Auf Linux müssen `definitionen/`
@@ -128,6 +130,12 @@ Mindestens: TaxTronik kann via Engine-API neue Berater-Begriffe anlegen
   UID/GID ungleich 1000 werden `RISK_LAYER_UID`/`RISK_LAYER_GID` gesetzt.
 - Optional GPU-Passthrough für die Embedding-Schicht (ROCm/Vulkan) — sonst CPU.
 - Healthcheck: `GET /v1/health`.
+- Das LLM ist ein optionales Compose-Profil ohne `depends_on` der Engine. Sein
+  Ausfall oder langsamer Modellstart blockiert den deterministischen Kern nicht;
+  der Zustand bleibt über `/v1/status` sichtbar.
+
+Update, Rollback, Release-Manifest und Backup/Restore sind im
+[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) beschrieben.
 
 ### F) Auth zwischen TaxTronik und Engine
 Bearer-Token (shared secret aus Config) auf allen Engine-Calls, da der Dienst
@@ -501,15 +509,17 @@ die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Servic
 (`service.py`) und der **eigene Audit-Log** (`audit.py`). Die Engine kennt nur noch
 `/v1` (+ CLI für Build/Wartung) und ist zustandslos.
 
-### Deployment (✅ `Dockerfile` gebaut)
-`docker build -t risk-layer .` (schlank) bzw. `--build-arg WITH_EMBEDDING=1`
-(mit BGE-M3). Im Container lauscht die Engine auf `0.0.0.0:8000`; nach außen
-bindet `docker-compose.yml` den Port nur auf Host-Loopback, und andere
-Container sprechen die Engine ueber den Compose-Service-Namen an. Healthcheck
-auf `/v1/health`, Volume `/app/corpus` (Normgraph + Embedding-Index,
-mandantenfrei). Das Root-Dateisystem ist read-only; nur `definitionen/`, ein
-persistenter Embedding-Modellcache und begrenztes `/tmp` sind schreibbar. LLM =
-separater llama-server, nicht im Image.
+### Deployment (✅ manifestiert und rollbackfähig)
+Lokale Builds erfolgen nur mit `docker-compose.dev.yml`. In Produktion verlangt
+`docker-compose.yml` das veröffentlichte Engine-Image per OCI-Digest und mountet
+die durch `risk-layerctl` verifizierte Festwissen-Generation read-only. Nach
+außen bindet der Port standardmäßig nur auf Host-Loopback; andere Container
+sprechen die Engine über den Compose-Service-Namen an. Der authentisierte
+`/v1/health`-Healthcheck macht `docker compose up --wait` zu einem Readiness-Gate.
+Das Root-Dateisystem ist read-only; nur `definitionen/`, ein persistenter
+Embedding-Modellcache und begrenztes `/tmp` sind schreibbar. Das separate LLM
+ist ein optionales Profil und keine Verfügbarkeitsabhängigkeit des Kerns. Details:
+[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md).
 
 ---
 

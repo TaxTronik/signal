@@ -18,11 +18,13 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar, cast
 
 import yaml
 
+from .dateisperre import DateisperrenFehler, festwissen_sperre
 from .idschema import NormID  # noqa: F401  (Dokumentationsbezug)
 from .models import (Definitionsquelle, GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN,
                      Risikomarkierung, Status)
@@ -52,6 +54,24 @@ _log = logging.getLogger(__name__)
 
 class BeraterFehler(ValueError):
     """Strukturfehler / unzulässiger Lebenszyklus-Übergang."""
+
+
+_Mutation = TypeVar("_Mutation", bound=Callable[..., Any])
+
+
+def _gesperrte_mutation(methode: _Mutation) -> _Mutation:
+    """Serialisiert den kompletten Read-Modify-Write-Zyklus pro Store."""
+    @wraps(methode)
+    def gesperrt(self: Any, *args: Any, **kwargs: Any) -> Any:
+        try:
+            with festwissen_sperre(self.dir):
+                return methode(self, *args, **kwargs)
+        except DateisperrenFehler as exc:
+            raise BeraterFehler(
+                f"Festwissen ist durch einen anderen Prozess gesperrt: {exc}"
+            ) from exc
+
+    return cast(_Mutation, gesperrt)
 
 
 def _identitaet(text: str) -> str:
@@ -248,27 +268,31 @@ class NormKuratierung:
 class BeraterStore:
     """Lädt/persistiert Berater-Definitionen (je Scope eine YAML-Datei).
 
-    Lost-Update-Schutz: jede mutierende Operation lädt VOR dem Schreiben den
-    frischen Datei-Stand neu und wendet die eigene Mutation darauf an – zwei
-    parallele Store-Instanzen (z. B. zwei Prozesse) überschreiben sich so nicht
-    mehr gegenseitig. Restrisiko: ohne File-Locking (bewusst weggelassen,
-    Windows/Unix-Portabilität) bleibt ein schmales Fenster zwischen Neu-Laden
-    und atomarem Schreiben, in dem ein exakt gleichzeitiger fremder Write
-    verloren gehen kann; In-Prozess serialisiert der Host (web._berater_lock).
+    Lost-Update-Schutz: jede mutierende Operation hält dieselbe portable
+    Betriebssystem-Sperre wie Backup und Restore, lädt darunter den frischen
+    Datei-Stand und schreibt atomar. Dadurch bilden alle drei YAMLs gegenüber
+    Sicherung/Wiederherstellung einen konsistenten Store-Snapshot; der
+    In-Prozess-Lock des HTTP-Hosts bleibt eine zusätzliche Serialisierung.
     """
 
     def __init__(self, verzeichnis: str | Path):
         self.dir = Path(verzeichnis)
         self._eintraege: list[BeraterDefinition] = []
         self._kuratierungen: list[NormKuratierung] = []
-        self._laden()
+        try:
+            with festwissen_sperre(self.dir):
+                self._laden(_sperre_gehalten=True)
+        except DateisperrenFehler as exc:
+            raise BeraterFehler(
+                f"Festwissen ist durch einen anderen Prozess gesperrt: {exc}"
+            ) from exc
 
     # --- Persistenz -----------------------------------------------------
 
     def _datei(self, scope: str) -> Path:
         return self.dir / f"{scope}.yaml"
 
-    def _laden(self) -> None:
+    def _laden(self, *, _sperre_gehalten: bool = False) -> None:
         self._eintraege = []
         legacy_review_migriert = False
         for scope in ("personal", "geteilt"):
@@ -322,8 +346,14 @@ class BeraterStore:
             # Store bleibt dennoch verfügbar und arbeitet mit der sicheren
             # In-Memory-Quarantäne; der Status weist die Migration je Record aus.
             try:
+                if not _sperre_gehalten:
+                    # Unter der Sperre frisch laden: Zwischen erstem Lesen und
+                    # Lock-Erwerb kann ein anderer Prozess geschrieben haben.
+                    with festwissen_sperre(self.dir):
+                        self._laden(_sperre_gehalten=True)
+                    return
                 self._speichern("geteilt")
-            except OSError as exc:
+            except (OSError, DateisperrenFehler) as exc:
                 _log.warning(
                     "Review-Quarantäne konnte nicht in %s persistiert werden; "
                     "sichere In-Memory-Herabstufung bleibt aktiv: %s",
@@ -344,6 +374,7 @@ class BeraterStore:
                            allow_unicode=True, sort_keys=False),
         )
 
+    @_gesperrte_mutation
     def kuratiere_norm(self, katalog_id: str, norm: str, aktion: str, *,
                        scope: str, autor: str, datum: str) -> NormKuratierung | None:
         """Katalog-weit eine Norm an einem Begriff ``verwerfen``/``ergaenzen``/
@@ -357,7 +388,7 @@ class BeraterStore:
         norm_id = next((a.norm_id.to_id() for a in parse_normzitat(norm) if a.norm_id), "")
         if not norm_id:
             raise BeraterFehler(f"Norm-Zitat nicht auflösbar: {norm!r}")
-        self._laden()   # frischen Datei-Stand mergen (Lost-Update-Schutz)
+        self._laden(_sperre_gehalten=True)   # frisch unter derselben OS-Sperre
         # gleichen Schlüssel entfernen (idempotent / Undo), dann ggf. neu anlegen
         self._kuratierungen = [k for k in self._kuratierungen
                                if not (k.katalog_id == katalog_id and k.norm_id == norm_id
@@ -459,6 +490,7 @@ class BeraterStore:
             if d.review_migration_grund is not None
         ]
 
+    @_gesperrte_mutation
     def definiere(
         self,
         begriff: str,
@@ -486,7 +518,7 @@ class BeraterStore:
         # frischen Datei-Stand mergen: parallele Store-Instanzen (z. B. zweiter
         # Prozess) haben evtl. seit dem Konstruktor geschrieben (Lost-Update-Schutz,
         # s. Klassen-Docstring).
-        self._laden()
+        self._laden(_sperre_gehalten=True)
         slug = _slug(f"{katalog_id}_{begriff}" if katalog_id else begriff)
         d = BeraterDefinition(
             id=slug,
@@ -527,13 +559,14 @@ class BeraterStore:
         self._speichern(scope)
         return d
 
+    @_gesperrte_mutation
     def setze_review_status(self, eintrag_id: str, neuer_status: str, *, reviewer: str) -> None:
         """Lebenszyklus-Übergang für geteilte Einträge (/LF320/).
 
         Erlaubt nur den jeweils nächsten Schritt entwurf → geprüft → freigegeben;
         Autor und Reviewer müssen verschiedene Personen sein.
         """
-        self._laden()   # frischen Datei-Stand mergen (Lost-Update-Schutz)
+        self._laden(_sperre_gehalten=True)   # frisch unter derselben OS-Sperre
         d = next((e for e in self._eintraege if e.id == eintrag_id and e.scope == "geteilt"), None)
         if d is None:
             raise BeraterFehler(f"kein geteilter Eintrag {eintrag_id!r}")

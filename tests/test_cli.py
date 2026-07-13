@@ -424,3 +424,9 @@ def test_modell_verify_funktion_fehlt_exit_2(monkeypatch, capsys):
     monkeypatch.delattr(M, "verifiziere_artefakte", raising=False)
     assert main(["modell", "verify"]) == 2
     assert "verifiziere_artefakte" in capsys.readouterr().err
+
+def test_embedding_build_akzeptiert_explizites_cpu_geraet() -> None:
+    args = build_parser().parse_args([
+        "embedding", "build", "--encoder", "bge-m3", "--device", "cpu"
+    ])
+    assert args.device == "cpu"

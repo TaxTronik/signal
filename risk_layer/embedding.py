@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import threading
 from pathlib import Path
@@ -34,6 +35,12 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 
 from .idschema import para_level
+from .embedding_model import (
+    BGE_M3_REPO_ID,
+    BGE_M3_REVISION,
+    EmbeddingModelError,
+    validate_local_bge_m3_cached,
+)
 from .muster import saetze_mit_offset
 from .torch_compat import patch_rocm_dist
 
@@ -48,7 +55,7 @@ _TOKEN = re.compile(r"[a-zäöüß]+")
 # Commit-SHA festgelegt. Lokale Modellverzeichnisse bleiben bewusst zulässig und
 # haben keine HF-Revision.
 HF_MODELL_REVISIONEN: dict[str, str] = {
-    "BAAI/bge-m3": "5617a9f61b028005a4858fdac845db406aefb181",
+    BGE_M3_REPO_ID: BGE_M3_REVISION,
     "ibm-granite/granite-embedding-311m-multilingual-r2": (
         "44399559930365213510b1ee2eb15ded83374f0e"
     ),
@@ -131,15 +138,18 @@ class HashEncoder:
 class BgeM3Encoder:
     """Echter semantischer Encoder (BAAI/bge-m3) über sentence-transformers.
 
-    Lazy: importiert/lädt das Modell erst bei Bedarf. Erfordert das optionale
-    Paket sentence-transformers (+ torch) und das Modell (Download beim 1. Mal).
+    Lazy: importiert/lädt das Modell erst bei Bedarf. Produktive Releases geben
+    einen manifestierten lokalen Pfad vor und erzwingen ``local_files_only``;
+    eine gepinnte Remote-Auflösung bleibt ausschließlich für bewusste
+    Entwicklungs-/Evaluationsläufe ohne Offline-Gate verfügbar.
     """
 
     name = "bge-m3"
     dim = 1024
 
-    def __init__(self, modell: str = "BAAI/bge-m3", device: str | None = None,
-                 trust_remote_code: bool = False, revision: str | None = None):
+    def __init__(self, modell: str = BGE_M3_REPO_ID, device: str | None = None,
+                 trust_remote_code: bool = False, revision: str | None = None,
+                 local_files_only: bool | None = None):
         self._modell_name = modell
         self._device = device
         self._trust = trust_remote_code
@@ -153,7 +163,13 @@ class BgeM3Encoder:
             raise ValueError(
                 f"Für das kuratierte Modell {modell!r} ist ausschließlich Revision "
                 f"{kuratierte_revision} zugelassen.")
-        self.revision = kuratierte_revision if kuratierte_revision is not None else revision
+        self._load_revision = (
+            kuratierte_revision if kuratierte_revision is not None else revision
+        )
+        self.revision = self._load_revision
+        self._local_files_only = (
+            Path(modell).is_dir() if local_files_only is None else local_files_only
+        )
         self._modell = None
         # Der Encoder ist im ThreadingHTTPServer prozessweit GETEILT. torch/das
         # ST-Modell sind nicht thread-sicher (gemeinsamer CUDA/ROCm-Context). Ein
@@ -172,7 +188,8 @@ class BgeM3Encoder:
                             self._modell_name,
                             device=self._device,
                             trust_remote_code=self._trust,
-                            revision=self.revision,
+                            revision=self._load_revision,
+                            local_files_only=self._local_files_only,
                         )
                     except Exception as exc:
                         # Lazy-Load schlaegt erst beim ERSTEN encode() fehl – dann
@@ -182,8 +199,8 @@ class BgeM3Encoder:
                         # halb-initialisierter Zustand).
                         raise RuntimeError(
                             f"Embedding-Modell '{self._modell_name}' konnte nicht geladen werden: {exc} — "
-                            "Abhilfe: pip install \".[embedding]\"; offline muss das "
-                            "Modell bereits im HF-Cache liegen."
+                            "Abhilfe: manifestierten lokalen Modellpfad und "
+                            "Embedding-Runtime prüfen."
                         ) from exc
                     hole = (getattr(modell, "get_embedding_dimension", None)
                             or modell.get_sentence_embedding_dimension)
@@ -260,8 +277,18 @@ _GUELTIGE_ENCODER = ("auto", "bge-m3", "granite-311m-r2", "jina-v5",
                      "qwen3", "qwen3-4b", "qwen3-8b", "hash", "hash<N> (z. B. hash512)")
 
 
+def _offline_modus() -> bool:
+    raw = os.environ.get("RISK_LAYER_EMBEDDING_OFFLINE")
+    if raw is None:
+        return False
+    if raw not in {"0", "1"}:
+        raise ValueError("RISK_LAYER_EMBEDDING_OFFLINE muss exakt 0 oder 1 sein")
+    return raw == "1"
+
+
 def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
-                    device: str | None = None) -> Encoder:
+                    device: str | None = None,
+                    model_path: str | Path | None = None) -> Encoder:
     """Wählt einen Encoder. ``auto`` nimmt BGE-M3, falls verfügbar, sonst Hash;
     ``granite-311m-r2`` das mehrsprachige Granite-R2 (ModernBERT); ``jina-v5``
     Jina-v5-small-retrieval (CC-BY-NC, nur Eval).
@@ -291,6 +318,23 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
         _braucht_st(name)
         return Qwen3Encoder(device=device, variante="8B")
     if name in ("bge-m3", "auto"):
+        configured_model = model_path or os.environ.get("RISK_LAYER_EMBEDDING_MODEL")
+        if configured_model:
+            _braucht_st(name)
+            root = validate_local_bge_m3_cached(str(Path(configured_model).resolve()))
+            enc = BgeM3Encoder(
+                modell=str(root),
+                device=device,
+                local_files_only=True,
+            )
+            # Das lokale Verzeichnis selbst hat keine HF-Auflösung. Seine
+            # verifizierte Herkunft bleibt dennoch im Index-/Statusvertrag.
+            enc.revision = BGE_M3_REVISION
+            return enc
+        if _offline_modus():
+            raise EmbeddingModelError(
+                "Offline-Embedding verlangt RISK_LAYER_EMBEDDING_MODEL oder --model"
+            )
         try:
             import sentence_transformers  # noqa: F401
         except ImportError as exc:
@@ -300,7 +344,7 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
                     "pip install \".[embedding]\"") from exc
             # nur 'auto' degradiert BEWUSST zum abhaengigkeitsfreien Notpfad
             return HashEncoder(dim=dim)
-        return BgeM3Encoder(device=device)
+        return BgeM3Encoder(device=device, local_files_only=False)
     # Generisch "hashN": ein Index mit encoder_name "hash256" muss sich ueber
     # encoder_oeffnen(idx.encoder_name) wieder oeffnen lassen (Round-Trip).
     # Nacktes "hash" (tools/) nutzt den dim-Parameter (Default 512 ⇒ "hash512").
@@ -311,7 +355,7 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
     # So lädt embedding_bench das Fine-Tune-Artefakt als Akzeptanz-Gate.
     if Path(name).exists():
         _braucht_st(name)
-        enc = BgeM3Encoder(modell=name, device=device)
+        enc = BgeM3Encoder(modell=name, device=device, local_files_only=True)
         enc.name = name
         return enc
     raise ValueError(
