@@ -36,7 +36,7 @@ risk-layer-ops = "risk_layer.ops_cli:main"
 risk-layer-web = "risk_layer.web:main"
 
 [build-system]
-requires = ["setuptools==81.0.0"]
+requires = ["setuptools==83.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

@@ -17,6 +17,7 @@ from tools import deploy_container_release as D
 
 
 ROOT = Path(__file__).resolve().parents[1]
+REAL_PYTHON = Path(sys.executable).resolve(strict=True)
 TOKEN = "t" * 48
 
 
@@ -72,9 +73,9 @@ def _profile_document(
     return {
         "schema": O.PROFILE_SCHEMA,
         "mode": mode,
-        "python": str(Path(sys.executable).absolute()),
+        "python": str(REAL_PYTHON),
         "bootstrap_python": bootstrap_python,
-        "docker_bin": str(Path(sys.executable).absolute()) if mode == "container" else None,
+        "docker_bin": str(REAL_PYTHON) if mode == "container" else None,
         "release_home": str((tmp_path / "release-home").absolute()),
         "state_dir": str((tmp_path / "container-state").absolute()) if container else None,
         "berater_dir": str((tmp_path / "definitionen").absolute()),
@@ -215,7 +216,7 @@ def test_profil_ist_strikt_nicht_mehrdeutig_und_container_hat_keine_bootstrap_ve
         O.load_profile(profile_path)
 
     document.pop("unknown")
-    document["bootstrap_python"] = str(Path(sys.executable).absolute())
+    document["bootstrap_python"] = str(REAL_PYTHON)
     profile_path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(O.OperatorError, match="bootstrap_python auf null"):
         O.load_profile(profile_path)
@@ -240,7 +241,7 @@ def test_profil_verlangt_kurze_sichere_backup_target_id(
 def test_profil_bindet_modus_urls_layer_und_absolute_executables(tmp_path: Path) -> None:
     profile_path, document = _write_profile(tmp_path)
 
-    document["activation_command"] = [str(Path(sys.executable).absolute()), "-V"]
+    document["activation_command"] = [str(REAL_PYTHON), "-V"]
     profile_path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(O.OperatorError, match="activation_command auf null"):
         O.load_profile(profile_path)
@@ -266,7 +267,7 @@ def test_profil_bindet_modus_urls_layer_und_absolute_executables(tmp_path: Path)
     document["mode"] = "native"
     for field in O.CONTAINER_PATH_FIELDS:
         document[field] = None
-    document["docker_bin"] = str(Path(sys.executable).absolute())
+    document["docker_bin"] = str(REAL_PYTHON)
     profile_path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(O.OperatorError, match="docker_bin auf null"):
         O.load_profile(profile_path)
@@ -280,7 +281,7 @@ def test_native_profil_setzt_container_pfade_explizit_auf_null(
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     profile = O.load_profile(profile_path)
     assert profile.state_dir is None
@@ -502,7 +503,7 @@ def test_doctor_fix_uebernimmt_bestehendes_secret_statt_zweites_token(
 def test_native_bootstrap_nutzt_nur_explizite_kurzlebige_control_venv(
     tmp_path: Path,
 ) -> None:
-    bootstrap_python = str(Path(sys.executable).absolute())
+    bootstrap_python = str(REAL_PYTHON)
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
@@ -532,7 +533,7 @@ def test_native_update_braucht_state_und_nutzt_danach_nur_launcher(tmp_path: Pat
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        activation=[str(Path(sys.executable).absolute()), "-c", "pass"],
+        activation=[str(REAL_PYTHON), "-c", "pass"],
         bootstrap_python=missing_bootstrap,
     )
     bundle = tmp_path / "bundle"
@@ -552,7 +553,7 @@ def test_native_update_braucht_state_und_nutzt_danach_nur_launcher(tmp_path: Pat
     ]
     assert missing_bootstrap not in command
     activation = json.loads(command[command.index("--activation-command") + 1])
-    assert activation[0:2] == [str(Path(sys.executable).absolute()), "-c"]
+    assert activation[0:2] == [str(REAL_PYTHON), "-c"]
     assert "--health-url" in command and "--no-health-check" not in command
     assert command[command.index("--retention-keep-last") + 1] == "30"
     assert command[command.index("--retention-keep-days") + 1] == "90"
@@ -562,7 +563,7 @@ def test_bootstrap_blockt_vorhandenen_state(tmp_path: Path) -> None:
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     _state(document, native=True)
     bundle = tmp_path / "bundle"
@@ -581,7 +582,7 @@ def test_backup_delegate_braucht_release_home_nur_lesend(
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     _state(document, native=True)
     checked: list[tuple[Path, str]] = []
@@ -607,7 +608,7 @@ def test_update_blockt_fremd_schreibbaren_deployment_state(tmp_path: Path) -> No
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     state = _state(document, native=True)
     if os.name == "nt":
@@ -815,7 +816,7 @@ def test_manuelles_backup_bindet_validierte_current_identitaet_explizit(
     profile_path, document = _write_profile(
         tmp_path,
         mode=mode,
-        bootstrap_python=(str(Path(sys.executable).absolute()) if mode == "native" else None),
+        bootstrap_python=(str(REAL_PYTHON) if mode == "native" else None),
     )
     _state(document, native=True)
     if mode == "container":
@@ -897,7 +898,7 @@ def test_backup_prune_dry_run_ist_read_only_apply_braucht_write(
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     backup_dir = Path(str(document["backup_dir"]))
     real_managed = O._require_managed_directory
@@ -952,7 +953,7 @@ def test_restore_liste_und_leeres_ziel_brauchen_kein_schreibbares_backup_dir(
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     backup_dir = Path(str(document["backup_dir"]))
     archive = backup_dir / "festwissen_read_only.zip"
@@ -1000,7 +1001,7 @@ def test_restore_verlangt_an_archiv_und_ziel_gebundene_bestaetigung(
     profile_path, document = _write_profile(
         tmp_path,
         mode="native",
-        bootstrap_python=str(Path(sys.executable).absolute()),
+        bootstrap_python=str(REAL_PYTHON),
     )
     archive = Path(str(document["backup_dir"])) / "festwissen_neu.zip"
     archive.write_bytes(b"zip")
@@ -1291,7 +1292,7 @@ def test_beispielprofil_hat_restriktives_schema_und_keine_secrets() -> None:
 
 
 def test_interpretervertrag_erkennt_cpython_und_lehnt_dummy_ab(tmp_path: Path) -> None:
-    detail = O._interpreter_contract(Path(sys.executable), "Test-Python")
+    detail = O._interpreter_contract(REAL_PYTHON, "Test-Python")
     assert detail.startswith("CPython 3.")
 
     dummy = tmp_path / ("dummy-python.exe" if os.name == "nt" else "dummy-python")
@@ -1300,6 +1301,15 @@ def test_interpretervertrag_erkennt_cpython_und_lehnt_dummy_ab(tmp_path: Path) -
         dummy.chmod(0o700)
     with pytest.raises(O.OperatorError, match="ausfuehrbar|Delegate"):
         O._interpreter_contract(dummy, "Dummy-Python")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX-Symlinkvertrag")
+def test_interpretervertrag_blockt_posix_control_symlink(tmp_path: Path) -> None:
+    linked_python = tmp_path / "python-link"
+    linked_python.symlink_to(REAL_PYTHON)
+
+    with pytest.raises(O.OperatorError, match="Link/Reparse"):
+        O._interpreter_contract(linked_python, "Test-Python")
 
 
 def test_control_plane_blockt_fremd_schreibbare_datei_und_elternpfad(

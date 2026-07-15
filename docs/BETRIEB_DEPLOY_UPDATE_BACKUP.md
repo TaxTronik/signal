@@ -238,9 +238,12 @@ in das Bundle kopierten Lockdateien enthalten dagegen keinerlei Netzquelle.
 
 Für die **allererste** Installation wird einmalig eine kurzlebige Control-Venv
 aus genau diesem Offline-Wheelhouse aufgebaut. Beispiel Linux/Python 3.12:
+`--copies` ist dabei Teil des Sicherheitsvertrags: Profilierte
+Control-Executables dürfen keine Symlinks/Reparse-Points sein; `bin/python`
+muss deshalb als reguläre Datei angelegt werden.
 
 ```bash
-python3.12 -m venv /tmp/risk-layer-bootstrap
+python3.12 -m venv --copies /tmp/risk-layer-bootstrap
 /tmp/risk-layer-bootstrap/bin/python -m pip install \
   --require-hashes --no-index --only-binary=:all: \
   --find-links incoming-v1.4.0/runtime/wheelhouse/linux_x86_64-cp312 \

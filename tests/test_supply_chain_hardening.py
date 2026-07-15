@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 
@@ -50,7 +51,7 @@ def test_optionale_locks_sind_zielsystemspezifisch_und_hashgepinnt() -> None:
     for name in embedding_locks:
         lock = _text(name).lower()
         assert "sentence-transformers==5.6.0" in lock
-        assert "torch==2.11.0+cpu" in lock
+        assert "torch==2.13.0+cpu" in lock
         assert "--hash=sha256:" in lock
         assert "nvidia-" not in lock
         assert "cuda-toolkit==" not in lock
@@ -66,7 +67,34 @@ def test_optionale_locks_sind_zielsystemspezifisch_und_hashgepinnt() -> None:
     runtime = _text("requirements-runtime-lock.txt").lower()
     assert "pytest==" not in runtime
     assert "numpy==2.2.6" in runtime
-    assert "setuptools==81.0.0" in runtime
+    assert "setuptools==83.0.0" in runtime
+
+
+def test_setuptools_vertrag_ist_in_quellen_und_locks_identisch() -> None:
+    erwartet = "setuptools==83.0.0"
+    projekt = tomllib.loads(_text("pyproject.toml"))
+    build_anforderungen = projekt["build-system"]["requires"]
+    assert [
+        eintrag
+        for eintrag in build_anforderungen
+        if eintrag.lower().startswith("setuptools")
+    ] == [erwartet]
+
+    for name in (
+        "requirements.in",
+        "requirements-runtime.in",
+        "requirements-lock.txt",
+        "requirements-runtime-lock.txt",
+        "requirements-ner-lock.txt",
+        "requirements-embedding-linux-cpu-py312-lock.txt",
+        "requirements-embedding-windows-cpu-py312-lock.txt",
+    ):
+        setuptools_anforderungen = [
+            zeile.split()[0]
+            for zeile in _text(name).splitlines()
+            if zeile.strip().lower().startswith("setuptools")
+        ]
+        assert setuptools_anforderungen == [erwartet], name
 
 
 def test_ci_actions_und_containerbasis_sind_digestgepinnt() -> None:

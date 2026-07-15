@@ -281,6 +281,7 @@ def test_current_bindet_beim_switch_vertrauten_manifest_fingerprint(tmp_path):
     assert state.current_manifest_sha256 == record.manifest.fingerprint()
 
     wheel = record.path / "app" / "risk_layer.whl"
+    os.chmod(record.path, 0o755)
     os.chmod(wheel, 0o644)
     os.chmod(record.path / "release.json", 0o644)
     wheel.write_bytes(b"anderes-selbstkonsistentes-wheel")

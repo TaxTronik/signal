@@ -3,4 +3,4 @@
 # no-build-isolation-Paketbau im Dockerfile benoetigt.
 PyYAML>=6.0
 numpy>=1.26,<2.3
-setuptools>=77,<82
+setuptools==83.0.0

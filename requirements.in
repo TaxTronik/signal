@@ -19,4 +19,4 @@
 PyYAML>=6.0
 numpy>=1.26,<2.3
 pytest>=8.0
-setuptools>=77
+setuptools==83.0.0
