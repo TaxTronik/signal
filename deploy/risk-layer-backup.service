@@ -4,7 +4,7 @@ Description=Risk-Layer konsistentes Festwissen-Backup
 [Service]
 Type=oneshot
 EnvironmentFile=%h/.config/risk-layer/backup.env
-ExecStart=/usr/bin/env python3.12 -I ${RISK_LAYER_RELEASE_LAUNCHER} --home ${RISK_LAYER_RELEASE_HOME} -- backup create --berater ${RISK_LAYER_BERATER_DIR} --ziel ${RISK_LAYER_BACKUP_DIR} --retention-keep-last 30 --retention-keep-days 90
+ExecStart=/usr/bin/python3.12 -I ${RISK_LAYER_RELEASE_TOOLS} ops --config ${RISK_LAYER_OPS_PROFILE} backup
 UMask=0077
 Nice=10
 NoNewPrivileges=true
@@ -23,5 +23,5 @@ RemoveIPC=true
 CapabilityBoundingSet=
 RestrictAddressFamilies=AF_UNIX
 
-# Die variablen Berater- und Off-host-Pfade werden nicht per systemd privilegiert;
+# Profilierte Berater- und Off-host-Pfade werden nicht per systemd privilegiert;
 # die User-Unit erhält ausschließlich die normalen Rechte des Dienstbenutzers.

@@ -517,12 +517,24 @@ def _cmd_festwissen(args: argparse.Namespace) -> int:
     from . import sicherung as S
 
     if args.aktion == "sichern":
+        if not args.backup_target_id:
+            print(
+                "Sicherungs-Fehler: 'sichern' braucht --backup-target-id fuer "
+                "ein explizit provisioniertes Backup-Ziel.",
+                file=sys.stderr,
+            )
+            return 2
         ziel = Path(args.ziel) if args.ziel else Path(args.berater) / "sicherungen"
         # Uhr NUR hier am CLI-Rand (wie graph build/radar) – der Funktionskern
         # in sicherung.py bleibt uhrfrei/deterministisch.
         zeit = args.zeitstempel or datetime.now().isoformat(timespec="seconds")
         try:
-            pfad = S.sichere_festwissen(args.berater, ziel, zeit)
+            pfad = S.sichere_festwissen(
+                args.berater,
+                ziel,
+                zeit,
+                backup_target_id=args.backup_target_id,
+            )
         except S.SicherungsFehler as exc:
             print(f"Sicherungs-Fehler: {exc}", file=sys.stderr)
             return 2
@@ -533,7 +545,9 @@ def _cmd_festwissen(args: argparse.Namespace) -> int:
         print(pfad)                       # Ausgabe: der Archivpfad (skriptbar)
         return 0
 
-    # wiederherstellen
+    # Kompatibilitaets-Direktpfad: anders als die Operator-Fassade legt dieser
+    # Restore keine Pflicht-Vorher-Sicherung an. Fuer produktive Restores ist
+    # deshalb `risk-layerctl restore` der dokumentierte Betriebsweg.
     if not args.archiv:
         print("Sicherungs-Fehler: 'wiederherstellen' braucht ein ARCHIV "
               "(risk-layer festwissen wiederherstellen <ARCHIV> --berater DIR).",
@@ -922,10 +936,17 @@ def build_parser() -> argparse.ArgumentParser:
     fw.add_argument("--ziel",
                     help="Zielverzeichnis der Archive beim Sichern "
                          "(Default: <berater>/sicherungen/)")
+    fw.add_argument(
+        "--backup-target-id",
+        help="Pflicht fuer 'sichern': erwartete ID des bereits provisionierten "
+             ".risk-layer-backup-target.json-Sentinels; Ziel und Sentinel "
+             "werden nie automatisch angelegt",
+    )
     fw.add_argument("--zeitstempel",
                     help="Fester Zeitstempel für den Archivnamen (reproduzierbare Läufe)")
     fw.add_argument("--force", action="store_true",
-                    help="'wiederherstellen': nicht-leeres Ziel ausdrücklich überschreiben")
+                    help="'wiederherstellen': Legacy-Direktrestore ohne automatische "
+                         "Vorher-Sicherung; nicht-leeres Ziel ausdrücklich überschreiben")
     fw.set_defaults(func=_cmd_festwissen)
 
     d = sub.add_parser(

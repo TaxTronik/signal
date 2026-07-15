@@ -1,9 +1,9 @@
 """Betriebs-CLI fuer Health, Backup und transaktionale Releases.
 
-``risk-layer`` bleibt die fachliche Engine-CLI. ``risk-layerctl`` bildet die
-Operator-Grenze: Es verlangt explizite Backup-/Trust-Entscheidungen, schaltet
-Release-Generationen atomar und kann einen stabilen Dienst auf ``current``
-starten, ohne Code aus einem Git-Checkout zu importieren.
+``risk-layer`` bleibt die fachliche Engine-CLI. ``risk-layer-ops`` ist die
+technische Delegate-/Expert-CLI hinter der profilbasierten ``risk-layerctl``-
+Fassade: Sie schaltet Release-Generationen atomar und kann einen stabilen
+Dienst auf ``current`` starten, ohne Code aus einem Git-Checkout zu importieren.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import hmac
 import hashlib
 import ipaddress
 import json
+import math
 import os
 import re
 import shutil
@@ -42,6 +43,7 @@ from .release_manifest import ArtifactDigest, ManifestError, ReleaseManifest
 from .sicherung import (
     SicherungsFehler,
     bereinige_sicherungen,
+    pruefe_backup_ziel,
     pruefe_sicherung,
     sichere_festwissen,
     stelle_wieder_her_mit_sicherung,
@@ -54,6 +56,7 @@ _RUNTIME_MARKER = ".risk-layer-runtime.json"
 _RUNTIME_MARKER_FORMAT = 1
 _MAX_RUNTIME_MARKER_BYTES = 16 * 1024
 _MAX_RUNTIME_LOCK_BYTES = 2 * 1024 * 1024
+MAX_OPERATION_TIMEOUT_SECONDS = 3600.0
 _PINNED_REQUIREMENT_RE = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9,._-]+\])?"
     r"==[A-Za-z0-9][A-Za-z0-9.!+_-]*\Z"
@@ -63,6 +66,58 @@ _HASH_OPTION_RE = re.compile(r"--hash=sha256:[0-9a-f]{64}\Z")
 
 class OpsFehler(RuntimeError):
     """Sicher behandelbarer Bedienungs- oder Betriebsfehler."""
+
+
+def _positive_timeout(value: Any, name: str) -> float:
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError):
+        normalized = math.nan
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(normalized)
+        or normalized <= 0
+        or normalized > MAX_OPERATION_TIMEOUT_SECONDS
+    ):
+        raise OpsFehler(
+            f"{name} muss endlich und > 0 bis {MAX_OPERATION_TIMEOUT_SECONDS:g}s sein"
+        )
+    return normalized
+
+
+def _nonnegative_timeout(value: Any, name: str) -> float:
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError):
+        normalized = math.nan
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(normalized)
+        or normalized < 0
+        or normalized > MAX_OPERATION_TIMEOUT_SECONDS
+    ):
+        raise OpsFehler(
+            f"{name} muss endlich und >= 0 bis {MAX_OPERATION_TIMEOUT_SECONDS:g}s sein"
+        )
+    return normalized
+
+
+def _timeout_argument(raw: str) -> float:
+    try:
+        value = float(raw)
+        return _positive_timeout(value, "Timeout")
+    except (ValueError, OpsFehler) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+
+
+def _lock_timeout_argument(raw: str) -> float:
+    try:
+        value = float(raw)
+        return _nonnegative_timeout(value, "Lock-Timeout")
+    except (ValueError, OpsFehler) as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,7 +342,7 @@ def _runtime_entfernen(
     )
     try:
         dokument = json.loads(marker.decode("utf-8"), object_pairs_hook=_json_ohne_duplikate)
-    except (UnicodeDecodeError, json.JSONDecodeError, OpsFehler) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, OpsFehler) as exc:
         raise OpsFehler(f"Release-Runtime ohne gueltigen Marker wird nicht entfernt: {ziel}") from exc
     if (
         not isinstance(dokument, dict)
@@ -407,6 +462,7 @@ def _basis_url(url: str, *, unsicheres_http: bool = False) -> str:
 
 
 def _hole_json(basis: str, pfad: str, token: str | None, timeout: float) -> dict[str, Any]:
+    timeout = _positive_timeout(timeout, "HTTP-Timeout")
     headers = {"Accept": "application/json"}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
@@ -424,7 +480,7 @@ def _hole_json(basis: str, pfad: str, token: str | None, timeout: float) -> dict
         raise OpsFehler(f"{pfad}-Antwort ueberschreitet 2 MiB")
     try:
         dokument = json.loads(roh.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise OpsFehler(f"{pfad} lieferte kein gueltiges UTF-8-JSON") from exc
     if not isinstance(dokument, dict):
         raise OpsFehler(f"{pfad}-Antwort muss ein JSON-Objekt sein")
@@ -442,8 +498,7 @@ def _doctor(
     schichten: Sequence[str] = (),
     unsicheres_http: bool = False,
 ) -> dict[str, Any]:
-    if timeout <= 0:
-        raise OpsFehler("timeout muss > 0 sein")
+    timeout = _positive_timeout(timeout, "Health-Timeout")
     basis = _basis_url(url, unsicheres_http=unsicheres_http)
     token = _token_lesen(token_datei)
     deadline = time.monotonic() + timeout
@@ -519,29 +574,27 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
 
 def _cmd_backup_create(args: argparse.Namespace) -> int:
+    retention_values = _retention_values(args)
     zeit = args.zeitstempel or _utc_jetzt()
+    release_id, git_sha, manifest_sha256 = _backup_identity(args)
     pfad = sichere_festwissen(
         args.berater,
         args.ziel,
         zeit,
-        release_id=args.release_id,
-        git_commit=args.git_sha or os.environ.get("RISK_LAYER_RELEASE_GIT_SHA"),
-        release_manifest_sha256=(
-            args.release_manifest_sha256
-            or os.environ.get("RISK_LAYER_RELEASE_MANIFEST_SHA256")
-        ),
+        release_id=release_id,
+        git_commit=git_sha,
+        release_manifest_sha256=manifest_sha256,
+        backup_target_id=args.backup_target_id,
     )
     info = pruefe_sicherung(pfad)
     retention = None
-    if args.retention_keep_last is not None or args.retention_keep_days is not None:
-        if args.retention_keep_last is None or args.retention_keep_days is None:
-            raise OpsFehler(
-                "--retention-keep-last und --retention-keep-days muessen gemeinsam gesetzt sein"
-            )
+    if retention_values is not None:
+        keep_last, keep_days = retention_values
         retention = bereinige_sicherungen(
             args.ziel,
-            keep_last=args.retention_keep_last,
-            keep_days=args.retention_keep_days,
+            backup_target_id=args.backup_target_id,
+            keep_last=keep_last,
+            keep_days=keep_days,
             apply=True,
         )
     if args.json:
@@ -549,6 +602,39 @@ def _cmd_backup_create(args: argparse.Namespace) -> int:
     else:
         print(pfad)
     return 0
+
+
+def _backup_identity(args: argparse.Namespace) -> tuple[str | None, str | None, str | None]:
+    return (
+        args.release_id
+        or os.environ.get("RISK_LAYER_BACKUP_CURRENT_RELEASE_ID")
+        or os.environ.get("RISK_LAYER_RELEASE_ID"),
+        args.git_sha
+        or os.environ.get("RISK_LAYER_BACKUP_CURRENT_GIT_SHA")
+        or os.environ.get("RISK_LAYER_RELEASE_GIT_SHA"),
+        args.release_manifest_sha256
+        or os.environ.get("RISK_LAYER_BACKUP_CURRENT_MANIFEST_SHA256")
+        or os.environ.get("RISK_LAYER_RELEASE_MANIFEST_SHA256"),
+    )
+
+
+def _retention_values(args: argparse.Namespace) -> tuple[int, int] | None:
+    keep_last = args.retention_keep_last
+    keep_days = args.retention_keep_days
+    if (keep_last is None) != (keep_days is None):
+        raise OpsFehler(
+            "--retention-keep-last und --retention-keep-days muessen gemeinsam gesetzt sein"
+        )
+    if keep_last is None:
+        return None
+    if (
+        type(keep_last) is not int
+        or type(keep_days) is not int
+        or keep_last < 1
+        or keep_days < 1
+    ):
+        raise OpsFehler("Retention-Werte muessen positive Ganzzahlen sein")
+    return keep_last, keep_days
 
 
 def _cmd_backup_verify(args: argparse.Namespace) -> int:
@@ -565,6 +651,7 @@ def _cmd_backup_verify(args: argparse.Namespace) -> int:
 def _cmd_backup_prune(args: argparse.Namespace) -> int:
     ergebnis = bereinige_sicherungen(
         args.ziel,
+        backup_target_id=args.backup_target_id,
         keep_last=args.keep_last,
         keep_days=args.keep_days,
         apply=args.apply,
@@ -574,22 +661,26 @@ def _cmd_backup_prune(args: argparse.Namespace) -> int:
 
 
 def _cmd_backup_restore(args: argparse.Namespace) -> int:
-    info = pruefe_sicherung(args.archiv)
+    if args.expected_sha256 is not None:
+        if not _SHA256_RE.fullmatch(args.expected_sha256):
+            raise OpsFehler("--expected-sha256 muss 64 lowercase Hex-Zeichen enthalten")
     ziel = Path(args.berater)
     vorher_ziel = Path(args.backup_ziel) if args.backup_ziel else Path(args.archiv).parent
+    release_id, git_sha, manifest_sha256 = _backup_identity(args)
     # Leerheitspruefung, Pflicht-Vorher-Sicherung und Promotion muessen unter
     # demselben Festwissen-Lock geschehen. Eine Vorab-Verzweigung hier wuerde
     # einen parallelen Write zwischen Pruefung und Restore ungesichert verlieren.
-    dateien, vorher = stelle_wieder_her_mit_sicherung(
+    dateien, vorher, info = stelle_wieder_her_mit_sicherung(
         args.archiv,
         ziel,
         vorher_ziel,
         f"{_utc_jetzt()}-pre-restore",
         force=args.force,
-        git_commit=os.environ.get("RISK_LAYER_RELEASE_GIT_SHA"),
-        release_manifest_sha256=os.environ.get(
-            "RISK_LAYER_RELEASE_MANIFEST_SHA256"
-        ),
+        release_id=release_id,
+        git_commit=git_sha,
+        release_manifest_sha256=manifest_sha256,
+        expected_sha256=args.expected_sha256,
+        backup_target_id=args.backup_target_id,
     )
     ergebnis = {
         "ok": True,
@@ -651,7 +742,7 @@ def _parse_command(raw: str | None, name: str) -> tuple[str, ...] | None:
         return None
     try:
         wert = json.loads(raw)
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise OpsFehler(f"{name} muss ein JSON-Array von Argumenten sein") from exc
     if (
         not isinstance(wert, list)
@@ -725,6 +816,7 @@ def _kommando(
     timeout: float,
     runtime: _ReleaseRuntime | None = None,
 ) -> None:
+    timeout = _positive_timeout(timeout, f"{phase}-Timeout")
     try:
         result = subprocess.run(
             command,
@@ -928,6 +1020,7 @@ def _runtime_subprozess(
     timeout: float,
     phase: str,
 ) -> None:
+    timeout = _positive_timeout(timeout, f"{phase}-Timeout")
     try:
         ergebnis = subprocess.run(
             list(kommando),
@@ -984,8 +1077,7 @@ def _runtime_marker_schreiben(
 def _runtime_sicherstellen(
     home: str | Path, record: ReleaseRecord, timeout: float
 ) -> _ReleaseRuntime:
-    if timeout <= 0:
-        raise OpsFehler("Runtime-Bau-Timeout muss > 0 sein")
+    timeout = _positive_timeout(timeout, "Runtime-Bau-Timeout")
     wurzel = _runtime_root(home, erstellen=True)
     fingerprint = record.manifest.fingerprint()
     ziel = wurzel / _runtime_name(record.manifest.release_id, fingerprint)
@@ -1091,6 +1183,8 @@ def _candidate_pruefung(
     hook_timeout: float,
     runtime_bereit: Callable[[_ReleaseRuntime], None] | None = None,
 ) -> Callable[[ReleaseRecord], bool]:
+    hook_timeout = _positive_timeout(hook_timeout, "Candidate-Hook-Timeout")
+
     def pruefen(record: ReleaseRecord) -> bool:
         runtime = _runtime_sicherstellen(home, record, hook_timeout)
         if runtime_bereit is not None:
@@ -1122,6 +1216,9 @@ def _aktivierung(
     require_layers: Sequence[str],
     allow_insecure_http: bool,
 ) -> Callable[[ReleaseRecord | None], bool]:
+    hook_timeout = _positive_timeout(hook_timeout, "Aktivierungs-Hook-Timeout")
+    health_timeout = _positive_timeout(health_timeout, "Health-Timeout")
+
     def aktivieren(record: ReleaseRecord | None) -> bool:
         runtime = _runtime_pruefen(home, record) if record is not None else None
         if command is not None:
@@ -1169,21 +1266,26 @@ def _state_info(manager: ReleaseManager, state: ReleaseState) -> dict[str, Any]:
 
 
 def _cmd_release_install(args: argparse.Namespace) -> int:
+    retention_values = _retention_values(args)
     manifest = verify_bundle(args.bundle)
     fingerprint = _pruefe_manifest_vertrauen(
         manifest, args.manifest_sha256, args.trust_local_manifest
     )
+    backup_ziel = Path(args.backup_ziel)
+    # Der Expert-Einstieg darf vor einer gebundenen Off-host-Zielpruefung weder
+    # Release-Home noch Berater-Verzeichnis oder Staging-Generationen anlegen.
+    pruefe_backup_ziel(backup_ziel, args.backup_target_id, writable=True)
     berater = Path(args.berater)
     berater.mkdir(parents=True, exist_ok=True)
-    backup_ziel = Path(args.backup_ziel)
     manager = ReleaseManager(args.home, lock_timeout=args.lock_timeout)
     candidate_command = _parse_command(args.candidate_command, "--candidate-command")
     activation_command = _parse_command(args.activation_command, "--activation-command")
     backup_pfad: Path | None = None
+    retention: dict[str, Any] | None = None
     candidate_runtime: _ReleaseRuntime | None = None
 
     def backup(state: ReleaseState, candidate: ReleaseRecord) -> bool:
-        nonlocal backup_pfad
+        nonlocal backup_pfad, retention
         current = (
             manager.verify(
                 state.current,
@@ -1203,8 +1305,18 @@ def _cmd_release_install(args: argparse.Namespace) -> int:
             release_manifest_sha256=(
                 current.manifest.fingerprint() if current is not None else None
             ),
+            backup_target_id=args.backup_target_id,
         )
         pruefe_sicherung(backup_pfad)
+        if retention_values is not None:
+            keep_last, keep_days = retention_values
+            retention = bereinige_sicherungen(
+                backup_ziel,
+                backup_target_id=args.backup_target_id,
+                keep_last=keep_last,
+                keep_days=keep_days,
+                apply=True,
+            )
         return True
 
     activation = _aktivierung(
@@ -1258,6 +1370,7 @@ def _cmd_release_install(args: argparse.Namespace) -> int:
             "ok": True,
             "trusted_manifest_sha256": fingerprint,
             "backup": str(backup_pfad) if backup_pfad else None,
+            "retention": retention,
             "state": _state_info(manager, state),
         }
     )
@@ -1384,15 +1497,15 @@ def _activation_args(parser: argparse.ArgumentParser) -> None:
         help="Post-Health bewusst extern verantworten",
     )
     parser.add_argument("--token-file")
-    parser.add_argument("--health-timeout", type=float, default=180.0)
-    parser.add_argument("--hook-timeout", type=float, default=180.0)
+    parser.add_argument("--health-timeout", type=_timeout_argument, default=180.0)
+    parser.add_argument("--hook-timeout", type=_timeout_argument, default=180.0)
     parser.add_argument("--require-layer", action="append", default=[])
     parser.add_argument("--allow-insecure-http", action="store_true")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="risk-layerctl",
+        prog="risk-layer-ops",
         description="Transaktionaler Risk-Layer-Betrieb: pruefen, sichern, aktualisieren, rollback.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1400,7 +1513,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor = sub.add_parser("doctor", help="Health, Status, Release und Soll-Schichten pruefen")
     doctor.add_argument("--url", default="http://127.0.0.1:8000")
     doctor.add_argument("--token-file")
-    doctor.add_argument("--timeout", type=float, default=30.0)
+    doctor.add_argument("--timeout", type=_timeout_argument, default=30.0)
     doctor.add_argument("--expected-release")
     doctor.add_argument("--expected-git-sha")
     doctor.add_argument("--expected-manifest-sha256")
@@ -1414,6 +1527,7 @@ def build_parser() -> argparse.ArgumentParser:
     create = backup_sub.add_parser("create", help="manifestierten konsistenten Snapshot anlegen")
     create.add_argument("--berater", required=True)
     create.add_argument("--ziel", required=True, help="explizites getrenntes Backup-Ziel")
+    create.add_argument("--backup-target-id", required=True)
     create.add_argument("--zeitstempel")
     create.add_argument("--release-id")
     create.add_argument("--git-sha")
@@ -1429,6 +1543,7 @@ def build_parser() -> argparse.ArgumentParser:
         "prune", help="Retention planen oder verifizierte alte Archive loeschen"
     )
     prune.add_argument("--ziel", required=True)
+    prune.add_argument("--backup-target-id", required=True)
     prune.add_argument("--keep-last", type=int, default=30)
     prune.add_argument("--keep-days", type=int, default=90)
     prune.add_argument(
@@ -1437,7 +1552,12 @@ def build_parser() -> argparse.ArgumentParser:
     prune.set_defaults(func=_cmd_backup_prune)
     restore = backup_sub.add_parser("restore", help="validieren, stagen und atomar wiederherstellen")
     restore.add_argument("archiv")
+    restore.add_argument("--expected-sha256")
     restore.add_argument("--berater", required=True)
+    restore.add_argument("--backup-target-id", required=True)
+    restore.add_argument("--release-id")
+    restore.add_argument("--git-sha")
+    restore.add_argument("--release-manifest-sha256")
     restore.add_argument("--force", action="store_true")
     restore.add_argument(
         "--backup-ziel",
@@ -1458,15 +1578,18 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--home", required=True)
     install.add_argument("--berater", required=True)
     install.add_argument("--backup-ziel", required=True)
+    install.add_argument("--backup-target-id", required=True)
+    install.add_argument("--retention-keep-last", type=int)
+    install.add_argument("--retention-keep-days", type=int)
     install.add_argument("--candidate-command", help="optionaler Pre-Switch-Hook als JSON-Array")
-    install.add_argument("--lock-timeout", type=float, default=30.0)
+    install.add_argument("--lock-timeout", type=_lock_timeout_argument, default=30.0)
     _trust_args(install)
     _activation_args(install)
     install.set_defaults(func=_cmd_release_install)
 
     status = release_sub.add_parser("status", help="current/previous verifizieren und anzeigen")
     status.add_argument("--home", required=True)
-    status.add_argument("--lock-timeout", type=float, default=30.0)
+    status.add_argument("--lock-timeout", type=_lock_timeout_argument, default=30.0)
     status.set_defaults(func=_cmd_release_status)
 
     release_prune = release_sub.add_parser(
@@ -1474,7 +1597,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     release_prune.add_argument("--home", required=True)
     release_prune.add_argument("--keep", type=int, default=3)
-    release_prune.add_argument("--lock-timeout", type=float, default=30.0)
+    release_prune.add_argument("--lock-timeout", type=_lock_timeout_argument, default=30.0)
     release_prune.add_argument(
         "--apply", action="store_true", help="Plan tatsaechlich anwenden (sonst Dry-run)"
     )
@@ -1482,7 +1605,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     rollback = release_sub.add_parser("rollback", help="atomar zu previous zurueckschalten")
     rollback.add_argument("--home", required=True)
-    rollback.add_argument("--lock-timeout", type=float, default=30.0)
+    rollback.add_argument("--lock-timeout", type=_lock_timeout_argument, default=30.0)
     _activation_args(rollback)
     rollback.set_defaults(func=_cmd_release_rollback)
 
@@ -1499,7 +1622,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--llm-model")
     run.add_argument("--llm-bin")
     run.add_argument("--llm-autostart", action="store_true")
-    run.add_argument("--lock-timeout", type=float, default=30.0)
+    run.add_argument("--lock-timeout", type=_lock_timeout_argument, default=30.0)
     run.set_defaults(func=_cmd_service_run)
     return parser
 

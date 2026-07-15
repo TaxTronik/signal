@@ -4,6 +4,77 @@ Dieses Runbook trennt unveränderliche Programm-/Festwissen-Releases vom
 veränderlichen Berater-Store. Es gilt für native Installationen und den
 Produktions-Compose-Stack.
 
+## Standardoberfläche
+
+Der normale Betreiberpfad ist absichtlich kürzer als die technischen Beispiele
+in diesem Dokument:
+
+```text
+./risk-layerctl [--config PFAD] bootstrap
+./risk-layerctl [--config PFAD] deploy
+./risk-layerctl [--config PFAD] update
+./risk-layerctl [--config PFAD] status
+./risk-layerctl [--config PFAD] doctor [--fix]
+./risk-layerctl [--config PFAD] backup
+./risk-layerctl [--config PFAD] backup-verify
+./risk-layerctl [--config PFAD] backup-prune
+./risk-layerctl [--config PFAD] restore
+./risk-layerctl [--config PFAD] rollback
+```
+
+`bootstrap`, `deploy` und `update` erhalten zusätzlich das lokale
+Release-Artefakt und `--manifest-sha256 HASH`. Im nativen Modus ist das Artefakt
+das extrahierte Bundle-Verzeichnis, im Container-Modus das bindende
+Container-Manifest. `restore` wählt mit `--list`, `--latest` oder `--file
+ARCHIV`; jede Mutation verlangt zusätzlich die exakt ausgegebene
+`--confirm`-Zeichenfolge.
+
+Windows verwendet dieselben Kommandos über `.\risk-layerctl.ps1`. Vorlagen
+existieren für
+[Container/Linux](../deploy/risk-layer-ops.example.json),
+[Native/Linux](../deploy/risk-layer-ops.native-linux.example.json) und
+[Native/Windows](../deploy/risk-layer-ops.native-windows.example.json).
+Für Automation wird `--config` explizit gesetzt. Ohne Angabe gilt zuerst
+`RISK_LAYER_OPS_PROFILE`, danach `/etc/risk-layer/ops.json` beziehungsweise
+unter Windows `C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Nur der
+Checkout-Wrapper setzt bei vorhandenem Quellmodul seinen absoluten
+`deploy/risk-layer-ops.json`-Kompatibilitätspfad.
+
+`./risk-layerctl` und `.\risk-layerctl.ps1` im Repo-Root sind als bloße
+Arbeitskopien kein Vertrauensanker. Die veröffentlichten Kopien werden zusammen
+mit Profilen und Schedulern im Bootstrap-Block des Release-Manifests gehasht.
+Auf einem checkout-freien Produktions- oder Recovery-Host stellt diese
+verifizierte Wrapper-/Zipapp-Kombination dieselbe `ops`-Oberfläche bereit:
+
+```bash
+python3.12 -I risk-layer-release-tools.pyz ops --config PFAD status
+```
+
+Alternativ darf ein stabil installierter Wrapper exakt an diese
+manifestgebundene Zipapp delegieren.
+
+Die Oberfläche lädt native Bundles, Container-Manifeste und andere
+dateibasierte Release-Artefakte nicht automatisch herunter und behauptet keine
+Artefaktsignatur. Diese Dateien müssen vorab lokal bereitstehen; nur der
+Container-Deployer darf anschließend das manifestgebundene Engine-Image per
+OCI-Digest pullen. Der erwartete Manifest-SHA kommt aus einem getrennten
+Vertrauenskanal. Für den Container-Pfad muss die native Release-Generation
+desselben Manifests bereits als verifizierter `current`-Stand aktiv sein; die
+Fassade vergleicht Release-ID, Git-SHA und nativen Manifest-Fingerprint. Ein
+Risk-Layer-Backup umfasst den
+vollständigen nicht regenerierbaren Anwendungszustand, die
+Berater-Definitionen; Release-Artefakte, Konfiguration und Secrets werden
+getrennt aufbewahrt.
+
+`deploy.sh` und `deploy.ps1` sind weiterhin lokale Checkout-Bootstraps und
+Kompatibilitätspfade. Die nachfolgenden langen Aufrufe von
+`risk-layer-ops release ...` und `release-launcher.py` sowie direkte
+`risk-layer-release-tools.pyz deploy-container ...`-Aufrufe dokumentieren die
+Recovery-/Expertenebene hinter `ops`, nicht den alltäglichen Operatorvertrag.
+Der kurze
+Einstieg und die Day-2-Abläufe stehen unter
+[`docs/operations/`](operations/README.md).
+
 ## 1. Was technisch umgesetzt ist – und was Betreiberaufgabe bleibt
 
 | Bereich | Im Repository umgesetzt | Vor Betriebsaufnahme extern einzurichten |
@@ -42,9 +113,18 @@ lokal und veröffentlicht anschließend:
 - eine deterministische, nur aus der Python-Standardbibliothek bestehende
   Bootstrap-Zipapp sowie die einzeln gehashten Verifier-, Extraktor-,
   Deployer-, Service-Installer- und Launcher-Werkzeuge;
+- die dazugehörige systemd-Release-Vorlage, Linux-Backup-Units,
+  Container-Secret-Env-Vorlage, drei Operatorprofile und beide dünnen Wrapper;
 - das bindende `taxtronik-container-vX.Y.Z.json`;
 - als **allerletzten** Publish-Schritt den produktiven OCI-SemVer-Tag, ohne
   `latest`. Fehlt er, gilt ein partieller Upload nicht als freigegeben.
+
+Der Workflow kopiert alle veröffentlichten Dateien zunächst kollisionsfrei in
+ein flaches, leeres Stage-Verzeichnis. Manifest-Erzeugung und vollständige
+Verifikation lesen ausschließlich diesen Stage; der Upload verwendet danach
+exakt dieselben Dateien und veröffentlicht das bindende Manifest zuletzt. So
+kann kein im Repository-Unterverzeichnis liegendes Begleitartefakt nur im
+Manifest stehen, aber im tatsächlichen Downloadsatz fehlen.
 
 In Forgejo muss `v*` als geschütztes Tag-Muster nur für die
 Release-Verantwortlichen beschreibbar sein. `REGISTRY_TOKEN` erhält nur Paket-
@@ -83,7 +163,8 @@ Beispielpfade:
 
 - Linux: Release-Home `/opt/risk-layer`, persistenter Store
   `/var/lib/risk-layer/definitionen`;
-- Windows: Release-Home `C:\ProgramData\TaxTronik\RiskLayer`, persistenter Store
+- Windows: Installationsbasis `C:\ProgramData\TaxTronik\RiskLayer`, kanonisches
+  Release-Home `C:\ProgramData\TaxTronik\RiskLayer\runtime`, persistenter Store
   `C:\ProgramData\TaxTronik\RiskLayer\definitionen`.
 
 Das Release-Home enthält `releases/<release_id>/`, die atomare `state.json` und
@@ -175,6 +256,31 @@ Nach der ersten Aktivierung startet der manifestgebundene stabile
 Update-Kommandos können damit ohne global installiertes `risk-layerctl`
 ausgeführt werden. Die Bootstrap-Venv wird danach entfernt.
 
+### Backupziel einmalig binden
+
+Das Backupziel wird außerhalb des Risk-Layer provisioniert und erst **nach**
+dem Mount beziehungsweise der Freigabe mit einer zufälligen Identität markiert.
+Das Verzeichnis darf nicht ersatzweise auf der lokalen Mountpoint-Unterlage
+angelegt werden:
+
+```bash
+BACKUP_TARGET=/mnt/offhost/risk-layer-backups
+test -d "$BACKUP_TARGET"
+findmnt -T "$BACKUP_TARGET"  # Quelle und Dateisystem bewusst prüfen
+sudo chown "$USER:$(id -gn)" "$BACKUP_TARGET"
+chmod 0700 "$BACKUP_TARGET"
+BACKUP_TARGET_ID="$(python3.12 -c 'import uuid; print(uuid.uuid4())')"
+printf '{"schema":"taxtronik.risk-layer-backup-target/v1","target_id":"%s"}\n' \
+  "$BACKUP_TARGET_ID" > "$BACKUP_TARGET/.risk-layer-backup-target.json"
+chmod 0600 "$BACKUP_TARGET/.risk-layer-backup-target.json"
+```
+
+Genau `BACKUP_TARGET_ID` wird als `backup_target_id` in das Betreiberprofil
+übernommen. `doctor --fix` erzeugt weder das Ziel noch den Sentinel. Jeder
+schreibende Backup-, Retention- und Restore-Pfad prüft die Bindung erneut an
+der tiefsten Mutationsgrenze; ein abgehängter oder falscher Mount stoppt damit
+vor Publish oder Löschung.
+
 ### Release-aware systemd-Dienst
 
 Der alte Checkout-Bootstrap-Dienst wird nicht automatisch release-aware. Die
@@ -188,9 +294,19 @@ installierte Anwendung.
 sudo install -d -o "$USER" -g "$(id -gn)" -m 0700 \
   /opt/risk-layer /opt/risk-layer/bootstrap \
   /var/lib/risk-layer/definitionen
+sudo install -d -o root -g "$(id -gn)" -m 0750 /etc/risk-layer
+sudo install -o root -g "$(id -gn)" -m 0640 \
+  risk-layer-ops.native-linux.example.json /etc/risk-layer/ops.json
+# Danach mit sudoedit anpassen, einschließlich backup_target_id.
 install -d -m 0700 ~/.config/risk-layer
+install -m 0555 risk-layer-release-tools.pyz \
+  /opt/risk-layer/bootstrap/risk-layer-release-tools.pyz
+install -m 0555 risk-layerctl /opt/risk-layer/bootstrap/risk-layerctl
+sudo ln -s /opt/risk-layer/bootstrap/risk-layerctl /usr/local/bin/risk-layerctl
 install -m 0555 release-launcher.py /opt/risk-layer/bootstrap/release-launcher.py
 install -m 0555 install-release-service.py /opt/risk-layer/bootstrap/install-release-service.py
+install -m 0444 risk-layer-release.service.in \
+  /opt/risk-layer/bootstrap/risk-layer-release.service.in
 umask 077
 TOKEN="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(48))')"
 printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > ~/.config/risk-layer/engine.env
@@ -226,6 +342,7 @@ Post-Healthcheck:
   --home /opt/risk-layer \
   --berater /var/lib/risk-layer/definitionen \
   --backup-ziel /mnt/offhost/risk-layer-backups \
+  --backup-target-id "$BACKUP_TARGET_ID" \
   --manifest-sha256 "$RELEASE_MANIFEST_SHA256" \
   --activation-command '["systemctl","--user","restart","risk-layer-release.service"]' \
   --health-url http://127.0.0.1:8000 \
@@ -251,6 +368,7 @@ python3.12 -I /opt/risk-layer/bootstrap/release-launcher.py \
   --home /opt/risk-layer \
   --berater /var/lib/risk-layer/definitionen \
   --backup-ziel /mnt/offhost/risk-layer-backups \
+  --backup-target-id "$BACKUP_TARGET_ID" \
   --manifest-sha256 "$RELEASE_MANIFEST_SHA256" \
   --activation-command '["systemctl","--user","restart","risk-layer-release.service"]' \
   --health-url http://127.0.0.1:8000 \
@@ -264,6 +382,29 @@ Aktivierung, installiert danach aber den begrenzten Benutzer-Task im
 Release-Modus und prüft ihn:
 
 ```powershell
+$BackupTarget = "C:\ProgramData\TaxTronik\RiskLayer\backup-spool"
+if (-not (Test-Path -LiteralPath $BackupTarget -PathType Container)) {
+  throw "Backupziel muss vorab extern provisioniert sein: $BackupTarget"
+}
+$BackupIdentity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+& icacls.exe $BackupTarget /inheritance:r `
+  /grant:r "${BackupIdentity}:(OI)(CI)F" `
+  "*S-1-5-18:(OI)(CI)R" "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "Backupziel-DACL konnte nicht gesetzt werden" }
+$BackupTargetId = [Guid]::NewGuid().ToString("D")
+$Sentinel = Join-Path $BackupTarget ".risk-layer-backup-target.json"
+if (Test-Path -LiteralPath $Sentinel) { throw "Backup-Sentinel existiert bereits" }
+$SentinelJson = [ordered]@{
+  schema = "taxtronik.risk-layer-backup-target/v1"
+  target_id = $BackupTargetId
+} | ConvertTo-Json -Compress
+[IO.File]::WriteAllText(
+  $Sentinel,
+  $SentinelJson + [Environment]::NewLine,
+  [Text.UTF8Encoding]::new($false)
+)
+# Dieselbe ID jetzt in das native Windows-Betreiberprofil übernehmen.
+
 $Bootstrap = Join-Path $env:TEMP "risk-layer-bootstrap"
 py -3.12 -m venv $Bootstrap
 $ControlPython = Join-Path $Bootstrap "Scripts\python.exe"
@@ -277,7 +418,8 @@ if ($AppWheel.Count -ne 1) { throw "genau ein App-Wheel erwartet" }
 & $ControlPython -I -m risk_layer.ops_cli release install incoming-v1.4.0 `
   --home C:\ProgramData\TaxTronik\RiskLayer\runtime `
   --berater C:\ProgramData\TaxTronik\RiskLayer\definitionen `
-  --backup-ziel \\backupserver\taxtronik\risk-layer `
+  --backup-ziel $BackupTarget `
+  --backup-target-id $BackupTargetId `
   --manifest-sha256 $ReleaseManifestSha256 `
   --no-activate --no-health-check
 
@@ -286,8 +428,15 @@ New-Item -ItemType Directory -Force -Path $Stable | Out-Null
 $Identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 & icacls.exe $Stable /inheritance:r /grant:r "${Identity}:(OI)(CI)F" | Out-Null
 Copy-Item release-launcher.py, install-service.ps1, restart-risk-layer-task.ps1, `
-  install-backup-task.ps1 `
+  install-backup-task.ps1, risk-layer-release-tools.pyz, risk-layerctl.ps1 `
   -Destination $Stable
+$ConfigHome = "C:\ProgramData\TaxTronik\RiskLayer\config"
+New-Item -ItemType Directory -Force -Path $ConfigHome | Out-Null
+& icacls.exe $ConfigHome /inheritance:r /grant:r `
+  "${Identity}:(OI)(CI)F" "*S-1-5-18:(OI)(CI)R" `
+  "*S-1-5-32-544:(OI)(CI)F" | Out-Null
+Copy-Item risk-layer-ops.native-windows.example.json "$ConfigHome\ops.json"
+# ops.json jetzt anpassen, einschließlich backup_target_id=$BackupTargetId.
 $Token = & C:\Python312\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
 [IO.File]::WriteAllText("$Stable\.engine_token", $Token, [Text.UTF8Encoding]::new($false))
 & "$Stable\install-service.ps1" `
@@ -302,13 +451,23 @@ gerichteten, eingeschränkten CurrentUser-Task. Für spätere Updates ist der
 mitgelieferte Neustart-Hook die transaktionale Aktivierung:
 
 ```powershell
-$Activation = '["powershell.exe","-NoProfile","-NonInteractive","-File","C:\\ProgramData\\TaxTronik\\RiskLayer\\bootstrap\\restart-risk-layer-task.ps1"]'
+$PowerShellExe = Join-Path ([Environment]::SystemDirectory) `
+  "WindowsPowerShell\v1.0\powershell.exe"
+$Activation = @(
+  $PowerShellExe,
+  "-NoLogo",
+  "-NoProfile",
+  "-NonInteractive",
+  "-File",
+  "C:\ProgramData\TaxTronik\RiskLayer\bootstrap\restart-risk-layer-task.ps1"
+) | ConvertTo-Json -Compress
 & C:\Python312\python.exe -I "$Stable\release-launcher.py" `
   --home C:\ProgramData\TaxTronik\RiskLayer\runtime -- `
   release install incoming-v1.4.1 `
   --home C:\ProgramData\TaxTronik\RiskLayer\runtime `
   --berater C:\ProgramData\TaxTronik\RiskLayer\definitionen `
-  --backup-ziel \\backupserver\taxtronik\risk-layer `
+  --backup-ziel $BackupTarget `
+  --backup-target-id $BackupTargetId `
   --manifest-sha256 $ReleaseManifestSha256 `
   --activation-command $Activation `
   --health-url http://127.0.0.1:8000 `
@@ -394,7 +553,7 @@ Runtime:
 
 ```bash
 CONTAINER_MANIFEST_SHA256="$(awk '{print $1}' taxtronik-container-v1.4.0.json.sha256)"
-BACKUP_HOOK='["/usr/bin/python3.12","-I","/opt/risk-layer/bootstrap/release-launcher.py","--home","/opt/risk-layer","--","backup","create","--berater","/var/lib/risk-layer/definitionen","--ziel","/mnt/offhost/risk-layer-backups","--retention-keep-last","30","--retention-keep-days","90"]'
+BACKUP_HOOK="[\"/usr/bin/python3.12\",\"-I\",\"/opt/risk-layer/bootstrap/release-launcher.py\",\"--home\",\"/opt/risk-layer\",\"--\",\"backup\",\"create\",\"--berater\",\"/var/lib/risk-layer/definitionen\",\"--ziel\",\"/mnt/offhost/risk-layer-backups\",\"--backup-target-id\",\"$BACKUP_TARGET_ID\",\"--retention-keep-last\",\"30\",\"--retention-keep-days\",\"90\"]"
 
 python3.12 -I risk-layer-release-tools.pyz deploy-container deploy \
   taxtronik-container-v1.4.0.json \
@@ -403,6 +562,7 @@ python3.12 -I risk-layer-release-tools.pyz deploy-container deploy \
   --state-dir /var/lib/risk-layer/container-deploy \
   --compose-file docker-compose.yml \
   --secrets-env ~/.config/risk-layer/container-secrets.env \
+  --docker-bin "$(realpath "$(command -v docker)")" \
   --backup-hook-json "$BACKUP_HOOK" --dry-run
 
 python3.12 -I risk-layer-release-tools.pyz deploy-container deploy \
@@ -412,6 +572,7 @@ python3.12 -I risk-layer-release-tools.pyz deploy-container deploy \
   --state-dir /var/lib/risk-layer/container-deploy \
   --compose-file docker-compose.yml \
   --secrets-env ~/.config/risk-layer/container-secrets.env \
+  --docker-bin "$(realpath "$(command -v docker)")" \
   --backup-hook-json "$BACKUP_HOOK"
 
 python3.12 -I risk-layer-release-tools.pyz deploy-container status \
@@ -433,10 +594,12 @@ Container-Rollback verwendet ausschließlich die gespeicherte, gehashte
 python3.12 -I risk-layer-release-tools.pyz deploy-container rollback \
   --state-dir /var/lib/risk-layer/container-deploy \
   --secrets-env ~/.config/risk-layer/container-secrets.env \
+  --docker-bin "$(realpath "$(command -v docker)")" \
   --backup-hook-json "$BACKUP_HOOK" --dry-run
 python3.12 -I risk-layer-release-tools.pyz deploy-container rollback \
   --state-dir /var/lib/risk-layer/container-deploy \
   --secrets-env ~/.config/risk-layer/container-secrets.env \
+  --docker-bin "$(realpath "$(command -v docker)")" \
   --backup-hook-json "$BACKUP_HOOK"
 ```
 
@@ -462,34 +625,37 @@ sind über die unveränderlichen Release-Artefakte wiederbeschaffbar; mindestens
 die tatsächlich betriebenen Releases müssen in Forgejo beziehungsweise einem
 Release-Spiegel erhalten bleiben.
 
-Die folgenden kurzen Beispiele verwenden den logischen CLI-Namen
-`risk-layerctl`; auf einem releasebasierten Host wird er wie in Abschnitt 3
-über `python3.12 -I release-launcher.py --home HOME -- ...` aufgerufen.
+Die folgenden Beispiele verwenden ausschließlich die profilbasierte
+Standardoberfläche. Auf einem checkout-freien Host ist `risk-layerctl` der
+dünne, geschützte Wrapper auf die zuvor verifizierte
+`risk-layer-release-tools.pyz ops`-Unteroberfläche. `CONFIG` bezeichnet das
+zugriffsbeschränkte Betreiberprofil.
 
 Ein Backup wird unter demselben Interprozess-Lock wie Store-Schreibvorgänge
 aufgenommen und nach dem Schreiben verifiziert:
 
 ```bash
-risk-layerctl backup create \
-  --berater /var/lib/risk-layer/definitionen \
-  --ziel /mnt/offhost/risk-layer-backups \
-  --retention-keep-last 30 --retention-keep-days 90
-risk-layerctl backup verify \
+CONFIG=/etc/risk-layer/ops.json
+risk-layerctl --config "$CONFIG" backup
+risk-layerctl --config "$CONFIG" backup-verify \
   /mnt/offhost/risk-layer-backups/festwissen_YYYYMMDDTHHMMSSZ.zip
 ```
 
-`--ziel` ist Pflicht. Das Ziel muss ein vorbereitetes, zugriffsbeschränktes
+`backup_dir` und die Retention stehen einmalig im Profil. Das Ziel muss ein
+vorbereitetes, zugriffsbeschränktes
 Off-host-Mount oder ein von einer externen Backupsoftware erfasstes Spool-
-Verzeichnis sein. Retention prüft **alle** betroffenen v2-Archive vollständig,
+Verzeichnis sein. Es enthält den einmalig nach dem Mount angelegten Sentinel
+`.risk-layer-backup-target.json`; dessen `target_id` muss exakt der
+`backup_target_id` im Profil entsprechen. Das Werkzeug erzeugt Ziel und
+Sentinel absichtlich nie selbst. Retention prüft **alle** betroffenen
+v2-Archive vollständig,
 bevor ein altes Archiv gelöscht wird, und schützt sowohl die neuesten 30 als
-auch alle Archive der letzten 90 Tage. Ohne `--apply` zeigt `backup prune` nur
+auch alle Archive der letzten 90 Tage. Ohne `--apply` zeigt `backup-prune` nur
 den Plan:
 
 ```bash
-risk-layerctl backup prune --ziel /mnt/offhost/risk-layer-backups \
-  --keep-last 30 --keep-days 90
-risk-layerctl backup prune --ziel /mnt/offhost/risk-layer-backups \
-  --keep-last 30 --keep-days 90 --apply
+risk-layerctl --config "$CONFIG" backup-prune
+risk-layerctl --config "$CONFIG" backup-prune --apply
 ```
 
 Das Werkzeug selbst konfiguriert weder Netzwerkfreigaben noch Cloudzugänge.
@@ -502,12 +668,12 @@ muss die Token-Neuausstellung/-Rotation im Host-Runbook stehen.
 
 ```bash
 install -d -m 0700 ~/.config/risk-layer ~/.config/systemd/user
-install -m 0600 deploy/risk-layer-backup.env.example \
+install -m 0600 risk-layer-backup.env.example \
   ~/.config/risk-layer/backup.env
-install -m 0644 deploy/risk-layer-backup.service \
-  deploy/risk-layer-backup.timer ~/.config/systemd/user/
-# backup.env jetzt auf Release-Home, stabilen Launcher sowie absolute,
-# vorhandene Store-/Backup-Pfade anpassen.
+install -m 0644 risk-layer-backup.service \
+  risk-layer-backup.timer ~/.config/systemd/user/
+# backup.env jetzt auf die verifizierte Release-Zipapp und das geschützte
+# Operator-Profil anpassen. Store, Backupziel und Retention stehen im Profil.
 systemctl --user daemon-reload
 systemctl --user enable --now risk-layer-backup.timer
 systemctl --user start risk-layer-backup.service
@@ -526,19 +692,18 @@ laufen, muss ein Administrator einmalig und bewusst
 
 ```powershell
 & "C:\ProgramData\TaxTronik\RiskLayer\bootstrap\install-backup-task.ps1" `
-  -BeraterDir C:\ProgramData\TaxTronik\RiskLayer\definitionen `
-  -BackupDir \\backupserver\taxtronik\risk-layer `
   -PythonExe C:\Python312\python.exe `
-  -ReleaseLauncher C:\ProgramData\TaxTronik\RiskLayer\bootstrap\release-launcher.py `
-  -ReleaseHome C:\ProgramData\TaxTronik\RiskLayer\runtime
+  -ReleaseTools C:\ProgramData\TaxTronik\RiskLayer\bootstrap\risk-layer-release-tools.pyz `
+  -OperatorProfile C:\ProgramData\TaxTronik\RiskLayer\config\ops.json
 
 Start-ScheduledTask -TaskName "TaxTronik Risk-Layer Backup"
 Get-ScheduledTaskInfo -TaskName "TaxTronik Risk-Layer Backup"
 ```
 
 Der Task läuft eingeschränkt im aktuellen Benutzerkontext und speichert kein
-Kennwort. Er startet die jeweils aktuelle manifestgebundene Runtime und wendet
-nach einem erfolgreichen Snapshot automatisch 30/90-Retention an. Der Benutzer
+Kennwort. Er startet dieselbe profilbasierte Fassade wie der Handbetrieb und
+wendet nach einem erfolgreichen Snapshot die im Profil konfigurierte Retention
+an. Der Benutzer
 muss angemeldet sein und auf das Backupziel zugreifen können. Unbeaufsichtigter
 S4U-/Dienstbetrieb erfordert eine bewusst eingerichtete Service-Identität und
 wird vom Skript nicht behauptet.
@@ -568,21 +733,18 @@ Produktiver Restore:
 
 ```bash
 # Pflicht: aktuellen Live-Stand vor dem Restore dauerhaft sichern und prüfen.
-risk-layerctl backup create \
-  --berater /var/lib/risk-layer/definitionen \
-  --ziel /mnt/offhost/risk-layer-backups
-risk-layerctl backup verify BACKUP.zip
-risk-layerctl backup restore BACKUP.zip \
-  --berater /var/lib/risk-layer/definitionen \
-  --backup-ziel /mnt/offhost/risk-layer-backups --force
+risk-layerctl --config "$CONFIG" backup
+risk-layerctl --config "$CONFIG" backup-verify BACKUP.zip
+risk-layerctl --config "$CONFIG" restore --list
+risk-layerctl --config "$CONFIG" restore --file BACKUP.zip \
+  --confirm "RESTORE BACKUP.zip SHA256 HASH_AUS_LIST TO /var/lib/risk-layer/definitionen"
 ```
 
 Der Restore validiert zuerst das gesamte Archiv, baut einen vollständigen
 Staging-Store und prüft ihn semantisch. Bei einem nichtleeren Ziel legt
-`risk-layerctl` vor der Promotion automatisch ein persistentes v2-Backup an und
-verifiziert es; Default-Ziel ist das Verzeichnis des Restore-Archivs, mit
-`--backup-ziel` lässt es sich explizit auf das Off-host-Ziel setzen. Scheitert
-diese Sicherung, beginnt der Restore nicht. Der anschließende Verzeichniswechsel
+`risk-layerctl` vor der Promotion automatisch ein persistentes v2-Backup im
+profilierten Off-host-Ziel an und verifiziert es. Scheitert diese Sicherung,
+beginnt der Restore nicht. Der anschließende Verzeichniswechsel
 verwendet atomare Einzel-Renames und schaltet bei einem Promotionsfehler den
 zuvor aktiven Stand innerhalb der Transaktion zurück. Vor dem ersten Rename
 wird ein persistentes, gefsynctes Restore-Journal geschrieben. Nach Prozess-
@@ -595,10 +757,11 @@ und ein fachlicher Stichprobentest Pflicht.
 Quartalsweise Restore-Probe in ein **leeres Testverzeichnis**:
 
 ```bash
-risk-layerctl backup verify BACKUP.zip
 mkdir -m 0700 /tmp/risk-layer-restore-test
-risk-layerctl backup restore BACKUP.zip \
-  --berater /tmp/risk-layer-restore-test
+risk-layerctl --config "$TEST_CONFIG" backup-verify BACKUP.zip
+risk-layerctl --config "$TEST_CONFIG" restore --list
+risk-layerctl --config "$TEST_CONFIG" restore --file BACKUP.zip \
+  --confirm "RESTORE BACKUP.zip SHA256 HASH_AUS_LIST TO /tmp/risk-layer-restore-test"
 ```
 
 Zu protokollieren sind Datum, Archivname und SHA-256, Release-ID, Ergebnis von

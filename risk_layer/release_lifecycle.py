@@ -12,6 +12,7 @@ import errno
 import hashlib
 import hmac
 import json
+import math
 import os
 import shutil
 import stat
@@ -33,6 +34,34 @@ from .release_manifest import (
     _is_link_like,
     validate_release_id,
 )
+
+
+MAX_OPERATION_TIMEOUT_SECONDS = 3600.0
+MAX_POLL_INTERVAL_SECONDS = 60.0
+
+
+def _bounded_timeout(
+    value: float,
+    name: str,
+    maximum: float,
+    *,
+    allow_zero: bool = False,
+) -> float:
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError):
+        normalized = math.nan
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(normalized)
+        or normalized < 0
+        or (normalized == 0 and not allow_zero)
+        or normalized > maximum
+    ):
+        operator = ">= 0" if allow_zero else "> 0"
+        raise ValueError(f"{name} muss endlich und {operator} bis {maximum:g}s sein")
+    return normalized
 
 
 STATE_FORMAT_VERSION = 2
@@ -616,8 +645,15 @@ class UpdateLock:
 
     def __init__(self, path: str | Path, *, timeout: float = 30.0,
                  poll_interval: float = 0.05) -> None:
-        if timeout < 0 or poll_interval <= 0:
-            raise ValueError("timeout muss >= 0 und poll_interval > 0 sein")
+        timeout = _bounded_timeout(
+            timeout,
+            "timeout",
+            MAX_OPERATION_TIMEOUT_SECONDS,
+            allow_zero=True,
+        )
+        poll_interval = _bounded_timeout(
+            poll_interval, "poll_interval", MAX_POLL_INTERVAL_SECONDS
+        )
         self.path = Path(path)
         self.timeout = timeout
         self.poll_interval = poll_interval
@@ -696,7 +732,12 @@ class ReleaseManager:
         self.releases_dir = self.home / "releases"
         self.state_path = self.home / STATE_FILENAME
         self.lock_path = self.home / LOCK_FILENAME
-        self.lock_timeout = lock_timeout
+        self.lock_timeout = _bounded_timeout(
+            lock_timeout,
+            "lock_timeout",
+            MAX_OPERATION_TIMEOUT_SECONDS,
+            allow_zero=True,
+        )
         _ensure_real_directory(self.home, "Release-Home")
         _ensure_real_directory(self.releases_dir, "Release-Verzeichnis")
 

@@ -75,13 +75,42 @@ Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semanti
 `llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (NER-Anonymisierung +
 breitere Lemmatisierung).
 
-Ein initiales Checkout-Setup übernimmt das Deploy-Skript (`./deploy.sh` Linux,
-`./deploy.ps1` Windows). Produktive Updates laufen dagegen über verifizierte,
-unveränderliche Releases mit `risk-layerctl`; die Deploy-Skripte sind kein
-In-place-Updater. Das vollständige Update-, Rollback-, Compose- und
-Backup-Verfahren steht im
-[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md). Das Setup provisioniert
-die NER-Schicht der Anonymisierung (spaCy +
+Der produktive Betreiberpfad hat eine Oberfläche. Linux verwendet
+`./risk-layerctl`, Windows `.\risk-layerctl.ps1`; beide lesen dasselbe
+Betreiberprofil aus
+[`deploy/risk-layer-ops.example.json`](deploy/risk-layer-ops.example.json)
+(Container/Linux). Native Vorlagen liegen daneben für
+[Linux](deploy/risk-layer-ops.native-linux.example.json) und
+[Windows](deploy/risk-layer-ops.native-windows.example.json):
+
+```bash
+# Vorher Backupziel samt profilierter .risk-layer-backup-target.json provisionieren.
+./risk-layerctl --config /etc/risk-layer/ops.json doctor --fix
+./risk-layerctl --config /etc/risk-layer/ops.json bootstrap \
+  RELEASE-ARTEFAKT --manifest-sha256 MANIFEST_SHA256
+./risk-layerctl --config /etc/risk-layer/ops.json status
+```
+
+Das extern bereitgestellte Backupziel wird durch
+`.risk-layer-backup-target.json` an die `backup_target_id` des Profils gebunden;
+`doctor --fix` erzeugt weder Ziel noch Sentinel. So wird ein fehlender oder
+falscher Mount vor Backup, Restore-Vorher-Sicherung und Retention abgelehnt.
+
+Die Arbeitskopien im Repo-Root sind Komfort-Wrapper für einen vorhandenen
+Checkout, nicht selbst der Release-Vertrauensanker. Im veröffentlichten Paket
+werden Wrapper, Profile, Scheduler und Zipapp gemeinsam im bindenden Manifest
+gehasht. Checkout-frei wird dieselbe Oberfläche zum Beispiel so aufgerufen:
+`python3.12 -I risk-layer-release-tools.pyz ops --config PFAD status`, oder über
+einen stabil installierten Wrapper auf genau diese Zipapp.
+
+Deploy, Update, Backup, Restore und Rollback folgen derselben Form. Der kurze
+Einstieg steht unter [docs/operations/](docs/operations/README.md), das
+[technische Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) dokumentiert
+die Recovery-/Expertenebene.
+
+`./deploy.sh` und `./deploy.ps1` bleiben lokale Checkout-Bootstraps und
+Kompatibilitätspfade; sie sind keine produktiven In-place-Updater. Der lokale
+Setup-Pfad provisioniert die NER-Schicht der Anonymisierung (spaCy +
 `de_core_news_lg`) automatisch mit — sie stärkt das §203-Gate. Opt-out für
 schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallback:
 `python -m pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt`. Zur
@@ -116,14 +145,21 @@ erfordert einen eigenen, für die konkrete CUDA-/ROCm-Zielmatrix auditierten Loc
 ### Sicherer Autostart
 
 Service-Prozesse dürfen nicht privilegiert aus dem benutzerschreibbaren Checkout
-laufen. Unter Linux deshalb `./deploy.sh --service` **als Zielbenutzer, ohne
-`sudo`** ausführen; das erzeugt eine systemd-User-Unit. Für Start schon vor der
-Anmeldung kann ein Administrator einmalig `sudo loginctl enable-linger BENUTZER`
-setzen. Die Unit verweigert einen versehentlich als `root` gerenderten Start und
-setzt zusätzlich systemd-Sandboxing.
+laufen. Der produktive Standardpfad verwendet den im Betreiberprofil
+konfigurierten release-aware Dienst beziehungsweise Windows-Task; dessen
+einmalige Einrichtung ist im
+[technischen Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) beschrieben.
+Der Checkout-Kompatibilitätspfad `./deploy.sh --service` muss unter Linux **als
+Zielbenutzer, ohne `sudo`** laufen; er erzeugt eine systemd-User-Unit. Für Start
+schon vor der Anmeldung kann ein Administrator einmalig
+`sudo loginctl enable-linger BENUTZER` setzen. Die Unit verweigert einen
+versehentlich als `root` gerenderten Start und setzt zusätzlich
+systemd-Sandboxing.
 
-Unter Windows installiert `./install-service.ps1` standardmäßig einen sofort
-gestarteten, auf `RunLevel Limited` begrenzten Task für den aktuellen Benutzer;
+Unter Windows verwendet der Standardpfad `.\risk-layerctl.ps1 bootstrap`.
+Das interne beziehungsweise kompatible `./install-service.ps1` installiert
+einen sofort gestarteten, auf `RunLevel Limited` begrenzten Task für den
+aktuellen Benutzer;
 Autostart erfolgt bei dessen Anmeldung und es wird kein Kennwort gespeichert. Der
 Unicode-sichere PowerShell-Wrapper verweigert den Start, wenn `.engine_token`
 fehlt, unlesbar oder kürzer als 32 Zeichen ist. Ein Boot-Dienst aus dem
@@ -147,8 +183,9 @@ produktiven Embedding-Index einschließlich des am festen Commit manifestierten
 lokalen BGE-M3-Modells einzeln an `release.json`; der lokale
 Release-Manager baut daraus je Generation eine Offline-Venv und hält einen
 atomaren `current`/`previous`-Zustand. Der produktive OCI-SemVer-Tag wird erst
-nach allen anderen Uploads gesetzt. Bedienung, sichere Extraktion und Rollback:
-[Betriebs-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md).
+nach allen anderen Uploads gesetzt. Normale Bedienung:
+[Betriebsübersicht](docs/operations/README.md); sichere Extraktion und Recovery:
+[technisches Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md).
 
 Als Bibliothek:
 
@@ -641,3 +678,6 @@ eingefrorene Anforderungs- und Entscheidungsdokumente (Lastenheft,
 Spezifikationen, ADRs) sowie Planungsdokumente liegen unter `docs/`. Der
 vollständige Index aller Dokumente mit Zweck und Stand:
 **[docs/README.md](docs/README.md)**.
+
+Für Betrieb, Update, Backup und Restore beginnt die Dokumentation unter
+**[docs/operations/README.md](docs/operations/README.md)**.

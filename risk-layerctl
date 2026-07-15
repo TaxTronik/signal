@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if command -v readlink >/dev/null 2>&1; then
+  RESOLVED_PATH="$(readlink -f -- "$SCRIPT_PATH" 2>/dev/null || true)"
+  if [[ -n "$RESOLVED_PATH" ]]; then
+    SCRIPT_PATH="$RESOLVED_PATH"
+  fi
+fi
+ROOT="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+OPERATOR="$ROOT/risk_layer/operator_cli.py"
+if [[ -z "${RISK_LAYER_OPS_PROFILE:-}" && -f "$OPERATOR" ]]; then
+  export RISK_LAYER_OPS_PROFILE="$ROOT/deploy/risk-layer-ops.json"
+fi
+if [[ -n "${RISK_LAYER_OPERATOR_PYTHON:-}" ]]; then
+  PYTHON="$RISK_LAYER_OPERATOR_PYTHON"
+elif [[ -x "$ROOT/.venv/bin/python" ]]; then
+  PYTHON="$ROOT/.venv/bin/python"
+elif command -v python3.12 >/dev/null 2>&1; then
+  PYTHON=python3.12
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
+else
+  printf 'risk-layerctl: Kein Python gefunden (erwartet .venv, python3.12, python3 oder python).\n' >&2
+  exit 127
+fi
+if [[ -f "$OPERATOR" ]]; then
+  exec "$PYTHON" -I "$OPERATOR" "$@"
+fi
+RELEASE_TOOLS="${RISK_LAYER_RELEASE_TOOLS:-$ROOT/risk-layer-release-tools.pyz}"
+if [[ -f "$RELEASE_TOOLS" ]]; then
+  exec "$PYTHON" -I "$RELEASE_TOOLS" ops "$@"
+fi
+printf 'risk-layerctl: Weder Operator-Modul noch Release-Zipapp gefunden.\n' >&2
+exit 127

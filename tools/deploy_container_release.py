@@ -9,13 +9,16 @@ State, generierte Env-Dateien oder Ausgaben kopiert.
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
+import ctypes
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import hmac
 import ipaddress
 import json
+import math
 import os
 from pathlib import Path, PurePosixPath
 import re
@@ -30,7 +33,11 @@ from urllib.parse import urlsplit
 
 from risk_layer.dateisperre import DateisperrenFehler, festwissen_sperre
 from risk_layer.release_lifecycle import IntegrityError, verify_bundle
-from risk_layer.release_manifest import ManifestError, ReleaseManifest, validate_release_id
+from risk_layer.release_manifest import (
+    ManifestError,
+    ReleaseManifest,
+    validate_release_id,
+)
 
 
 STATE_FORMAT_VERSION = 2
@@ -41,6 +48,16 @@ JOURNAL_FILENAME = "transaction.json"
 MAX_JSON_BYTES = 1024 * 1024
 MAX_SECRET_ENV_BYTES = 1024 * 1024
 MAX_STATUS_BYTES = 1024 * 1024
+MAX_COMMAND_TIMEOUT = 3600.0
+MAX_VERIFY_TIMEOUT = 300.0
+MAX_LOCK_TIMEOUT = 3600.0
+WINDOWS_POWERSHELL_TIMEOUT = 15.0
+WINDOWS_SYSTEM_SID = "S-1-5-18"
+WINDOWS_ADMINISTRATORS_SID = "S-1-5-32-544"
+WINDOWS_TRUSTED_INSTALLER_SID = (
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
+)
+WINDOWS_FULL_CONTROL = 0x1F01FF
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -54,10 +71,20 @@ BOOTSTRAP_KEYS = frozenset(
         "extract_native",
         "deploy_container",
         "install_release_service",
+        "release_systemd_service_template",
         "release_launcher",
         "windows_install_service",
         "windows_restart_task",
         "windows_install_backup_task",
+        "operator_profile_container_linux",
+        "operator_profile_native_linux",
+        "operator_profile_native_windows",
+        "operator_wrapper_posix",
+        "operator_wrapper_windows",
+        "backup_systemd_service",
+        "backup_systemd_timer",
+        "backup_systemd_env",
+        "container_secrets_env_example",
     }
 )
 
@@ -71,6 +98,127 @@ MANAGED_ENV_KEYS = frozenset(
         "RISK_LAYER_FESTWISSEN_DIR",
     }
 )
+
+
+_WINDOWS_ACL_QUERY = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$path = [System.IO.Path]::GetFullPath($env:RISK_LAYER_ACL_PATH)
+$attributes = [System.IO.File]::GetAttributes($path)
+$isDirectory = ($attributes -band [System.IO.FileAttributes]::Directory) -ne 0
+if ($isDirectory) {
+    $acl = [System.IO.Directory]::GetAccessControl($path)
+} else {
+    $acl = [System.IO.File]::GetAccessControl($path)
+}
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+if ($null -eq $current) { throw 'Aktuelle Benutzer-SID fehlt.' }
+$rules = $acl.GetAccessRules(
+    $true,
+    $true,
+    [System.Security.Principal.SecurityIdentifier]
+)
+$parts = [System.Collections.Generic.List[string]]::new()
+foreach ($rule in $rules) {
+    $inherited = $rule.IsInherited.ToString().ToLowerInvariant()
+    $entry = '{"sid":"' + $rule.IdentityReference.Value + `
+        '","rights":' + ([int64]$rule.FileSystemRights).ToString() + `
+        ',"type":"' + $rule.AccessControlType.ToString() + `
+        '","inherited":' + $inherited + '}'
+    $parts.Add($entry)
+}
+$owner = $acl.GetOwner(
+    [System.Security.Principal.SecurityIdentifier]
+).Value
+$protected = $acl.AreAccessRulesProtected.ToString().ToLowerInvariant()
+$json = '{"current":"' + $current.Value + '","owner":"' + $owner + `
+    '","protected":' + $protected + ',"rules":[' + `
+    [string]::Join(',', $parts) + ']}'
+[Console]::Out.WriteLine($json)
+"""
+
+
+_WINDOWS_ACL_HARDEN = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$path = [System.IO.Path]::GetFullPath($env:RISK_LAYER_ACL_PATH)
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+if ($null -eq $current) { throw 'Aktuelle Benutzer-SID fehlt.' }
+$acl = [System.IO.File]::GetAccessControl($path)
+[void]$acl.SetOwner($current)
+[void]$acl.SetAccessRuleProtection($true, $false)
+foreach ($existing in @($acl.Access)) {
+    [void]$acl.RemoveAccessRuleAll($existing)
+}
+$allow = [System.Security.AccessControl.AccessControlType]::Allow
+$entries = @(
+    [pscustomobject]@{
+        Sid = $current
+        Rights = [System.Security.AccessControl.FileSystemRights]::FullControl
+    },
+    [pscustomobject]@{
+        Sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        Rights = [System.Security.AccessControl.FileSystemRights]::Read
+    },
+    [pscustomobject]@{
+        Sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        Rights = [System.Security.AccessControl.FileSystemRights]::FullControl
+    }
+)
+foreach ($entry in $entries) {
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $entry.Sid,
+        $entry.Rights,
+        $allow
+    )
+    [void]$acl.AddAccessRule($rule)
+}
+[System.IO.File]::SetAccessControl($path, $acl)
+"""
+
+
+_WINDOWS_DIRECTORY_ACL_HARDEN = r"""
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$path = [System.IO.Path]::GetFullPath($env:RISK_LAYER_ACL_PATH)
+$current = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+if ($null -eq $current) { throw 'Aktuelle Benutzer-SID fehlt.' }
+$acl = [System.IO.Directory]::GetAccessControl($path)
+[void]$acl.SetOwner($current)
+[void]$acl.SetAccessRuleProtection($true, $false)
+foreach ($existing in @($acl.Access)) {
+    [void]$acl.RemoveAccessRuleAll($existing)
+}
+$allow = [System.Security.AccessControl.AccessControlType]::Allow
+$inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit `
+    -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+$propagation = [System.Security.AccessControl.PropagationFlags]::None
+$entries = @(
+    [pscustomobject]@{
+        Sid = $current
+        Rights = [System.Security.AccessControl.FileSystemRights]::FullControl
+    },
+    [pscustomobject]@{
+        Sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        Rights = [System.Security.AccessControl.FileSystemRights]::Read
+    },
+    [pscustomobject]@{
+        Sid = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+        Rights = [System.Security.AccessControl.FileSystemRights]::FullControl
+    }
+)
+foreach ($entry in $entries) {
+    $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+        $entry.Sid,
+        $entry.Rights,
+        $inheritance,
+        $propagation,
+        $allow
+    )
+    [void]$acl.AddAccessRule($rule)
+}
+[System.IO.Directory]::SetAccessControl($path, $acl)
+"""
 
 
 class _NoRedirects(request.HTTPRedirectHandler):
@@ -93,8 +241,8 @@ class DeployError(RuntimeError):
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace(
-        "+00:00", "Z"
+    return (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     )
 
 
@@ -152,11 +300,14 @@ def _secure_file_bytes(
     maximum: int,
     description: str,
     private: bool = False,
+    windows_private_acl: bool = False,
 ) -> bytes:
     absolute = Path(os.path.abspath(path))
     _check_directory_chain(absolute.parent, f"{description}-Elternpfad")
     if _is_link_like(absolute):
-        raise DeployError(f"{description} darf kein Symlink/Reparse-Point sein: {absolute}")
+        raise DeployError(
+            f"{description} darf kein Symlink/Reparse-Point sein: {absolute}"
+        )
     try:
         named = os.lstat(absolute)
     except OSError as exc:
@@ -168,14 +319,18 @@ def _secure_file_bytes(
     try:
         descriptor = os.open(absolute, flags)
     except OSError as exc:
-        raise DeployError(f"{description} kann nicht sicher geoeffnet werden: {absolute}") from exc
+        raise DeployError(
+            f"{description} kann nicht sicher geoeffnet werden: {absolute}"
+        ) from exc
     try:
         opened = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(opened.st_mode)
-            or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino)
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+            named.st_dev,
+            named.st_ino,
         ):
-            raise DeployError(f"{description} wurde beim Oeffnen ausgetauscht: {absolute}")
+            raise DeployError(
+                f"{description} wurde beim Oeffnen ausgetauscht: {absolute}"
+            )
         if private and opened.st_nlink != 1:
             raise DeployError(f"{description} darf keine Hardlinks besitzen")
         if private and os.name != "nt":
@@ -183,7 +338,24 @@ def _secure_file_bytes(
             if opened.st_uid != current_uid:
                 raise DeployError(f"{description} gehoert einem anderen Benutzer")
             if stat.S_IMODE(opened.st_mode) & 0o077:
-                raise DeployError(f"{description} hat zu weite Rechte; erwartet wird 0600")
+                raise DeployError(
+                    f"{description} hat zu weite Rechte; erwartet wird 0600"
+                )
+        if windows_private_acl:
+            _require_windows_private_file_acl(absolute, description)
+            try:
+                acl_checked = os.lstat(absolute)
+            except OSError as exc:
+                raise DeployError(
+                    f"{description} wurde waehrend der Windows-DACL-Pruefung ausgetauscht"
+                ) from exc
+            if (acl_checked.st_dev, acl_checked.st_ino) != (
+                opened.st_dev,
+                opened.st_ino,
+            ):
+                raise DeployError(
+                    f"{description} wurde waehrend der Windows-DACL-Pruefung ausgetauscht"
+                )
         if opened.st_size > maximum:
             raise DeployError(f"{description} ueberschreitet das Groessenlimit")
         with os.fdopen(descriptor, "rb", closefd=False) as handle:
@@ -196,11 +368,44 @@ def _secure_file_bytes(
             opened.st_mtime_ns,
         ) != (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns):
             raise DeployError(f"{description} wurde waehrend des Lesens veraendert")
+        try:
+            final_named = os.lstat(absolute)
+        except OSError as exc:
+            raise DeployError(
+                f"{description} wurde waehrend des Lesens ausgetauscht"
+            ) from exc
+        if (final_named.st_dev, final_named.st_ino) != (opened.st_dev, opened.st_ino):
+            raise DeployError(f"{description} wurde waehrend des Lesens ausgetauscht")
     finally:
         os.close(descriptor)
     if len(payload) > maximum:
         raise DeployError(f"{description} ueberschreitet das Groessenlimit")
     return payload
+
+
+def _secure_optional_file_bytes(
+    path: Path,
+    *,
+    maximum: int,
+    description: str,
+    private: bool = False,
+) -> bytes | None:
+    absolute = Path(os.path.abspath(path))
+    _check_directory_chain(absolute.parent, f"{description}-Elternpfad")
+    try:
+        os.lstat(absolute)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise DeployError(
+            f"{description} kann nicht sicher geprueft werden: {absolute}"
+        ) from exc
+    return _secure_file_bytes(
+        absolute,
+        maximum=maximum,
+        description=description,
+        private=private,
+    )
 
 
 def _sha256_bytes(payload: bytes) -> str:
@@ -240,6 +445,182 @@ def _decode_json(payload: bytes, description: str) -> Any:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise DeployError(f"{description} ist kein gueltiges UTF-8-JSON") from exc
+
+
+def _windows_system_powershell() -> tuple[Path, Path]:
+    if os.name != "nt":
+        raise DeployError("Windows-DACL-Pruefung wurde auf einem anderen OS aufgerufen")
+    try:
+        win_dll = getattr(ctypes, "WinDLL", None)
+        if win_dll is None:
+            raise OSError("ctypes.WinDLL fehlt")
+        kernel32 = win_dll("kernel32", use_last_error=True)
+        get_system_directory = kernel32.GetSystemDirectoryW
+        get_system_directory.argtypes = [ctypes.c_wchar_p, ctypes.c_uint]
+        get_system_directory.restype = ctypes.c_uint
+        buffer = ctypes.create_unicode_buffer(32_768)
+        length = get_system_directory(buffer, len(buffer))
+    except (AttributeError, OSError) as exc:
+        raise DeployError(
+            "Windows-Systemverzeichnis kann nicht ermittelt werden"
+        ) from exc
+    if length == 0 or length >= len(buffer):
+        raise DeployError(
+            "Windows-Systemverzeichnis kann nicht sicher ermittelt werden"
+        )
+    system_directory = Path(buffer.value)
+    executable = system_directory / "WindowsPowerShell/v1.0/powershell.exe"
+    _check_directory_chain(executable.parent, "Windows-PowerShell-Systempfad")
+    if (
+        not executable.is_absolute()
+        or _is_link_like(executable)
+        or not executable.is_file()
+    ):
+        raise DeployError("Vertrauenswuerdiges Windows PowerShell wurde nicht gefunden")
+    return executable, system_directory
+
+
+def _windows_acl_script(script: str, path: Path) -> subprocess.CompletedProcess[str]:
+    executable, system_directory = _windows_system_powershell()
+    system_root = system_directory.parent
+    encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    environment = {
+        "COMSPEC": str(system_directory / "cmd.exe"),
+        "PATH": str(system_directory),
+        "RISK_LAYER_ACL_PATH": str(Path(os.path.abspath(path))),
+        "SystemRoot": str(system_root),
+        "WINDIR": str(system_root),
+    }
+    try:
+        return subprocess.run(
+            [
+                str(executable),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-EncodedCommand",
+                encoded,
+            ],
+            shell=False,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            timeout=WINDOWS_POWERSHELL_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise DeployError(
+            "Windows-DACL-Pruefung hat das Zeitlimit ueberschritten"
+        ) from exc
+    except OSError as exc:
+        raise DeployError(
+            "Windows-DACL-Pruefung konnte nicht gestartet werden"
+        ) from exc
+
+
+def _windows_acl_document(path: Path) -> dict[str, Any]:
+    result = _windows_acl_script(_WINDOWS_ACL_QUERY, path)
+    if result.returncode != 0:
+        raise DeployError(
+            f"Windows-DACL kann nicht gelesen werden: {path}: "
+            f"{result.stderr.strip() or 'PowerShell-Fehler'}"
+        )
+    document = _decode_json(result.stdout.encode("utf-8"), "Windows-DACL-Pruefung")
+    if not isinstance(document, dict) or set(document) != {
+        "current",
+        "owner",
+        "protected",
+        "rules",
+    }:
+        raise DeployError("Windows-DACL-Pruefung lieferte ein unerwartetes Format")
+    if (
+        not isinstance(document["current"], str)
+        or not isinstance(document["owner"], str)
+        or not isinstance(document["protected"], bool)
+        or not isinstance(document["rules"], list)
+    ):
+        raise DeployError("Windows-DACL-Pruefung lieferte ungueltige Typen")
+    for rule in document["rules"]:
+        if (
+            not isinstance(rule, dict)
+            or set(rule) != {"sid", "rights", "type", "inherited"}
+            or not isinstance(rule["sid"], str)
+            or type(rule["rights"]) is not int
+            or rule["type"] not in {"Allow", "Deny"}
+            or not isinstance(rule["inherited"], bool)
+        ):
+            raise DeployError("Windows-DACL-Pruefung lieferte eine ungueltige Regel")
+    return document
+
+
+def _validate_windows_private_acl(
+    document: Mapping[str, Any], description: str
+) -> None:
+    current = document["current"]
+    trusted = {
+        current,
+        WINDOWS_SYSTEM_SID,
+        WINDOWS_ADMINISTRATORS_SID,
+        WINDOWS_TRUSTED_INSTALLER_SID,
+    }
+    if document["owner"] != current:
+        raise DeployError(f"{description} hat einen fremden Windows-Owner")
+    if document["protected"] is not True:
+        raise DeployError(f"{description} muss eine geschuetzte Windows-DACL besitzen")
+    current_full_control = False
+    for rule in document["rules"]:
+        if rule["sid"] not in trusted:
+            raise DeployError(
+                f"{description} enthaelt eine Windows-DACL-Regel fuer eine fremde SID"
+            )
+        if rule["inherited"] is True:
+            raise DeployError(
+                f"{description} darf keine geerbte Windows-DACL-Regel besitzen"
+            )
+        if rule["type"] != "Allow":
+            raise DeployError(f"{description} darf keine Windows-Deny-Regel besitzen")
+        if (
+            rule["sid"] == current
+            and rule["rights"] & WINDOWS_FULL_CONTROL == WINDOWS_FULL_CONTROL
+        ):
+            current_full_control = True
+    if not current_full_control:
+        raise DeployError(
+            f"{description} gibt dem aktuellen Benutzer kein Windows-FullControl"
+        )
+
+
+def _require_windows_private_file_acl(path: Path, description: str) -> None:
+    if os.name != "nt":
+        return
+    _validate_windows_private_acl(_windows_acl_document(path), description)
+
+
+def _harden_windows_private_file_acl(path: Path, description: str) -> None:
+    if os.name != "nt":
+        return
+    result = _windows_acl_script(_WINDOWS_ACL_HARDEN, path)
+    if result.returncode != 0:
+        raise DeployError(
+            f"{description}-DACL konnte nicht gehaertet werden: "
+            f"{result.stderr.strip() or 'PowerShell-Fehler'}"
+        )
+    _require_windows_private_file_acl(path, description)
+
+
+def _harden_windows_private_directory_acl(path: Path, description: str) -> None:
+    if os.name != "nt":
+        return
+    result = _windows_acl_script(_WINDOWS_DIRECTORY_ACL_HARDEN, path)
+    if result.returncode != 0:
+        raise DeployError(
+            f"{description}-DACL konnte nicht gehaertet werden: "
+            f"{result.stderr.strip() or 'PowerShell-Fehler'}"
+        )
+    _require_windows_private_file_acl(path, description)
 
 
 def _require_keys(value: Any, keys: set[str], description: str) -> dict[str, Any]:
@@ -480,16 +861,16 @@ class DeploymentRecord:
             ("schema_version", self.schema_version),
             ("api_version", self.api_version),
         ):
-            if (
-                not isinstance(value, str)
-                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", value)
+            if not isinstance(value, str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9._+-]{0,63}", value
             ):
                 raise DeployError(f"{name} im Deployment-State ist ungueltig")
         if (
             not isinstance(self.features, tuple)
             or len(self.features) > 256
             or tuple(sorted(self.features, key=str.casefold)) != self.features
-            or len({feature.casefold() for feature in self.features}) != len(self.features)
+            or len({feature.casefold() for feature in self.features})
+            != len(self.features)
             or any(
                 not isinstance(feature, str)
                 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", feature)
@@ -522,11 +903,16 @@ class DeploymentRecord:
             or "\\" in self.compose_artifact
         ):
             raise DeployError("compose_artifact im Deployment-State ist ungueltig")
-        if not isinstance(self.release_path, str) or not Path(self.release_path).is_absolute():
+        if (
+            not isinstance(self.release_path, str)
+            or not Path(self.release_path).is_absolute()
+        ):
             raise DeployError("release_path im Deployment-State muss absolut sein")
-        if isinstance(self.env_generation, bool) or not isinstance(
-            self.env_generation, int
-        ) or self.env_generation < 1:
+        if (
+            isinstance(self.env_generation, bool)
+            or not isinstance(self.env_generation, int)
+            or self.env_generation < 1
+        ):
             raise DeployError("env_generation im Deployment-State ist ungueltig")
         expected_env = (
             PurePosixPath("generations")
@@ -602,9 +988,11 @@ class DeploymentState:
     def validate(self) -> None:
         if self.format_version != STATE_FORMAT_VERSION:
             raise DeployError("Nicht unterstuetzte Deployment-State-Version")
-        if isinstance(self.generation, bool) or not isinstance(
-            self.generation, int
-        ) or self.generation < 0:
+        if (
+            isinstance(self.generation, bool)
+            or not isinstance(self.generation, int)
+            or self.generation < 0
+        ):
             raise DeployError("Ungueltige Deployment-State-Generation")
         if self.updated_at is not None and not isinstance(self.updated_at, str):
             raise DeployError("updated_at im Deployment-State ist ungueltig")
@@ -614,9 +1002,12 @@ class DeploymentState:
         if (
             self.current is not None
             and self.previous is not None
-            and self.current.release_id.casefold() == self.previous.release_id.casefold()
+            and self.current.release_id.casefold()
+            == self.previous.release_id.casefold()
         ):
-            raise DeployError("current und previous duerfen nicht dieselbe Release-ID haben")
+            raise DeployError(
+                "current und previous duerfen nicht dieselbe Release-ID haben"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -703,7 +1094,9 @@ class DeploymentJournal:
             "old_state": self.old_state.to_dict(),
             "switched_state": self.switched_state.to_dict(),
             "recovery_state": (
-                self.recovery_state.to_dict() if self.recovery_state is not None else None
+                self.recovery_state.to_dict()
+                if self.recovery_state is not None
+                else None
             ),
             "updated_at": self.updated_at,
         }
@@ -715,7 +1108,9 @@ def _dotenv_value(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9_./:@\\-]+", value):
         return value
     if "'" in value:
-        raise DeployError("Release-Pfad mit Apostroph kann nicht sicher dargestellt werden")
+        raise DeployError(
+            "Release-Pfad mit Apostroph kann nicht sicher dargestellt werden"
+        )
     return f"'{value}'"
 
 
@@ -769,7 +1164,9 @@ def _write_atomic(path: Path, payload: bytes) -> None:
         raise
 
 
-def _write_immutable(path: Path, payload: bytes) -> None:
+def _write_immutable(
+    path: Path, payload: bytes, *, windows_private_acl: bool = False
+) -> None:
     _check_directory_chain(path.parent, "Env-Generationen")
     if _is_link_like(path) or path.exists():
         raise DeployError(f"Env-Generation existiert bereits: {path}")
@@ -783,13 +1180,31 @@ def _write_immutable(path: Path, payload: bytes) -> None:
     try:
         descriptor = os.open(path, flags, 0o600)
     except OSError as exc:
-        raise DeployError(f"Env-Generation kann nicht exklusiv angelegt werden: {path}") from exc
+        raise DeployError(
+            f"Env-Generation kann nicht exklusiv angelegt werden: {path}"
+        ) from exc
     try:
+        if windows_private_acl:
+            _harden_windows_private_file_acl(path, "Private Datei")
+            opened = os.fstat(descriptor)
+            named = os.lstat(path)
+            if (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino):
+                raise DeployError("Private Datei wurde beim DACL-Haerten ausgetauscht")
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(payload)
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(path, 0o600)
+        if windows_private_acl:
+            written = _secure_file_bytes(
+                path,
+                maximum=max(len(payload), 1),
+                description="Private Datei",
+                private=True,
+                windows_private_acl=True,
+            )
+            if not hmac.compare_digest(written, payload):
+                raise DeployError("Private Datei wurde nach dem Schreiben ausgetauscht")
         _fsync_directory(path.parent)
     except BaseException:
         try:
@@ -806,12 +1221,14 @@ def _parse_secret_env(path: Path) -> Mapping[str, str]:
         maximum=MAX_SECRET_ENV_BYTES,
         description="Secret-Env",
         private=True,
+        windows_private_acl=True,
     )
     try:
         text = payload.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise DeployError("Secret-Env ist kein gueltiges UTF-8") from exc
     values: dict[str, str] = {}
+    folded_keys: set[str] = set()
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -823,26 +1240,37 @@ def _parse_secret_env(path: Path) -> Mapping[str, str]:
         key, value = line.split("=", 1)
         key = key.strip()
         value = value.strip()
-        if not ENV_KEY_RE.fullmatch(key) or key in values:
-            raise DeployError(f"Ungueltiger/doppelter Schluessel im Secret-Env: {key!r}")
+        folded_key = key.casefold()
+        if not ENV_KEY_RE.fullmatch(key) or folded_key in folded_keys:
+            raise DeployError(
+                f"Ungueltiger/doppelter Schluessel im Secret-Env: {key!r}"
+            )
         if key.casefold().startswith("compose_"):
-            raise DeployError(f"Secret-Env darf keine Compose-Steuervariable setzen: {key}")
+            raise DeployError(
+                f"Secret-Env darf keine Compose-Steuervariable setzen: {key}"
+            )
         if not key.startswith("RISK_LAYER_"):
-            raise DeployError(f"Secret-Env darf nur RISK_LAYER_*-Werte enthalten: {key}")
+            raise DeployError(
+                f"Secret-Env darf nur RISK_LAYER_*-Werte enthalten: {key}"
+            )
         if key.casefold() in {managed.casefold() for managed in MANAGED_ENV_KEYS}:
-            raise DeployError(f"Secret-Env darf verwalteten Wert nicht ueberschreiben: {key}")
+            raise DeployError(
+                f"Secret-Env darf verwalteten Wert nicht ueberschreiben: {key}"
+            )
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             quote = value[0]
             value = value[1:-1]
             if quote == '"':
-                value = value.replace(r"\n", "\n").replace(r"\r", "\r")
-                value = value.replace(r'\"', '"').replace(r"\\", "\\")
+                value = value.replace(r"\"", '"').replace(r"\\", "\\")
         if "\x00" in value or "\n" in value or "\r" in value:
             raise DeployError(f"Mehrzeiliger Wert im Secret-Env abgelehnt: {key}")
         values[key] = value
+        folded_keys.add(folded_key)
     token = values.get("RISK_LAYER_TOKEN", "")
     if len(token.encode("utf-8")) < 32:
-        raise DeployError("Secret-Env muss RISK_LAYER_TOKEN mit mindestens 32 Bytes enthalten")
+        raise DeployError(
+            "Secret-Env muss RISK_LAYER_TOKEN mit mindestens 32 Bytes enthalten"
+        )
     # MappingProxyType trennt den einmal sicher gelesenen Snapshot vom spaeter
     # erneut oeffnbaren Dateipfad. Docker erhaelt genau diese Werte per Prozess-
     # Environment; die Originaldatei wird nach dieser Stelle nie mehr gelesen.
@@ -875,13 +1303,17 @@ class SecretSnapshot:
         except FileNotFoundError:
             pass
         except OSError as exc:
-            raise DeployError("Privater Secret-Snapshot konnte nicht entfernt werden") from exc
+            raise DeployError(
+                "Privater Secret-Snapshot konnte nicht entfernt werden"
+            ) from exc
         try:
             self.directory.rmdir()
         except FileNotFoundError:
             return
         except OSError as exc:
-            raise DeployError("Privates Secret-Snapshot-Verzeichnis ist nicht leer") from exc
+            raise DeployError(
+                "Privates Secret-Snapshot-Verzeichnis ist nicht leer"
+            ) from exc
         _fsync_directory(self.directory.parent)
 
 
@@ -938,11 +1370,15 @@ def _hook_command(raw: str) -> list[str]:
     try:
         value = json.loads(raw, object_pairs_hook=_unique_object)
     except (json.JSONDecodeError, DeployError) as exc:
-        raise DeployError("--verify-hook-json muss ein gueltiges JSON-Array sein") from exc
+        raise DeployError(
+            "--verify-hook-json muss ein gueltiges JSON-Array sein"
+        ) from exc
     if (
         not isinstance(value, list)
         or not 1 <= len(value) <= 64
-        or any(not isinstance(item, str) or not item or "\x00" in item for item in value)
+        or any(
+            not isinstance(item, str) or not item or "\x00" in item for item in value
+        )
     ):
         raise DeployError("--verify-hook-json muss 1-64 nichtleere Strings enthalten")
     return value
@@ -959,7 +1395,9 @@ def _validate_status_url(url: str) -> str:
         or parsed.fragment
         or parsed.path != "/v1/status"
     ):
-        raise DeployError("Status-URL muss eine saubere http(s)://.../v1/status-URL sein")
+        raise DeployError(
+            "Status-URL muss eine saubere http(s)://.../v1/status-URL sein"
+        )
     if parsed.scheme == "http":
         host = parsed.hostname
         try:
@@ -967,7 +1405,9 @@ def _validate_status_url(url: str) -> str:
         except ValueError:
             loopback = host.casefold() == "localhost"
         if not loopback:
-            raise DeployError("Unverschluesseltes Status-HTTP ist nur auf Loopback erlaubt")
+            raise DeployError(
+                "Unverschluesseltes Status-HTTP ist nur auf Loopback erlaubt"
+            )
     return url
 
 
@@ -1020,6 +1460,25 @@ def _canonical_lock_store() -> Path:
     return root / COMPOSE_PROJECT
 
 
+def _bounded_timeout(
+    value: float,
+    name: str,
+    *,
+    maximum: float,
+    allow_zero: bool = False,
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise DeployError(f"{name} muss eine endliche Zahl sein")
+    normalized = float(value)
+    minimum_valid = normalized >= 0 if allow_zero else normalized > 0
+    if not math.isfinite(normalized) or not minimum_valid or normalized > maximum:
+        lower = "mindestens 0" if allow_zero else "groesser 0"
+        raise DeployError(
+            f"{name} muss endlich, {lower} und hoechstens {maximum:g} sein"
+        )
+    return normalized
+
+
 class ContainerDeployer:
     def __init__(
         self,
@@ -1036,10 +1495,29 @@ class ContainerDeployer:
         verify_hook: Sequence[str] | None = None,
         backup_hook: Sequence[str] | None = None,
     ) -> None:
-        if wait_timeout < 1 or wait_timeout > 3600:
+        if (
+            isinstance(wait_timeout, bool)
+            or not isinstance(wait_timeout, int)
+            or wait_timeout < 1
+            or wait_timeout > 3600
+        ):
             raise DeployError("wait_timeout muss zwischen 1 und 3600 liegen")
-        if command_timeout <= 0 or verify_timeout <= 0 or lock_timeout < 0:
-            raise DeployError("Timeouts sind ungueltig")
+        command_timeout = _bounded_timeout(
+            command_timeout,
+            "command_timeout",
+            maximum=MAX_COMMAND_TIMEOUT,
+        )
+        verify_timeout = _bounded_timeout(
+            verify_timeout,
+            "verify_timeout",
+            maximum=MAX_VERIFY_TIMEOUT,
+        )
+        lock_timeout = _bounded_timeout(
+            lock_timeout,
+            "lock_timeout",
+            maximum=MAX_LOCK_TIMEOUT,
+            allow_zero=True,
+        )
         self.state_dir = Path(os.path.abspath(state_dir))
         self.generations_dir = self.state_dir / "generations"
         self.state_path = self.state_dir / "state.json"
@@ -1063,21 +1541,29 @@ class ContainerDeployer:
     def _prepare_state_dir(self) -> None:
         _ensure_directory(self.state_dir, "Deployment-State-Verzeichnis")
         _ensure_directory(self.generations_dir, "Env-Generationen-Verzeichnis")
-        _ensure_directory(self.lock_store.parent, "Globales Deployment-Lock-Verzeichnis")
+        _ensure_directory(
+            self.lock_store.parent, "Globales Deployment-Lock-Verzeichnis"
+        )
 
     def _lock(self):
         return festwissen_sperre(self.lock_store, timeout=self.lock_timeout)
 
-    def _read_state(self) -> DeploymentState:
-        if not self.state_path.exists() and not _is_link_like(self.state_path):
-            return DeploymentState()
-        payload = _secure_file_bytes(
+    def _read_state_payload(self) -> bytes | None:
+        return _secure_optional_file_bytes(
             self.state_path,
             maximum=MAX_JSON_BYTES,
             description="Deployment-State",
             private=True,
         )
-        state = DeploymentState.from_dict(_decode_json(payload, "Deployment-State"))
+
+    @staticmethod
+    def _state_from_payload(payload: bytes | None) -> DeploymentState:
+        if payload is None:
+            return DeploymentState()
+        return DeploymentState.from_dict(_decode_json(payload, "Deployment-State"))
+
+    def _read_state(self) -> DeploymentState:
+        state = self._state_from_payload(self._read_state_payload())
         for record in (state.current, state.previous):
             if record is not None:
                 self._verify_generation(record)
@@ -1087,24 +1573,31 @@ class ContainerDeployer:
         state.validate()
         payload = (
             json.dumps(
-                state.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                state.to_dict(),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
             )
             + "\n"
         ).encode("utf-8")
         _write_atomic(self.state_path, payload)
 
-    def _read_journal(self) -> DeploymentJournal | None:
-        if not self.journal_path.exists() and not _is_link_like(self.journal_path):
-            return None
-        payload = _secure_file_bytes(
+    def _read_journal_payload(self) -> bytes | None:
+        return _secure_optional_file_bytes(
             self.journal_path,
             maximum=MAX_JSON_BYTES,
             description="Deployment-Journal",
             private=True,
         )
-        return DeploymentJournal.from_dict(
-            _decode_json(payload, "Deployment-Journal")
-        )
+
+    @staticmethod
+    def _journal_from_payload(payload: bytes | None) -> DeploymentJournal | None:
+        if payload is None:
+            return None
+        return DeploymentJournal.from_dict(_decode_json(payload, "Deployment-Journal"))
+
+    def _read_journal(self) -> DeploymentJournal | None:
+        return self._journal_from_payload(self._read_journal_payload())
 
     def _write_journal(self, journal: DeploymentJournal) -> None:
         journal.validate()
@@ -1128,7 +1621,9 @@ class ContainerDeployer:
         except FileNotFoundError:
             return
         except OSError as exc:
-            raise DeployError("Deployment-Journal konnte nicht entfernt werden") from exc
+            raise DeployError(
+                "Deployment-Journal konnte nicht entfernt werden"
+            ) from exc
         _fsync_directory(self.journal_path.parent)
 
     def _verify_journal_material(self, journal: DeploymentJournal) -> None:
@@ -1143,7 +1638,11 @@ class ContainerDeployer:
             for record in (state.current, state.previous):
                 if record is None:
                     continue
-                key = (record.release_id, record.container_manifest_sha256, record.env_generation)
+                key = (
+                    record.release_id,
+                    record.container_manifest_sha256,
+                    record.env_generation,
+                )
                 if key in seen:
                     continue
                 seen.add(key)
@@ -1162,16 +1661,22 @@ class ContainerDeployer:
             if record is not None
         }
         if (candidate.env_file, candidate.compose_file) in referenced:
-            raise DeployError("Uncommitted Generation ist bereits im Ausgangs-State referenziert")
+            raise DeployError(
+                "Uncommitted Generation ist bereits im Ausgangs-State referenziert"
+            )
         for path in (self._env_path(candidate), self._compose_path(candidate)):
             if _is_link_like(path):
-                raise DeployError("Uncommitted Generation wurde durch einen Link ersetzt")
+                raise DeployError(
+                    "Uncommitted Generation wurde durch einen Link ersetzt"
+                )
             try:
                 path.unlink()
             except FileNotFoundError:
                 continue
             except OSError as exc:
-                raise DeployError("Uncommitted Generation konnte nicht entfernt werden") from exc
+                raise DeployError(
+                    "Uncommitted Generation konnte nicht entfernt werden"
+                ) from exc
         _fsync_directory(self.generations_dir)
 
     def _env_path(self, record: DeploymentRecord) -> Path:
@@ -1179,7 +1684,9 @@ class ContainerDeployer:
         try:
             path.relative_to(self.generations_dir)
         except ValueError as exc:
-            raise DeployError("Env-Generation liegt ausserhalb des State-Verzeichnisses") from exc
+            raise DeployError(
+                "Env-Generation liegt ausserhalb des State-Verzeichnisses"
+            ) from exc
         return path
 
     def _compose_path(self, record: DeploymentRecord) -> Path:
@@ -1187,7 +1694,9 @@ class ContainerDeployer:
         try:
             path.relative_to(self.generations_dir)
         except ValueError as exc:
-            raise DeployError("Compose-Generation liegt ausserhalb des State-Verzeichnisses") from exc
+            raise DeployError(
+                "Compose-Generation liegt ausserhalb des State-Verzeichnisses"
+            ) from exc
         return path
 
     def _verify_generation(self, record: DeploymentRecord) -> tuple[Path, Path]:
@@ -1200,31 +1709,39 @@ class ContainerDeployer:
         )
         expected_payload = _env_payload(record)
         if not hmac.compare_digest(_sha256_bytes(payload), record.env_sha256):
-            raise DeployError("Env-Generation stimmt nicht mit ihrem State-SHA ueberein")
+            raise DeployError(
+                "Env-Generation stimmt nicht mit ihrem State-SHA ueberein"
+            )
         if not hmac.compare_digest(payload, expected_payload):
             raise DeployError("Env-Generation enthaelt abweichende oder geheime Werte")
         compose_path = self._compose_path(record)
         if not hmac.compare_digest(
-            _sha256_file(
-                compose_path, "Compose-Generation", private=True
-            ),
+            _sha256_file(compose_path, "Compose-Generation", private=True),
             record.compose_sha256,
         ):
-            raise DeployError("Compose-Generation stimmt nicht mit dem Release-Manifest ueberein")
+            raise DeployError(
+                "Compose-Generation stimmt nicht mit dem Release-Manifest ueberein"
+            )
         return env_path, compose_path
 
     def _candidate_compose_payload(self, record: DeploymentRecord) -> bytes:
         if self.compose_file is None:
-            raise DeployError("Manifestgebundene Compose-Datei ist fuer Deploy erforderlich")
+            raise DeployError(
+                "Manifestgebundene Compose-Datei ist fuer Deploy erforderlich"
+            )
         if self.compose_file.name != record.compose_artifact:
-            raise DeployError("Compose-Dateiname stimmt nicht mit dem Release-Manifest ueberein")
+            raise DeployError(
+                "Compose-Dateiname stimmt nicht mit dem Release-Manifest ueberein"
+            )
         payload = _secure_file_bytes(
             self.compose_file,
             maximum=MAX_JSON_BYTES * 64,
             description="Compose-Datei",
         )
         if not hmac.compare_digest(_sha256_bytes(payload), record.compose_sha256):
-            raise DeployError("Compose-Datei stimmt nicht mit dem Release-Manifest ueberein")
+            raise DeployError(
+                "Compose-Datei stimmt nicht mit dem Release-Manifest ueberein"
+            )
         return payload
 
     def _secret_values(self) -> Mapping[str, str]:
@@ -1235,7 +1752,9 @@ class ContainerDeployer:
         except ValueError:
             pass
         else:
-            raise DeployError("Secret-Env muss getrennt von State und Env-Generationen liegen")
+            raise DeployError(
+                "Secret-Env muss getrennt von State und Env-Generationen liegen"
+            )
         return _parse_secret_env(self.secret_env)
 
     def _cleanup_stale_secret_snapshots(self) -> None:
@@ -1267,12 +1786,15 @@ class ContainerDeployer:
                 maximum=MAX_SECRET_ENV_BYTES,
                 description="Verwaister Secret-Snapshot",
                 private=True,
+                windows_private_acl=True,
             )
             try:
                 snapshot.unlink()
                 directory.rmdir()
             except OSError as exc:
-                raise DeployError("Verwaister Secret-Snapshot konnte nicht entfernt werden") from exc
+                raise DeployError(
+                    "Verwaister Secret-Snapshot konnte nicht entfernt werden"
+                ) from exc
         _fsync_directory(self.lock_store.parent)
 
     def _secret_snapshot(self) -> SecretSnapshot:
@@ -1283,10 +1805,18 @@ class ContainerDeployer:
         )
         try:
             _check_directory_chain(directory, "Privater Secret-Snapshot")
-            if os.name != "nt":
+            if os.name == "nt":
+                _harden_windows_private_directory_acl(
+                    directory, "Privates Secret-Snapshot-Verzeichnis"
+                )
+            else:
                 os.chmod(directory, 0o700)
             path = directory / "secrets.env"
-            _write_immutable(path, _secret_env_payload(values))
+            _write_immutable(
+                path,
+                _secret_env_payload(values),
+                windows_private_acl=True,
+            )
             return SecretSnapshot(path=path, directory=directory, values=values)
         except BaseException:
             try:
@@ -1309,7 +1839,9 @@ class ContainerDeployer:
         try:
             manifest = verify_bundle(record.release_path)
         except (IntegrityError, ManifestError, OSError) as exc:
-            raise DeployError("Installierter Release-Pfad ist nicht vollstaendig verifiziert") from exc
+            raise DeployError(
+                "Installierter Release-Pfad ist nicht vollstaendig verifiziert"
+            ) from exc
         if (
             manifest.release_id != record.release_id
             or manifest.git_sha != record.git_sha
@@ -1320,7 +1852,9 @@ class ContainerDeployer:
                 manifest.fingerprint(), record.release_manifest_sha256
             )
         ):
-            raise DeployError("Installierter Release widerspricht der gebundenen Identitaet")
+            raise DeployError(
+                "Installierter Release widerspricht der gebundenen Identitaet"
+            )
         return manifest
 
     @staticmethod
@@ -1342,13 +1876,19 @@ class ContainerDeployer:
                 "Release-Wechsel ohne Migration abgelehnt: schema_version "
                 f"{current.schema_version!r} -> {target.schema_version!r}"
             )
-        if self._api_family(current.api_version) != self._api_family(target.api_version):
+        if self._api_family(current.api_version) != self._api_family(
+            target.api_version
+        ):
             raise DeployError(
                 "Release-Wechsel mit inkompatibler API-Familie abgelehnt: "
                 f"{current.api_version!r} -> {target.api_version!r}"
             )
-        if not allow_feature_reduction and not set(current.features).issubset(target.features):
-            removed = sorted(set(current.features) - set(target.features), key=str.casefold)
+        if not allow_feature_reduction and not set(current.features).issubset(
+            target.features
+        ):
+            removed = sorted(
+                set(current.features) - set(target.features), key=str.casefold
+            )
             raise DeployError(
                 f"Release-Wechsel entfernt deklarierte Features: {removed}"
             )
@@ -1427,7 +1967,12 @@ class ContainerDeployer:
         environment.update(
             {
                 "RISK_LAYER_BACKUP_CURRENT_RELEASE_ID": (
-                    old_state.current.release_id if old_state.current is not None else ""
+                    old_state.current.release_id
+                    if old_state.current is not None
+                    else ""
+                ),
+                "RISK_LAYER_BACKUP_CURRENT_GIT_SHA": (
+                    old_state.current.git_sha if old_state.current is not None else ""
                 ),
                 "RISK_LAYER_BACKUP_CURRENT_MANIFEST_SHA256": (
                     old_state.current.release_manifest_sha256
@@ -1621,7 +2166,9 @@ class ContainerDeployer:
                 manifest.fingerprint(), identity.release_manifest_sha256
             )
         ):
-            raise DeployError("Installierter Release widerspricht der gebundenen Identitaet")
+            raise DeployError(
+                "Installierter Release widerspricht der gebundenen Identitaet"
+            )
         record = DeploymentRecord(
             release_id=identity.release_id,
             git_sha=identity.git_sha,
@@ -1672,14 +2219,17 @@ class ContainerDeployer:
                     self._reconcile(secrets)
                 old_state = self._read_state()
                 self._verify_state_releases(old_state)
-                candidate = self._candidate(identity, release_path, old_state.generation + 1)
+                candidate = self._candidate(
+                    identity, release_path, old_state.generation + 1
+                )
                 compose_payload = self._candidate_compose_payload(candidate)
                 if self.backup_hook is None:
                     raise DeployError(
                         "Produktives Deploy erfordert einen Festwissen-Pflichtbackup-Hook"
                     )
                 if old_state.current is not None and (
-                    old_state.current.release_id.casefold() == candidate.release_id.casefold()
+                    old_state.current.release_id.casefold()
+                    == candidate.release_id.casefold()
                 ):
                     if old_state.current != candidate:
                         comparable_old = replace(
@@ -1699,11 +2249,14 @@ class ContainerDeployer:
                     self._activate(old_state.current, secrets)
                     return {"ok": True, "changed": False, "state": old_state.to_dict()}
                 if old_state.previous is not None and (
-                    old_state.previous.release_id.casefold() == candidate.release_id.casefold()
+                    old_state.previous.release_id.casefold()
+                    == candidate.release_id.casefold()
                     and old_state.previous.container_manifest_sha256
                     != candidate.container_manifest_sha256
                 ):
-                    raise DeployError("Previous-Release-ID ist mit anderer Identitaet gebunden")
+                    raise DeployError(
+                        "Previous-Release-ID ist mit anderer Identitaet gebunden"
+                    )
                 self._verify_transition(
                     old_state.current,
                     candidate,
@@ -1758,7 +2311,9 @@ class ContainerDeployer:
                     self._reconcile(secrets)
                 old_state = self._read_state()
                 if old_state.current is None or old_state.previous is None:
-                    raise DeployError("Kein current/previous-Paar fuer Rollback vorhanden")
+                    raise DeployError(
+                        "Kein current/previous-Paar fuer Rollback vorhanden"
+                    )
                 target = old_state.previous
                 self._verify_release(target)
                 self._verify_generation(target)
@@ -1825,32 +2380,67 @@ class ContainerDeployer:
             ),
         }
 
+    @staticmethod
+    def _status_records(
+        state: DeploymentState, journal: DeploymentJournal | None
+    ) -> tuple[DeploymentRecord, ...]:
+        states: list[DeploymentState] = [state]
+        if journal is not None:
+            states.extend((journal.old_state, journal.switched_state))
+            if journal.recovery_state is not None:
+                states.append(journal.recovery_state)
+        records: list[DeploymentRecord] = []
+        seen: set[DeploymentRecord] = set()
+        for candidate_state in states:
+            for record in (candidate_state.current, candidate_state.previous):
+                if record is not None and record not in seen:
+                    seen.add(record)
+                    records.append(record)
+        return tuple(records)
+
+    def _confirm_status_control(
+        self, state_payload: bytes | None, journal_payload: bytes | None
+    ) -> None:
+        confirmed_state = self._read_state_payload()
+        confirmed_journal = self._read_journal_payload()
+        if confirmed_state != state_payload or confirmed_journal != journal_payload:
+            raise DeployError(
+                "Deployment-State/Journal wurde waehrend des read-only Status geaendert"
+            )
+
     def status(self) -> dict[str, Any]:
-        self._prepare_state_dir()
-        try:
-            with self._lock():
-                self._cleanup_stale_secret_snapshots()
-                state = self._read_state()
-                self._verify_state_releases(state)
-                journal = self._read_journal()
-                if journal is not None:
-                    self._verify_journal_material(journal)
-                    permitted = [journal.old_state, journal.switched_state]
-                    if journal.recovery_state is not None:
-                        permitted.append(journal.recovery_state)
-                    if state not in permitted:
-                        raise DeployError(
-                            "Deployment-State widerspricht dem offenen Journal"
-                        )
-                return {
-                    "ok": journal is None,
-                    "state": state.to_dict(),
-                    "env_verified": True,
-                    "recovery_required": journal is not None,
-                    "journal_phase": journal.phase if journal is not None else None,
-                }
-        except DateisperrenFehler as exc:
-            raise DeployError("Deployment-Lock konnte nicht erworben werden") from exc
+        _check_directory_chain(self.state_dir, "Deployment-State-Verzeichnis")
+        state_payload = self._read_state_payload()
+        journal_payload = self._read_journal_payload()
+        state = self._state_from_payload(state_payload)
+        journal = self._journal_from_payload(journal_payload)
+        records = self._status_records(state, journal)
+        for record in records:
+            self._verify_generation(record)
+            self._verify_release(record)
+        if journal is not None:
+            permitted = [journal.old_state, journal.switched_state]
+            if journal.recovery_state is not None:
+                permitted.append(journal.recovery_state)
+            if state not in permitted:
+                raise DeployError("Deployment-State widerspricht dem offenen Journal")
+
+        # Ohne einen schreibenden Lock bleibt Status strikt read-only. Zwei
+        # Kontrollpunkte machen konkurrierende atomare State-/Journal-Wechsel
+        # sichtbar; die zweite Materialrunde bindet auch Generationen an den
+        # bestaetigten Control-Snapshot. Ein beobachtetes Race schlaegt bewusst
+        # kontrolliert fehl, statt einen gemischten Zustand zu melden.
+        self._confirm_status_control(state_payload, journal_payload)
+        for record in records:
+            self._verify_generation(record)
+        self._confirm_status_control(state_payload, journal_payload)
+        return {
+            "ok": journal is None,
+            "state": state.to_dict(),
+            "env_verified": True,
+            "recovery_required": journal is not None,
+            "journal_phase": journal.phase if journal is not None else None,
+        }
 
 
 def _add_runtime_arguments(
@@ -1881,7 +2471,11 @@ def _add_runtime_arguments(
 
 
 def _deployer(args: argparse.Namespace, *, runtime: bool) -> ContainerDeployer:
-    hook = _hook_command(args.verify_hook_json) if runtime and args.verify_hook_json else None
+    hook = (
+        _hook_command(args.verify_hook_json)
+        if runtime and args.verify_hook_json
+        else None
+    )
     backup_hook = (
         _hook_command(args.backup_hook_json)
         if runtime and getattr(args, "backup_hook_json", None)
@@ -1914,7 +2508,9 @@ def build_parser() -> argparse.ArgumentParser:
     deploy.add_argument("--lock-timeout", type=float, default=30.0)
     _add_runtime_arguments(deploy, compose_required=True)
 
-    rollback = sub.add_parser("rollback", help="current und previous transaktional tauschen")
+    rollback = sub.add_parser(
+        "rollback", help="current und previous transaktional tauschen"
+    )
     rollback.add_argument("--state-dir", type=Path, required=True)
     rollback.add_argument("--lock-timeout", type=float, default=30.0)
     _add_runtime_arguments(rollback, compose_required=False)

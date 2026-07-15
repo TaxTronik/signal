@@ -1,9 +1,85 @@
 """Statische Sicherheitsinvarianten der nativen Service-Installationen."""
 
+import base64
+import ctypes
+import os
 from pathlib import Path
+import re
+import subprocess
+import sys
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _render_backup_task_child(
+    *, python: Path, release_tools: Path, profile: Path
+) -> str:
+    installer = (ROOT / "deploy" / "install-backup-task.ps1").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(
+        r'^\$taskCommand = @"\r?\n(?P<body>.*?)\r?\n"@$',
+        installer,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None
+    child = match.group("body")
+    for placeholder, path in (
+        ("pythonB64", python),
+        ("toolsB64", release_tools),
+        ("profileB64", profile),
+    ):
+        encoded = base64.b64encode(str(path).encode("utf-8")).decode("ascii")
+        child = child.replace(f"${placeholder}", encoded)
+    child = child.replace("`$", "$")
+    assert "$pythonB64" not in child
+    assert "$toolsB64" not in child
+    assert "$profileB64" not in child
+    return child
+
+
+def _system_windows_powershell() -> Path:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_system_directory = kernel32.GetSystemDirectoryW
+    get_system_directory.argtypes = [ctypes.c_wchar_p, ctypes.c_uint]
+    get_system_directory.restype = ctypes.c_uint
+    buffer = ctypes.create_unicode_buffer(32_768)
+    length = get_system_directory(buffer, len(buffer))
+    assert 0 < length < len(buffer)
+    executable = (
+        Path(buffer.value) / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+    )
+    assert executable.is_file()
+    return executable
+
+
+def _run_backup_task_child(
+    *, python: Path, release_tools: Path, profile: Path
+) -> subprocess.CompletedProcess[str]:
+    child = _render_backup_task_child(
+        python=python,
+        release_tools=release_tools,
+        profile=profile,
+    )
+    encoded = base64.b64encode(child.encode("utf-16-le")).decode("ascii")
+    return subprocess.run(
+        [
+            str(_system_windows_powershell()),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-EncodedCommand",
+            encoded,
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=30,
+    )
 
 
 def test_windows_autostart_ist_ausschliesslich_begrenzter_benutzer_task() -> None:
@@ -122,16 +198,80 @@ def test_backup_scheduler_nutzen_current_runtime_und_sichere_argumente() -> None
         encoding="utf-8"
     )
 
-    assert "python3.12 -I ${RISK_LAYER_RELEASE_LAUNCHER}" in unit
-    assert "--home ${RISK_LAYER_RELEASE_HOME} -- backup create" in unit
-    assert "--retention-keep-last 30 --retention-keep-days 90" in unit
-    assert "[string]$ReleaseLauncher" in windows
-    assert "[string]$ReleaseHome" in windows
+    assert "/usr/bin/python3.12 -I ${RISK_LAYER_RELEASE_TOOLS}" in unit
+    assert "ops --config ${RISK_LAYER_OPS_PROFILE} backup" in unit
+    assert "[string]$ReleaseTools" in windows
+    assert "[string]$OperatorProfile" in windows
+    assert "[string]$BeraterDir" not in windows
     assert "ToBase64String" in windows and "FromBase64String" in windows
     assert "& Invoke-Expression" not in windows
-    assert "-- backup create" in windows
+    assert "ops --config `$profile backup" in windows
+    assert "[Environment]::SystemDirectory" in windows
+    assert "'WindowsPowerShell'" in windows
+    assert "'v1.0'" in windows
+    assert "'powershell.exe'" in windows
+    assert "$PSHOME" not in windows
+    assert "Test-Path -LiteralPath $powershell -PathType Leaf" in windows
+    assert "New-ScheduledTaskAction -Execute $powershell" in windows
+    assert "`$ErrorActionPreference = 'Stop'" in windows
+    assert "`$LASTEXITCODE = `$null" in windows
+    assert "if (`$null -eq `$childExit)" in windows
+    assert "exit [int]`$childExit" in windows
+    assert "catch {" in windows
+    assert "exit 1" in windows
     assert "-LogonType Interactive" in windows
     assert "-RunLevel Limited" in windows
+
+
+def test_backup_scheduler_child_ist_fail_closed_und_propagiert_native_exitcodes(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-spezifischer Scheduled-Task-Vertrag")
+
+    release_tools = tmp_path / "release-tools.py"
+    profile = tmp_path / "ops.json"
+    release_tools.write_text("raise SystemExit(37)\n", encoding="utf-8")
+    profile.write_text("{}\n", encoding="utf-8")
+
+    missing = _run_backup_task_child(
+        python=tmp_path / "missing-python.exe",
+        release_tools=release_tools,
+        profile=profile,
+    )
+    assert missing.returncode == 1, (missing.stdout, missing.stderr)
+    assert "Python-Interpreter fehlt zur Laufzeit" in missing.stderr
+
+    unstartable_python = tmp_path / "invalid-python.exe"
+    unstartable_python.write_bytes(b"not a Windows executable")
+    unstartable = _run_backup_task_child(
+        python=unstartable_python,
+        release_tools=release_tools,
+        profile=profile,
+    )
+    assert unstartable.returncode == 1, (unstartable.stdout, unstartable.stderr)
+
+    no_native_exit = tmp_path / "no-native-exit.ps1"
+    no_native_exit.write_text(
+        "param([switch]$I, "
+        "[Parameter(ValueFromRemainingArguments=$true)][object[]]$Remaining)\n"
+        "return\n",
+        encoding="utf-8",
+    )
+    null_exit = _run_backup_task_child(
+        python=no_native_exit,
+        release_tools=release_tools,
+        profile=profile,
+    )
+    assert null_exit.returncode == 1, (null_exit.stdout, null_exit.stderr)
+    assert "Python-Prozess lieferte keinen externen Exitcode" in null_exit.stderr
+
+    propagated = _run_backup_task_child(
+        python=Path(sys.executable),
+        release_tools=release_tools,
+        profile=profile,
+    )
+    assert propagated.returncode == 37, (propagated.stdout, propagated.stderr)
 
 
 def test_force_rotiert_auth_token_nicht_still() -> None:

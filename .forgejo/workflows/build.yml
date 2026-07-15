@@ -39,6 +39,7 @@ jobs:
         run: |
           bash -n deploy.sh
           bash -n build-release-artifact.sh
+          bash -n risk-layerctl
 
       # PowerShell-Parse-Check OPPORTUNISTISCH: läuft nur, falls pwsh im
       # Runner-Image vorhanden ist (kein Windows-Runner in der Flotte — bewusst
@@ -50,7 +51,7 @@ jobs:
           if command -v pwsh >/dev/null 2>&1; then
             pwsh -NoProfile -Command '
               $gesamt = 0
-              foreach ($f in "deploy.ps1","install-service.ps1","build-release-artifact.ps1","deploy/install-backup-task.ps1","deploy/restart-risk-layer-task.ps1") {
+              foreach ($f in "deploy.ps1","risk-layerctl.ps1","install-service.ps1","build-release-artifact.ps1","deploy/install-backup-task.ps1","deploy/restart-risk-layer-task.ps1") {
                 $tokens = $null; $fehler = $null
                 [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$tokens, [ref]$fehler)
                 if ($fehler.Count -gt 0) {
@@ -88,11 +89,10 @@ jobs:
           ! grep -qE '@[A-Z_]+@' /tmp/release.service
           echo "release-systemd-template ok"
           grep -q '^\[Service\]' deploy/risk-layer-backup.service
-          grep -Fq 'ExecStart=/usr/bin/env python3.12 -I ${RISK_LAYER_RELEASE_LAUNCHER} --home ${RISK_LAYER_RELEASE_HOME} -- backup create' deploy/risk-layer-backup.service || {
-            echo "::error file=deploy/risk-layer-backup.service::Backup-Unit muss ueber den manifestgebundenen Release-Launcher starten"
+          grep -Fq 'ExecStart=/usr/bin/python3.12 -I ${RISK_LAYER_RELEASE_TOOLS} ops --config ${RISK_LAYER_OPS_PROFILE} backup' deploy/risk-layer-backup.service || {
+            echo "::error file=deploy/risk-layer-backup.service::Backup-Unit muss die profilbasierte Operator-Fassade starten"
             exit 1
           }
-          grep -q -- '--retention-keep-last 30 --retention-keep-days 90' deploy/risk-layer-backup.service
           grep -q '^\[Timer\]' deploy/risk-layer-backup.timer
           echo "backup-units ok"
 
@@ -397,7 +397,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          risk-layerctl release verify "release-$RELEASE_TAG" --trust-local-manifest
+          risk-layer-ops release verify "release-$RELEASE_TAG" --trust-local-manifest
           sha256sum --check --strict "taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256"
           sha256sum --check --strict "taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
           sha256sum --check --strict risk-layer-release-tools.pyz.sha256
@@ -449,29 +449,82 @@ jobs:
           SOURCE_DATE_EPOCH: ${{ steps.release.outputs.epoch }}
           ENGINE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
+          stage="dist/container-release-$RELEASE_TAG"
+          test ! -e "$stage"
+          install -d -m 0755 "$stage"
+          stage_artifact() {
+            local source="$1"
+            local target="$stage/$(basename -- "$source")"
+            test -f "$source" && test ! -L "$source"
+            test ! -e "$target" || {
+              echo "Bootstrap-Basename kollidiert: $(basename -- "$source")" >&2
+              exit 1
+            }
+            install -m 0444 -- "$source" "$target"
+          }
+          for source in \
+            "taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
+            "taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256" \
+            "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json" \
+            "taxtronik-native-$RELEASE_TAG.tar.gz" \
+            "taxtronik-native-$RELEASE_TAG.tar.gz.sha256" \
+            docker-compose.yml \
+            .env.release.example \
+            risk-layer-release-tools.pyz \
+            risk-layer-release-tools.pyz.sha256 \
+            tools/verify_container_release_manifest.py \
+            tools/extract_release_bundle.py \
+            tools/deploy_container_release.py \
+            deploy/install-release-service.py \
+            deploy/risk-layer-release.service.in \
+            deploy/release-launcher.py \
+            install-service.ps1 \
+            deploy/restart-risk-layer-task.ps1 \
+            deploy/install-backup-task.ps1 \
+            deploy/risk-layer-ops.example.json \
+            deploy/risk-layer-ops.native-linux.example.json \
+            deploy/risk-layer-ops.native-windows.example.json \
+            risk-layerctl \
+            risk-layerctl.ps1 \
+            deploy/risk-layer-backup.service \
+            deploy/risk-layer-backup.timer \
+            deploy/risk-layer-backup.env.example
+          do
+            stage_artifact "$source"
+          done
           python tools/create_container_release_manifest.py \
             --release-id "$RELEASE_TAG" \
             --git-sha "$GITHUB_SHA" \
             --source-date-epoch "$SOURCE_DATE_EPOCH" \
             --engine-repository "$IMAGE" \
             --engine-digest "$ENGINE_DIGEST" \
-            --festwissen "taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
-            --festwissen-manifest "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json" \
-            --native-bundle "taxtronik-native-$RELEASE_TAG.tar.gz" \
+            --festwissen "$stage/taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
+            --festwissen-manifest "$stage/taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json" \
+            --native-bundle "$stage/taxtronik-native-$RELEASE_TAG.tar.gz" \
             --native-release-manifest "release-$RELEASE_TAG/release.json" \
-            --compose docker-compose.yml \
-            --release-tools risk-layer-release-tools.pyz \
-            --verify-container-tool tools/verify_container_release_manifest.py \
-            --extract-native-tool tools/extract_release_bundle.py \
-            --deploy-container-tool tools/deploy_container_release.py \
-            --install-release-service deploy/install-release-service.py \
-            --release-launcher deploy/release-launcher.py \
-            --windows-install-service install-service.ps1 \
-            --windows-restart-task deploy/restart-risk-layer-task.ps1 \
-            --windows-install-backup-task deploy/install-backup-task.ps1 \
-            --output "taxtronik-container-$RELEASE_TAG.json"
-          python -I risk-layer-release-tools.pyz verify-container \
-            "taxtronik-container-$RELEASE_TAG.json" --artifact-dir .
+            --compose "$stage/docker-compose.yml" \
+            --release-tools "$stage/risk-layer-release-tools.pyz" \
+            --verify-container-tool "$stage/verify_container_release_manifest.py" \
+            --extract-native-tool "$stage/extract_release_bundle.py" \
+            --deploy-container-tool "$stage/deploy_container_release.py" \
+            --install-release-service "$stage/install-release-service.py" \
+            --release-systemd-service-template "$stage/risk-layer-release.service.in" \
+            --release-launcher "$stage/release-launcher.py" \
+            --windows-install-service "$stage/install-service.ps1" \
+            --windows-restart-task "$stage/restart-risk-layer-task.ps1" \
+            --windows-install-backup-task "$stage/install-backup-task.ps1" \
+            --operator-profile-container-linux "$stage/risk-layer-ops.example.json" \
+            --operator-profile-native-linux "$stage/risk-layer-ops.native-linux.example.json" \
+            --operator-profile-native-windows "$stage/risk-layer-ops.native-windows.example.json" \
+            --operator-wrapper-posix "$stage/risk-layerctl" \
+            --operator-wrapper-windows "$stage/risk-layerctl.ps1" \
+            --backup-systemd-service "$stage/risk-layer-backup.service" \
+            --backup-systemd-timer "$stage/risk-layer-backup.timer" \
+            --backup-systemd-env "$stage/risk-layer-backup.env.example" \
+            --container-secrets-env-example "$stage/.env.release.example" \
+            --output "$stage/taxtronik-container-$RELEASE_TAG.json"
+          python -I "$stage/risk-layer-release-tools.pyz" verify-container \
+            "$stage/taxtronik-container-$RELEASE_TAG.json" --artifact-dir "$stage"
 
       # Generic-Package-Versionen werden nicht überschrieben. Das bindende
       # Container-Manifest wird innerhalb der Artefaktversion zuletzt geladen;
@@ -485,6 +538,8 @@ jobs:
         run: |
           test -n "$REGISTRY_TOKEN" || { echo "REGISTRY_TOKEN fehlt" >&2; exit 1; }
           test -n "$REGISTRY_USER" || { echo "REGISTRY_USER fehlt" >&2; exit 1; }
+          stage="dist/container-release-$RELEASE_TAG"
+          test -d "$stage"
           python - <<'PY'
           import os
           from urllib.parse import urlsplit
@@ -532,25 +587,34 @@ jobs:
               --upload-file "$file" "$base/$(basename "$file")"
             echo "hochgeladen: $(basename "$file")"
           }
-          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz"
-          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256"
-          upload "taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json"
-          upload "taxtronik-native-$RELEASE_TAG.tar.gz"
-          upload "taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
-          upload docker-compose.yml
-          upload .env.release.example
-          upload risk-layer-release-tools.pyz
-          upload risk-layer-release-tools.pyz.sha256
-          upload tools/verify_container_release_manifest.py
-          upload tools/extract_release_bundle.py
-          upload tools/deploy_container_release.py
-          upload deploy/install-release-service.py
-          upload deploy/release-launcher.py
-          upload install-service.ps1
-          upload deploy/restart-risk-layer-task.ps1
-          upload deploy/install-backup-task.ps1
-          upload "taxtronik-container-$RELEASE_TAG.json.sha256"
-          upload "taxtronik-container-$RELEASE_TAG.json"
+          upload "$stage/taxtronik-festwissen-$RELEASE_TAG.tar.gz"
+          upload "$stage/taxtronik-festwissen-$RELEASE_TAG.tar.gz.sha256"
+          upload "$stage/taxtronik-festwissen-$RELEASE_TAG.tar.gz.manifest.json"
+          upload "$stage/taxtronik-native-$RELEASE_TAG.tar.gz"
+          upload "$stage/taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
+          upload "$stage/docker-compose.yml"
+          upload "$stage/.env.release.example"
+          upload "$stage/risk-layer-release-tools.pyz"
+          upload "$stage/risk-layer-release-tools.pyz.sha256"
+          upload "$stage/verify_container_release_manifest.py"
+          upload "$stage/extract_release_bundle.py"
+          upload "$stage/deploy_container_release.py"
+          upload "$stage/install-release-service.py"
+          upload "$stage/risk-layer-release.service.in"
+          upload "$stage/release-launcher.py"
+          upload "$stage/install-service.ps1"
+          upload "$stage/restart-risk-layer-task.ps1"
+          upload "$stage/install-backup-task.ps1"
+          upload "$stage/risk-layer-ops.example.json"
+          upload "$stage/risk-layer-ops.native-linux.example.json"
+          upload "$stage/risk-layer-ops.native-windows.example.json"
+          upload "$stage/risk-layerctl"
+          upload "$stage/risk-layerctl.ps1"
+          upload "$stage/risk-layer-backup.service"
+          upload "$stage/risk-layer-backup.timer"
+          upload "$stage/risk-layer-backup.env.example"
+          upload "$stage/taxtronik-container-$RELEASE_TAG.json.sha256"
+          upload "$stage/taxtronik-container-$RELEASE_TAG.json"
 
       # ABSICHTLICH letzter Schritt: Vorher existiert nur ein Candidate-Tag.
       # Konsumenten dürfen ausschließlich den SemVer-Tag/Manifest-Digest nutzen.

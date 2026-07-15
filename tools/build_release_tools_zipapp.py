@@ -23,6 +23,7 @@ SOURCES = {
     ),
     "release_tools/extract_native.py": ROOT / "tools/extract_release_bundle.py",
     "release_tools/deploy_container.py": ROOT / "tools/deploy_container_release.py",
+    "risk_layer/operator_cli.py": ROOT / "risk_layer/operator_cli.py",
 }
 MAIN = '''\
 from __future__ import annotations
@@ -32,13 +33,14 @@ import sys
 
 def main() -> int:
     if len(sys.argv) < 2 or sys.argv[1] not in {
-        "verify-container", "extract-native", "deploy-container"
+        "verify-container", "extract-native", "deploy-container", "ops"
     }:
         print(
             "Aufruf: risk-layer-release-tools.pyz "
-            "{verify-container MANIFEST [--artifact-dir DIR] | "
+            "verify-container MANIFEST [--artifact-dir DIR] | "
             "extract-native ARCHIV ZIEL | "
-            "deploy-container {deploy,rollback,status} ...}",
+            "deploy-container {deploy,rollback,status} ... | "
+            "ops [--config DATEI] BEFEHL ...",
             file=sys.stderr,
         )
         return 2
@@ -51,6 +53,9 @@ def main() -> int:
             raise SystemExit(f"Deployment-Manifest abgelehnt: {exc}") from exc
     if command == "extract-native":
         from release_tools.extract_native import main as command_main
+        return command_main()
+    if command == "ops":
+        from risk_layer.operator_cli import main as command_main
         return command_main()
     from release_tools.deploy_container import main as command_main
     return command_main()

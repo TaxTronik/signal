@@ -1,0 +1,34 @@
+{
+  "schema": "taxtronik.risk-layer-ops/v1",
+  "mode": "native",
+  "python": "C:/Python312/python.exe",
+  "bootstrap_python": "C:/Temp/risk-layer-bootstrap/Scripts/python.exe",
+  "docker_bin": null,
+  "release_home": "C:/ProgramData/TaxTronik/RiskLayer/runtime",
+  "state_dir": null,
+  "berater_dir": "C:/ProgramData/TaxTronik/RiskLayer/definitionen",
+  "backup_dir": "C:/ProgramData/TaxTronik/RiskLayer/backup-spool",
+  "backup_target_id": "REPLACE-backup-target-id",
+  "launcher": "C:/ProgramData/TaxTronik/RiskLayer/bootstrap/release-launcher.py",
+  "release_tools": null,
+  "compose_file": null,
+  "secrets_env": null,
+  "token_file": "C:/ProgramData/TaxTronik/RiskLayer/bootstrap/.engine_token",
+  "health_url": "http://127.0.0.1:8000",
+  "status_url": "http://127.0.0.1:8000/v1/status",
+  "activation_command": [
+    "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-File",
+    "C:/ProgramData/TaxTronik/RiskLayer/bootstrap/restart-risk-layer-task.ps1"
+  ],
+  "required_layers": [
+    "matcher"
+  ],
+  "retention": {
+    "keep_last": 30,
+    "keep_days": 90
+  }
+}

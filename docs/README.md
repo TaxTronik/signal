@@ -17,6 +17,11 @@ gelebte Stand steht immer in README/FEATURES/INTEGRATION.
 | [../README.md](../README.md) | Einstieg: Architektur, Schnellstart, CLI, `/v1`-Überblick, Roadmap | lebend | aktuell (Engine `1.2.0`) |
 | [../FEATURES.md](../FEATURES.md) | Vollständiges Feature-Inventar inkl. benannter Grenzen und Garantien | lebend | aktuell (Engine `1.2.0`) |
 | [../INTEGRATION_TAXTRONIK.md](../INTEGRATION_TAXTRONIK.md) | Der `/v1`-Integrationsvertrag (Endpunkte, Mapping-Realitätsabgleich, Fixtures) — Name/Ort fix, wird vom Code referenziert | lebend | aktuell (`v1.2.0`) |
+| [operations/README.md](operations/README.md) | Kurzer Einstieg in die einheitliche Operator-Oberfläche für Deploy, Update, Status, Backup, Restore und Rollback | lebend (Betrieb) | aktuell |
+| [operations/release.md](operations/release.md) | Normaler Release-, Deploy-, Update- und Rollback-Pfad einschließlich Vertrauensgrenze | lebend (Betrieb) | aktuell |
+| [operations/day-2-operations.md](operations/day-2-operations.md) | Wiederkehrende Kontrollen, Update-Fenster, Backup und Störungsablauf | lebend (Betrieb) | aktuell |
+| [operations/disaster-recovery.md](operations/disaster-recovery.md) | Sicherungsumfang, produktiver Restore und Restore-Probe | lebend (Betrieb) | aktuell |
+| [operations/release-rehearsal.md](operations/release-rehearsal.md) | Probe des vollständigen Betreiberpfads auf einem frischen Ziel | lebend (Betrieb) | aktuell |
 | [compliance/IDW-PS-861-Mapping.md](compliance/IDW-PS-861-Mapping.md) | Compliance-Mapping der Engine gegen IDW PS 861 (Prüfung von KI-Systemen): Kriterien ↔ Mechanismen ↔ Nachweise, mit priorisierter Lückenliste | lebend (compliance) | aktuell (Engine `1.2.0`) |
 | [compliance/Systembeschreibung.md](compliance/Systembeschreibung.md) | Systembeschreibung des KI-Systems (Mapping-Lücke L1): Zweck, fünf Elemente, Verantwortungsschnitt, Schutzmaßnahmen, Änderungswesen, Leitungsaussage | lebend (compliance) — Entwurf, Abnahme ausstehend | 10.06.2026 (Engine `1.2.0`) |
 | [compliance/Governance-Betriebsordnung.md](compliance/Governance-Betriebsordnung.md) | Governance-/Betriebsordnung des KI-Einsatzes (Mapping-Lücken L2 ff.): Ziele/Grenzen, Rollen, Überwachungsturnus, Kennzahlen, Mängelweg, Datensicherung, Fine-Tuning-Regel, Bias-Würdigung, Rechtekonzept, Wirksamkeitsnachweis | lebend (compliance) — Entwurf, Abnahme ausstehend | 10.06.2026 (Engine `1.2.0`) |
@@ -27,9 +32,10 @@ gelebte Stand steht immer in README/FEATURES/INTEGRATION.
 | [spezifikation/Erweiterung_Unknown-als-Risiko_und_Berater-Definitionen.md](spezifikation/Erweiterung_Unknown-als-Risiko_und_Berater-Definitionen.md) | Erweiterung: Default-Umkehr „Unknown als Risiko", Berater-Definitionen, Lebenszyklus (/LF270/–/LF370/) | eingefroren | 31.05.2026 |
 | [plan/PLAN_SUBSUMTIONSLAYER.md](plan/PLAN_SUBSUMTIONSLAYER.md) | Plan: Subsumtionslayer-Flows und -Datenflüsse in TaxTronik, UI-Heimat offen (§6) | Plan (zur Diskussion) | offen |
 
-Daneben existiert betriebliche Doku außerhalb dieses Index:
-[BETRIEB_DEPLOY_UPDATE_BACKUP.md](BETRIEB_DEPLOY_UPDATE_BACKUP.md)
-(verbindliches technisches Runbook für manifestierte Releases, atomare Updates,
-Rollback, Backup-Scheduling und Restore-Proben) sowie
+Die kurze betriebliche Dokumentation beginnt unter
+[operations/README.md](operations/README.md). Das
+[technische Detail-Runbook](BETRIEB_DEPLOY_UPDATE_BACKUP.md) enthält zusätzlich
+die langen Recovery-/Expertenpfade für manifestierte Releases, atomare Updates,
+Rollback, Backup-Scheduling und Restore-Proben. Daneben steht
 [../deploy/forgejo-runner.md](../deploy/forgejo-runner.md) (CI-Runner-Einrichtung,
 referenziert aus `.forgejo/workflows/build.yml`).

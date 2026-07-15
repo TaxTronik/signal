@@ -3,20 +3,16 @@
 .SYNOPSIS
   Installiert einen taeglichen, unprivilegierten Windows-Backup-Task.
 .DESCRIPTION
-  Der Task laeuft nur im Kontext des aktuell angemeldeten Benutzers und
-  speichert kein Kennwort. Alle Pfade werden Base64-kodiert an PowerShell
-  uebergeben; UNC-Pfade, Leerzeichen und abschliessende Backslashes bleiben
-  dadurch eindeutig. Im Release-Modus waehlt der stabile Launcher die aktuelle
-  manifestgebundene Runtime. Nach jedem Backup gilt Retention 30/90.
+  Der Task laeuft nur als aktuell angemeldeter Benutzer und speichert kein
+  Kennwort. Python, checkout-freies Release-Zipapp und das nicht geheime
+  Operator-Profil werden Base64-kodiert uebergeben. Damit nutzt der Scheduler
+  exakt dieselbe profilbasierte Fassade wie der Handbetrieb.
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
-    [string]$BeraterDir,
-    [string]$BackupDir,
-    [string]$RiskLayerCtl,
     [string]$PythonExe,
-    [string]$ReleaseLauncher,
-    [string]$ReleaseHome,
+    [string]$ReleaseTools,
+    [string]$OperatorProfile,
     [string]$TaskName = "TaxTronik Risk-Layer Backup",
     [datetime]$DailyAt = [datetime]::Today.AddHours(2).AddMinutes(15),
     [switch]$Remove
@@ -32,92 +28,76 @@ if ($Remove) {
     return
 }
 
-if (-not $BeraterDir -or -not $BackupDir) {
-    throw "-BeraterDir und -BackupDir sind fuer die Installation Pflicht"
-}
-$releaseMode = @($PythonExe, $ReleaseLauncher, $ReleaseHome) |
-    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-    Measure-Object |
-    Select-Object -ExpandProperty Count
-if ($releaseMode -ne 0 -and $releaseMode -ne 3) {
-    throw "-PythonExe, -ReleaseLauncher und -ReleaseHome nur gemeinsam angeben"
-}
-$releaseMode = $releaseMode -eq 3
-if (-not $releaseMode -and -not $RiskLayerCtl) {
-    $commandInfo = Get-Command risk-layerctl -ErrorAction Stop
-    $RiskLayerCtl = $commandInfo.Source
-}
-$pathValues = @($BeraterDir, $BackupDir)
-if ($releaseMode) {
-    $pathValues += @($PythonExe, $ReleaseLauncher, $ReleaseHome)
-} else {
-    $pathValues += $RiskLayerCtl
-}
-foreach ($value in $pathValues) {
-    if ($value -match '[\x00-\x1f\x7f]') {
-        throw "Steuerzeichen in Pfaden sind unzulaessig"
+foreach ($parameter in @{
+    PythonExe = $PythonExe
+    ReleaseTools = $ReleaseTools
+    OperatorProfile = $OperatorProfile
+}.GetEnumerator()) {
+    if ([string]::IsNullOrWhiteSpace($parameter.Value)) {
+        throw "-$($parameter.Key) ist fuer die Installation Pflicht"
+    }
+    if ($parameter.Value -match '[\x00-\x1f\x7f]') {
+        throw "Steuerzeichen in -$($parameter.Key) sind unzulaessig"
     }
 }
-$BeraterDir = [IO.Path]::GetFullPath($BeraterDir)
-$BackupDir = [IO.Path]::GetFullPath($BackupDir)
-if (-not (Test-Path -LiteralPath $BeraterDir -PathType Container)) {
-    throw "Berater-Verzeichnis nicht gefunden: $BeraterDir"
-}
-if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
-    throw "Backup-Ziel nicht gefunden (bewusst nicht automatisch erzeugt): $BackupDir"
-}
-if ($releaseMode) {
-    $PythonExe = [IO.Path]::GetFullPath($PythonExe)
-    $ReleaseLauncher = [IO.Path]::GetFullPath($ReleaseLauncher)
-    $ReleaseHome = [IO.Path]::GetFullPath($ReleaseHome)
-    if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
-        throw "Python-Interpreter nicht gefunden: $PythonExe"
-    }
-    if (-not (Test-Path -LiteralPath $ReleaseLauncher -PathType Leaf)) {
-        throw "Release-Launcher nicht gefunden: $ReleaseLauncher"
-    }
-    if (-not (Test-Path -LiteralPath (Join-Path $ReleaseHome "state.json") -PathType Leaf)) {
-        throw "Release-Home hat keinen aktivierten State: $ReleaseHome"
-    }
-} else {
-    $RiskLayerCtl = [IO.Path]::GetFullPath($RiskLayerCtl)
-    if (-not (Test-Path -LiteralPath $RiskLayerCtl -PathType Leaf)) {
-        throw "risk-layerctl nicht gefunden: $RiskLayerCtl"
+
+$PythonExe = [IO.Path]::GetFullPath($PythonExe)
+$ReleaseTools = [IO.Path]::GetFullPath($ReleaseTools)
+$OperatorProfile = [IO.Path]::GetFullPath($OperatorProfile)
+foreach ($path in @($PythonExe, $ReleaseTools, $OperatorProfile)) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "Pflichtdatei nicht gefunden: $path"
     }
 }
 
 # Keine manuell gequoteten Windows-Argumentstrings: Pfade werden erst im
 # Kindprozess aus konstantem Base64 rekonstruiert und als echte Argumente
 # uebergeben, niemals durch Invoke-Expression oder eine Shell ausgewertet.
-$beraterB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($BeraterDir))
-$backupB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($BackupDir))
-$taskCommand = if ($releaseMode) {
-    $pythonB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PythonExe))
-    $launcherB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReleaseLauncher))
-    $homeB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReleaseHome))
-    @"
+$pythonB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PythonExe))
+$toolsB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($ReleaseTools))
+$profileB64 = [Convert]::ToBase64String(
+    [Text.Encoding]::UTF8.GetBytes($OperatorProfile)
+)
+$taskCommand = @"
+`$ErrorActionPreference = 'Stop'
+try {
 `$python = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$pythonB64'))
-`$launcher = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$launcherB64'))
-`$home = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$homeB64'))
-`$berater = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$beraterB64'))
-`$backup = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$backupB64'))
-& `$python -I `$launcher --home `$home -- backup create --berater `$berater --ziel `$backup --retention-keep-last 30 --retention-keep-days 90
-exit `$LASTEXITCODE
-"@
-} else {
-    $ctlB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($RiskLayerCtl))
-    @"
-`$ctl = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$ctlB64'))
-`$berater = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$beraterB64'))
-`$backup = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$backupB64'))
-& `$ctl backup create --berater `$berater --ziel `$backup --retention-keep-last 30 --retention-keep-days 90
-exit `$LASTEXITCODE
-"@
+`$tools = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$toolsB64'))
+`$profile = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('$profileB64'))
+if (-not (Test-Path -LiteralPath `$python -PathType Leaf)) {
+    throw 'Python-Interpreter fehlt zur Laufzeit'
 }
+if (-not (Test-Path -LiteralPath `$tools -PathType Leaf)) {
+    throw 'Release-Zipapp fehlt zur Laufzeit'
+}
+if (-not (Test-Path -LiteralPath `$profile -PathType Leaf)) {
+    throw 'Operator-Profil fehlt zur Laufzeit'
+}
+`$LASTEXITCODE = `$null
+& `$python -I `$tools ops --config `$profile backup
+`$childExit = `$LASTEXITCODE
+if (`$null -eq `$childExit) {
+    throw 'Python-Prozess lieferte keinen externen Exitcode'
+}
+exit [int]`$childExit
+}
+catch {
+    [Console]::Error.WriteLine(`$_.Exception.Message)
+    exit 1
+}
+"@
 $encodedCommand = [Convert]::ToBase64String(
     [Text.Encoding]::Unicode.GetBytes($taskCommand)
 )
-$powershell = Join-Path $PSHOME 'powershell.exe'
+$powershell = [IO.Path]::Combine(
+    [Environment]::SystemDirectory,
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe'
+)
+if (-not (Test-Path -LiteralPath $powershell -PathType Leaf)) {
+    throw "System-PowerShell nicht gefunden: $powershell"
+}
 $arguments = "-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedCommand"
 $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments
 $trigger = New-ScheduledTaskTrigger -Daily -At $DailyAt
@@ -138,7 +118,7 @@ if ($PSCmdlet.ShouldProcess($TaskName, "taeglichen Scheduled Task installieren")
         -Trigger $trigger `
         -Settings $settings `
         -Principal $principal `
-        -Description "Konsistentes Risk-Layer-Festwissen-Backup mit lokaler Retention" `
+        -Description "Profilbasiertes Risk-Layer-Festwissen-Backup mit Retention" `
         -Force | Out-Null
     Write-Host "Installiert: $TaskName ($identity, taeglich $($DailyAt.ToString('HH:mm')))" -ForegroundColor Green
     Write-Host "Erstlauf manuell pruefen: Start-ScheduledTask -TaskName '$TaskName'"

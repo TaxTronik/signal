@@ -2,6 +2,9 @@
 .engine_token
 .env
 .env.local
+.risk-layer-ops.json
+.risk-layer-backup-target.json
+/deploy/risk-layer-ops.json
 
 # Python
 __pycache__/

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shutil
@@ -18,6 +19,13 @@ import tools.verify_container_release_manifest as V
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _private_file(path: Path, description: str = "Test-Secret") -> None:
+    if os.name == "nt":
+        D._harden_windows_private_file_acl(path, description)
+    else:
+        path.chmod(0o600)
 
 
 def _release(
@@ -55,11 +63,14 @@ def _release(
 
 def _runtime_files(root: Path) -> tuple[Path, Path]:
     compose = root / "docker-compose.yml"
-    compose.write_text("services:\n  engine:\n    image: example.invalid/engine\n", encoding="utf-8")
+    compose.write_text(
+        "services:\n  engine:\n    image: example.invalid/engine\n", encoding="utf-8"
+    )
     secrets = root / "secrets.env"
-    secrets.write_text(f"RISK_LAYER_TOKEN={'s' * 40}\nRISK_LAYER_PORT=8000\n", encoding="utf-8")
-    if os.name != "nt":
-        secrets.chmod(0o600)
+    secrets.write_text(
+        f"RISK_LAYER_TOKEN={'s' * 40}\nRISK_LAYER_PORT=8000\n", encoding="utf-8"
+    )
+    _private_file(secrets)
     return compose, secrets
 
 
@@ -79,8 +90,7 @@ def _container_manifest(
             "repository": "registry.example/risk-layer-engine",
             "digest": f"sha256:{digest_character * 64}",
             "image": (
-                "registry.example/risk-layer-engine@sha256:"
-                f"{digest_character * 64}"
+                f"registry.example/risk-layer-engine@sha256:{digest_character * 64}"
             ),
         },
         "festwissen": {
@@ -100,13 +110,20 @@ def _container_manifest(
             "sha256": hashlib.sha256(compose.read_bytes()).hexdigest(),
         },
         "bootstrap": {
-            "release_tools": {"artifact": "risk-layer-release-tools.pyz", "sha256": "5" * 64},
+            "release_tools": {
+                "artifact": "risk-layer-release-tools.pyz",
+                "sha256": "5" * 64,
+            },
             "verify_container": {"artifact": "verify-container.py", "sha256": "6" * 64},
             "extract_native": {"artifact": "extract-native.py", "sha256": "7" * 64},
             "deploy_container": {"artifact": "deploy-container.py", "sha256": "8" * 64},
             "install_release_service": {
                 "artifact": "install-release-service.sh",
                 "sha256": "9" * 64,
+            },
+            "release_systemd_service_template": {
+                "artifact": "risk-layer-release.service.in",
+                "sha256": "6" * 64,
             },
             "release_launcher": {"artifact": "release-launcher.sh", "sha256": "a" * 64},
             "windows_install_service": {
@@ -120,6 +137,42 @@ def _container_manifest(
             "windows_install_backup_task": {
                 "artifact": "install-backup-task.ps1",
                 "sha256": "d" * 64,
+            },
+            "operator_profile_container_linux": {
+                "artifact": "risk-layer-ops.container-linux.example.json",
+                "sha256": "e" * 64,
+            },
+            "operator_profile_native_linux": {
+                "artifact": "risk-layer-ops.native-linux.example.json",
+                "sha256": "f" * 64,
+            },
+            "operator_profile_native_windows": {
+                "artifact": "risk-layer-ops.native-windows.example.json",
+                "sha256": "0" * 64,
+            },
+            "operator_wrapper_posix": {
+                "artifact": "risk-layerctl",
+                "sha256": "1" * 64,
+            },
+            "operator_wrapper_windows": {
+                "artifact": "risk-layerctl.ps1",
+                "sha256": "2" * 64,
+            },
+            "backup_systemd_service": {
+                "artifact": "risk-layer-backup.service",
+                "sha256": "3" * 64,
+            },
+            "backup_systemd_timer": {
+                "artifact": "risk-layer-backup.timer",
+                "sha256": "4" * 64,
+            },
+            "backup_systemd_env": {
+                "artifact": "risk-layer-backup.env.example",
+                "sha256": "5" * 64,
+            },
+            "container_secrets_env_example": {
+                "artifact": "container-secrets.env.example",
+                "sha256": "7" * 64,
             },
         },
     }
@@ -146,6 +199,115 @@ def _deployer(
         verify_hook=hook or ["verify-release"],
         backup_hook=["backup-festwissen"],
     )
+
+
+@pytest.mark.parametrize("field", ("command_timeout", "verify_timeout", "lock_timeout"))
+@pytest.mark.parametrize("value", (math.nan, math.inf, -math.inf))
+def test_deployer_lehnt_nicht_endliche_float_timeouts_ab(
+    tmp_path: Path, field: str, value: float
+) -> None:
+    options: dict[str, Any] = {field: value}
+    with pytest.raises(D.DeployError, match=field):
+        D.ContainerDeployer(tmp_path / "state", **options)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("command_timeout", D.MAX_COMMAND_TIMEOUT + 1),
+        ("verify_timeout", D.MAX_VERIFY_TIMEOUT + 1),
+        ("lock_timeout", D.MAX_LOCK_TIMEOUT + 1),
+    ),
+)
+def test_deployer_begrenzt_float_timeouts_nach_oben(
+    tmp_path: Path, field: str, value: float
+) -> None:
+    options: dict[str, Any] = {field: value}
+    with pytest.raises(D.DeployError, match=field):
+        D.ContainerDeployer(tmp_path / "state", **options)
+
+
+def test_windows_private_acl_policy_blockt_fremde_owner_und_aces() -> None:
+    current = "S-1-5-21-1000"
+    document: dict[str, Any] = {
+        "current": current,
+        "owner": current,
+        "protected": True,
+        "rules": [
+            {
+                "sid": current,
+                "rights": D.WINDOWS_FULL_CONTROL,
+                "type": "Allow",
+                "inherited": False,
+            }
+        ],
+    }
+    D._validate_windows_private_acl(document, "Secret-Env")
+
+    foreign_owner = {**document, "owner": "S-1-5-21-2000"}
+    with pytest.raises(D.DeployError, match="Owner"):
+        D._validate_windows_private_acl(foreign_owner, "Secret-Env")
+
+    for rights in (0x1, 0x2):
+        foreign_rule = {
+            **document,
+            "rules": [
+                *document["rules"],
+                {
+                    "sid": "S-1-1-0",
+                    "rights": rights,
+                    "type": "Allow",
+                    "inherited": False,
+                },
+            ],
+        }
+        with pytest.raises(D.DeployError, match="fremde SID"):
+            D._validate_windows_private_acl(foreign_rule, "Secret-Env")
+
+
+def test_secret_env_ruft_tiefen_windows_acl_check_auf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = tmp_path / "secret.env"
+    secret.write_text(f"RISK_LAYER_TOKEN={'s' * 40}\n", encoding="utf-8")
+    if os.name != "nt":
+        secret.chmod(0o600)
+    checked: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        D,
+        "_require_windows_private_file_acl",
+        lambda path, description: checked.append((path, description)),
+    )
+
+    assert D._parse_secret_env(secret)["RISK_LAYER_TOKEN"] == "s" * 40
+    assert checked == [(secret.resolve(), "Secret-Env")]
+
+
+def test_windows_secret_acl_nutzt_system_powershell_und_blockt_fremdleser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if os.name != "nt":
+        pytest.skip("Windows-spezifische SID-DACL-Pruefung")
+    secret = tmp_path / "private.env"
+    secret.write_text(f"RISK_LAYER_TOKEN={'s' * 40}\n", encoding="utf-8")
+    _private_file(secret, "Windows-Test-Secret")
+
+    monkeypatch.setenv("SystemRoot", r"C:\angreifer")
+    monkeypatch.setenv("PSModulePath", r"C:\angreifer\module")
+    executable, _ = D._windows_system_powershell()
+    assert "angreifer" not in str(executable).casefold()
+    assert D._parse_secret_env(secret)["RISK_LAYER_TOKEN"] == "s" * 40
+
+    granted = D.subprocess.run(
+        ["icacls.exe", str(secret), "/grant", "*S-1-1-0:(R)"],
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert granted.returncode == 0, granted.stderr
+    with pytest.raises(D.DeployError, match="fremde SID"):
+        D._parse_secret_env(secret)
 
 
 def test_deploy_schreibt_nur_nicht_geheime_generation_und_nutzt_compose_ohne_shell(
@@ -252,10 +414,13 @@ def test_explizites_rollback_tauscht_current_previous_und_startet_ziel(
     )
     verified: list[str] = []
     operations: list[str] = []
+    backup_current_git: list[str] = []
 
     def run(command, *, environment, timeout):
         del timeout
         operations.append(list(command)[0])
+        if list(command) == ["backup-festwissen"]:
+            backup_current_git.append(environment["RISK_LAYER_BACKUP_CURRENT_GIT_SHA"])
         if list(command) == ["verify-release"]:
             verified.append(environment["RISK_LAYER_EXPECTED_RELEASE_ID"])
 
@@ -268,7 +433,13 @@ def test_explizites_rollback_tauscht_current_previous_und_startet_ziel(
     assert result["state"]["current"]["release_id"] == "r1"
     assert result["state"]["previous"]["release_id"] == "r2"
     assert verified == ["r1", "r2", "r1"]
-    assert operations[-4:] == ["backup-festwissen", "docker", "docker", "verify-release"]
+    assert operations[-4:] == [
+        "backup-festwissen",
+        "docker",
+        "docker",
+        "verify-release",
+    ]
+    assert backup_current_git == ["", "a" * 40, "b" * 40]
 
 
 def test_dry_run_prueft_artefakte_aber_schreibt_keinen_state_und_startet_nichts(
@@ -302,7 +473,9 @@ def test_falscher_manifest_hash_und_managed_secret_override_werden_fail_closed_a
     monkeypatch.setattr(
         D,
         "_run_command",
-        lambda *args, **kwargs: pytest.fail("abgelehntes Deploy darf Docker nicht starten"),
+        lambda *args, **kwargs: pytest.fail(
+            "abgelehntes Deploy darf Docker nicht starten"
+        ),
     )
     deployer = _deployer(tmp_path, compose, secrets)
 
@@ -370,6 +543,78 @@ def test_manipulierte_env_generation_wird_vor_status_und_rollback_erkannt(
     )
 
     with pytest.raises(D.DeployError, match="State-SHA"):
+        deployer.status()
+
+
+def test_status_ist_strikt_read_only_und_fehlender_state_bleibt_fehlen(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    missing_state = tmp_path / "missing-state"
+    empty = D.ContainerDeployer(missing_state)
+
+    def forbidden(*args, **kwargs):
+        del args, kwargs
+        pytest.fail("read-only Status darf keine mutierende Hilfsfunktion aufrufen")
+
+    monkeypatch.setattr(empty, "_prepare_state_dir", forbidden)
+    monkeypatch.setattr(empty, "_lock", forbidden)
+    monkeypatch.setattr(empty, "_cleanup_stale_secret_snapshots", forbidden)
+    result = empty.status()
+    assert result["ok"] is True
+    assert result["state"]["generation"] == 0
+    assert result["state"]["current"] is None
+    assert not missing_state.exists()
+
+    compose, secrets = _runtime_files(tmp_path)
+    release_path, release = _release(tmp_path / "releases", "readonly", "a" * 40)
+    container, fingerprint = _container_manifest(tmp_path, release, compose)
+    monkeypatch.setattr(D, "_run_command", lambda *args, **kwargs: None)
+    deployer = _deployer(tmp_path, compose, secrets)
+    deployer.deploy(container, fingerprint, release_path)
+
+    def inventory(root: Path) -> dict[str, tuple[bytes, int, int]]:
+        return {
+            str(path.relative_to(root)): (
+                path.read_bytes(),
+                path.stat().st_mode,
+                path.stat().st_mtime_ns,
+            )
+            for path in root.rglob("*")
+            if path.is_file()
+        }
+
+    before = inventory(deployer.state_dir)
+    monkeypatch.setattr(deployer, "_prepare_state_dir", forbidden)
+    monkeypatch.setattr(deployer, "_lock", forbidden)
+    monkeypatch.setattr(deployer, "_cleanup_stale_secret_snapshots", forbidden)
+    assert deployer.status()["state"]["current"]["release_id"] == "readonly"
+    assert inventory(deployer.state_dir) == before
+
+
+def test_status_lehnt_kontrolliert_einen_control_snapshot_race_ab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    compose, secrets = _runtime_files(tmp_path)
+    release_path, release = _release(tmp_path / "releases", "race", "b" * 40)
+    container, fingerprint = _container_manifest(tmp_path, release, compose)
+    monkeypatch.setattr(D, "_run_command", lambda *args, **kwargs: None)
+    deployer = _deployer(tmp_path, compose, secrets)
+    deployer.deploy(container, fingerprint, release_path)
+    original = deployer._read_state_payload
+    calls = 0
+
+    def racing_state_payload() -> bytes | None:
+        nonlocal calls
+        calls += 1
+        payload = original()
+        if calls == 2 and payload is not None:
+            document = json.loads(payload)
+            document["updated_at"] = "2099-01-01T00:00:00Z"
+            return json.dumps(document, sort_keys=True).encode("utf-8")
+        return payload
+
+    monkeypatch.setattr(deployer, "_read_state_payload", racing_state_payload)
+    with pytest.raises(D.DeployError, match="waehrend des read-only Status"):
         deployer.status()
 
 
@@ -466,7 +711,9 @@ def test_optional_manifestgebundenes_llm_modell_wird_streng_toleriert(
     ).encode()
     container.write_bytes(payload)
 
-    identity = D._load_container_manifest(container, hashlib.sha256(payload).hexdigest())
+    identity = D._load_container_manifest(
+        container, hashlib.sha256(payload).hexdigest()
+    )
     assert identity.release_id == "llm"
 
     document["llm_model"]["unknown"] = "ambiguous"
@@ -575,7 +822,9 @@ def test_compose_scope_und_secret_snapshot_sind_stabil_und_nicht_in_prozess_env(
             return
         if command[0] == "docker":
             assert command[1:4] == ["compose", "--project-name", D.COMPOSE_PROJECT]
-            indices = [index for index, value in enumerate(command) if value == "--env-file"]
+            indices = [
+                index for index, value in enumerate(command) if value == "--env-file"
+            ]
             assert len(indices) == 2
             snapshot = Path(command[indices[1] + 1])
             snapshots.append(snapshot)
@@ -591,8 +840,14 @@ def test_compose_scope_und_secret_snapshot_sind_stabil_und_nicht_in_prozess_env(
     assert snapshots and len(set(snapshots)) == 1
     assert not snapshots[0].exists()
     assert all("RISK_LAYER_TOKEN" not in env for env in docker_environments)
-    assert all(not any(key.startswith("COMPOSE_") for key in env) for env in docker_environments)
-    assert _deployer(tmp_path / "other", compose, secrets).lock_store == deployer.lock_store
+    assert all(
+        not any(key.startswith("COMPOSE_") for key in env)
+        for env in docker_environments
+    )
+    assert (
+        _deployer(tmp_path / "other", compose, secrets).lock_store
+        == deployer.lock_store
+    )
 
 
 def test_compose_steuerwert_im_secret_env_wird_vor_docker_abgelehnt(
@@ -631,7 +886,9 @@ def test_offenes_switch_journal_wird_beim_naechsten_deploy_vorwaerts_reconciled(
 
     with deployer._lock():
         old_state = deployer._read_state()
-        candidate = deployer._candidate(identity, release2_path, old_state.generation + 1)
+        candidate = deployer._candidate(
+            identity, release2_path, old_state.generation + 1
+        )
         D._write_immutable(deployer._env_path(candidate), D._env_payload(candidate))
         D._write_immutable(
             deployer._compose_path(candidate),
@@ -698,9 +955,21 @@ def test_deploy_blockt_schema_api_und_feature_inkompatibilitaeten(
     calls.clear()
 
     cases = (
-        ("schema-break", {"schema_version": "2", "features": ("audit", "embedding")}, "schema_version"),
-        ("api-break", {"api_version": "2.0.0", "features": ("audit", "embedding")}, "API-Familie"),
-        ("feature-break", {"features": ("embedding",)}, "entfernt deklarierte Features"),
+        (
+            "schema-break",
+            {"schema_version": "2", "features": ("audit", "embedding")},
+            "schema_version",
+        ),
+        (
+            "api-break",
+            {"api_version": "2.0.0", "features": ("audit", "embedding")},
+            "API-Familie",
+        ),
+        (
+            "feature-break",
+            {"features": ("embedding",)},
+            "entfernt deklarierte Features",
+        ),
     )
     for release_id, options, message in cases:
         candidate_path, candidate = _release(
@@ -758,8 +1027,7 @@ def test_produktionscompose_vertrag_mit_beiden_env_generationen(
         f"RISK_LAYER_TOKEN={'s' * 40}\nRISK_LAYER_DEFINITIONEN_DIR={definitions}\n",
         encoding="utf-8",
     )
-    if os.name != "nt":
-        secrets.chmod(0o600)
+    _private_file(secrets, "Compose-Test-Secret")
     deployer = D.ContainerDeployer(tmp_path / "state", secret_env=secrets)
     deployer._prepare_state_dir()
     monkeypatch.setenv("COMPOSE_PROJECT_NAME", "hijacked")

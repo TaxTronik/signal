@@ -15,6 +15,7 @@ v2; ein v2-Manifest darf eine explizit leere Dateiliste enthalten und damit bei
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -48,19 +49,37 @@ MANIFEST_DATEI = "manifest.json"
 ARCHIV_FORMAT = "risk-layer-festwissen"
 ARCHIV_FORMAT_VERSION = 2
 FESTWISSEN_SCHEMA_VERSION = 1
+BACKUP_TARGET_SCHEMA = "taxtronik.risk-layer-backup-target/v1"
+BACKUP_TARGET_FILENAME = ".risk-layer-backup-target.json"
 
 _MAX_ARCHIV_DATEIEN = len(FESTWISSEN_DATEIEN) + 1
 _MAX_DATEI_UNKOMPRIMIERT = 256 * 1024 * 1024
 _MAX_ARCHIV_UNKOMPRIMIERT = 512 * 1024 * 1024
+_MAX_ARCHIV_KOMPRIMIERT = 1024 * 1024 * 1024
+_ARCHIV_SPOOL_SPEICHER = 16 * 1024 * 1024
+_MAX_BACKUP_TARGET_BYTES = 16 * 1024
+_MAX_YAML_TIEFE = 64
+_MAX_YAML_KNOTEN = 100_000
 _MAX_KOMPRESSIONSVERHAELTNIS = 500
 _SNAPSHOT_VERSUCHE = 5
 _LOCK_TIMEOUT = 10.0
 _SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 _GIT_COMMIT_RE = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
+_BACKUP_TARGET_ID_RE = re.compile(
+    r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62}[A-Za-z0-9])?\Z"
+)
 
 
 class SicherungsFehler(ValueError):
     """Bedienungs-, Integritaets- oder Strukturfehler bei Backup/Restore."""
+
+
+def _backup_target_id(value: str | None) -> str:
+    if not isinstance(value, str) or not _BACKUP_TARGET_ID_RE.fullmatch(value):
+        raise SicherungsFehler(
+            "backup_target_id muss ein sicherer Identifier mit 1-64 Zeichen sein"
+        )
+    return value
 
 
 def zeitstempel_dateiname(zeitstempel: str) -> str:
@@ -125,6 +144,156 @@ def _pruefe_verzeichniskette(pfad: Path) -> None:
             )
         if not stat.S_ISDIR(info.st_mode):
             raise SicherungsFehler(f"Pfadkomponente ist kein Verzeichnis: {teil}")
+
+
+def _backup_target_lesen(pfad: Path) -> dict[str, Any]:
+    _pruefe_verzeichniskette(pfad.parent)
+    if _ist_link_oder_reparse(pfad):
+        raise SicherungsFehler(f"Backup-Ziel-Sentinel ist ein Link/Reparse-Point: {pfad}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(pfad, flags)
+    except OSError as exc:
+        raise SicherungsFehler(f"Backup-Ziel-Sentinel fehlt oder ist nicht lesbar: {pfad}") from exc
+    try:
+        vorher = os.fstat(descriptor)
+        benannt = os.lstat(pfad)
+        identitaet = (
+            vorher.st_dev,
+            vorher.st_ino,
+            vorher.st_size,
+            vorher.st_mtime_ns,
+        )
+        if (
+            not stat.S_ISREG(vorher.st_mode)
+            or vorher.st_nlink != 1
+            or not stat.S_ISREG(benannt.st_mode)
+            or stat.S_ISLNK(benannt.st_mode)
+            or _ist_link_oder_reparse(pfad)
+            or (vorher.st_dev, vorher.st_ino) != (benannt.st_dev, benannt.st_ino)
+            or vorher.st_size > _MAX_BACKUP_TARGET_BYTES
+        ):
+            raise SicherungsFehler(f"Unsicherer Backup-Ziel-Sentinel: {pfad}")
+        if os.name != "nt":
+            geteuid = getattr(os, "geteuid", None)
+            current_uid = geteuid() if callable(geteuid) else vorher.st_uid
+            if vorher.st_uid not in {0, current_uid} or stat.S_IMODE(
+                vorher.st_mode
+            ) & 0o022:
+                raise SicherungsFehler(
+                    f"Backup-Ziel-Sentinel hat unsicheren Owner/Modus: {pfad}"
+                )
+        raw = os.read(descriptor, _MAX_BACKUP_TARGET_BYTES + 1)
+        nachher = os.fstat(descriptor)
+        final_benannt = os.lstat(pfad)
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            len(raw) > _MAX_BACKUP_TARGET_BYTES
+            or (
+                nachher.st_dev,
+                nachher.st_ino,
+                nachher.st_size,
+                nachher.st_mtime_ns,
+            )
+            != identitaet
+            or (
+                final_benannt.st_dev,
+                final_benannt.st_ino,
+                final_benannt.st_size,
+                final_benannt.st_mtime_ns,
+            )
+            != identitaet
+            or not stat.S_ISREG(final_benannt.st_mode)
+            or final_benannt.st_nlink != 1
+            or stat.S_ISLNK(final_benannt.st_mode)
+            or bool(
+                reparse_flag
+                and getattr(final_benannt, "st_file_attributes", 0) & reparse_flag
+            )
+        ):
+            raise SicherungsFehler(
+                f"Backup-Ziel-Sentinel wurde beim Lesen ausgetauscht: {pfad}"
+            )
+    except OSError as exc:
+        raise SicherungsFehler(
+            f"Backup-Ziel-Sentinel konnte nicht sicher gelesen werden: {pfad}"
+        ) from exc
+    finally:
+        os.close(descriptor)
+
+    def eindeutig(paare: list[tuple[str, Any]]) -> dict[str, Any]:
+        ergebnis: dict[str, Any] = {}
+        for key, value in paare:
+            if key in ergebnis:
+                raise SicherungsFehler(
+                    f"Doppelter Schluessel im Backup-Ziel-Sentinel: {key}"
+                )
+            ergebnis[key] = value
+        return ergebnis
+
+    try:
+        document = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=eindeutig,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                SicherungsFehler(
+                    f"Nichtstandard-JSON im Backup-Ziel-Sentinel: {value}"
+                )
+            ),
+        )
+    except SicherungsFehler:
+        raise
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise SicherungsFehler("Backup-Ziel-Sentinel ist kein gueltiges JSON") from exc
+    if not isinstance(document, dict):
+        raise SicherungsFehler("Backup-Ziel-Sentinel muss ein JSON-Objekt sein")
+    return document
+
+
+def pruefe_backup_ziel(
+    ziel_dir: str | Path,
+    target_id: str | None,
+    *,
+    writable: bool = False,
+) -> Path:
+    """Bindet ein bereits extern provisioniertes Backup-Ziel an seine Identitaet."""
+
+    erwartet = _backup_target_id(target_id)
+    ziel = Path(os.path.abspath(ziel_dir))
+    _pruefe_verzeichniskette(ziel)
+    if _ist_link_oder_reparse(ziel) or not ziel.is_dir():
+        raise SicherungsFehler(f"Unsicheres oder fehlendes Backup-Ziel: {ziel}")
+    try:
+        vorher = os.lstat(ziel)
+    except OSError as exc:
+        raise SicherungsFehler(f"Backup-Ziel kann nicht sicher geprueft werden: {ziel}") from exc
+    if os.name != "nt":
+        geteuid = getattr(os, "geteuid", None)
+        current_uid = geteuid() if callable(geteuid) else vorher.st_uid
+        if vorher.st_uid not in {0, current_uid} or stat.S_IMODE(vorher.st_mode) & 0o022:
+            raise SicherungsFehler("Backup-Ziel hat unsicheren Owner/Modus")
+        if writable and not os.access(ziel, os.W_OK | os.X_OK):
+            raise SicherungsFehler("Backup-Ziel ist nicht sicher schreibbar")
+    document = _backup_target_lesen(ziel / BACKUP_TARGET_FILENAME)
+    try:
+        nachher = os.lstat(ziel)
+    except OSError as exc:
+        raise SicherungsFehler(
+            f"Backup-Ziel wurde bei der Sentinel-Pruefung ausgetauscht: {ziel}"
+        ) from exc
+    if (
+        (vorher.st_dev, vorher.st_ino) != (nachher.st_dev, nachher.st_ino)
+        or not stat.S_ISDIR(nachher.st_mode)
+        or _ist_link_oder_reparse(ziel)
+    ):
+        raise SicherungsFehler("Backup-Ziel wurde bei der Sentinel-Pruefung ausgetauscht")
+    if set(document) != {"schema", "target_id"}:
+        raise SicherungsFehler("Backup-Ziel-Sentinel hat falsche Schluessel")
+    if document["schema"] != BACKUP_TARGET_SCHEMA:
+        raise SicherungsFehler("Backup-Ziel-Sentinel hat ein unbekanntes Schema")
+    if document["target_id"] != erwartet:
+        raise SicherungsFehler("Backup-Ziel-Sentinel hat eine andere target_id")
+    return ziel
 
 
 def _lese_regulaere_datei(pfad: Path) -> bytes:
@@ -224,18 +393,50 @@ def _schreibe_datei_exklusiv(pfad: Path, daten: bytes) -> None:
     _restriktive_rechte(pfad)
 
 
+def _pruefe_yaml_graph(wurzel: Any, *, kontext: str) -> None:
+    stapel: list[tuple[Any, int]] = [(wurzel, 0)]
+    container_ids: set[int] = set()
+    knoten = 0
+    while stapel:
+        wert, tiefe = stapel.pop()
+        knoten += 1
+        if knoten > _MAX_YAML_KNOTEN:
+            raise SicherungsFehler(
+                f"{kontext}: YAML ueberschreitet {_MAX_YAML_KNOTEN} Knoten"
+            )
+        if tiefe > _MAX_YAML_TIEFE:
+            raise SicherungsFehler(
+                f"{kontext}: YAML ueberschreitet Tiefe {_MAX_YAML_TIEFE}"
+            )
+        if not isinstance(wert, (dict, list)):
+            continue
+        identitaet = id(wert)
+        if identitaet in container_ids:
+            raise SicherungsFehler(
+                f"{kontext}: YAML-Alias-/Zyklus-Wiederverwendung ist unzulaessig"
+            )
+        container_ids.add(identitaet)
+        if isinstance(wert, dict):
+            for key, value in wert.items():
+                stapel.append((key, tiefe + 1))
+                stapel.append((value, tiefe + 1))
+        else:
+            stapel.extend((item, tiefe + 1) for item in wert)
+
+
 def _yaml_recordzahlen(dateien: dict[str, bytes], *, kontext: str) -> dict[str, int]:
     zahlen: dict[str, int] = {}
     for name, daten in dateien.items():
         try:
             text = daten.decode("utf-8")
             wurzel = yaml.safe_load(text)
-        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+        except (UnicodeDecodeError, yaml.YAMLError, RecursionError) as exc:
             raise SicherungsFehler(
                 f"{kontext}: {name} ist kein gueltiges UTF-8/YAML: {exc}"
             ) from exc
         if wurzel is None:
             wurzel = []
+        _pruefe_yaml_graph(wurzel, kontext=f"{kontext}: {name}")
         if not isinstance(wurzel, list):
             raise SicherungsFehler(
                 f"{kontext}: {name}: YAML-Root muss eine Liste sein, nicht "
@@ -261,7 +462,13 @@ def _validiere_semantik(
                 _schreibe_datei_exklusiv(pruefdir / name, dateien[name])
         try:
             store = BeraterStore(pruefdir)
-        except (BeraterFehler, OSError, UnicodeError, yaml.YAMLError) as exc:
+        except (
+            BeraterFehler,
+            OSError,
+            UnicodeError,
+            yaml.YAMLError,
+            RecursionError,
+        ) as exc:
             raise SicherungsFehler(
                 f"{kontext}: Festwissen ist als BeraterStore semantisch "
                 f"ungueltig: {exc}"
@@ -357,6 +564,33 @@ def _zip_schreibe(zf: zipfile.ZipFile, name: str, daten: bytes) -> None:
     zf.writestr(info, daten)
 
 
+def _pruefe_publikations_temp(
+    pfad: Path,
+    erwartet: tuple[int, int, int, int],
+) -> None:
+    try:
+        info = os.lstat(pfad)
+    except OSError as exc:
+        raise SicherungsFehler(
+            f"Backup-Temp-Datei wurde vor der Publikation ausgetauscht: {pfad}"
+        ) from exc
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    aktuell = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    if (
+        aktuell != erwartet
+        or not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or stat.S_ISLNK(info.st_mode)
+        or bool(
+            reparse_flag
+            and getattr(info, "st_file_attributes", 0) & reparse_flag
+        )
+    ):
+        raise SicherungsFehler(
+            f"Backup-Temp-Datei wurde vor der Publikation ausgetauscht: {pfad}"
+        )
+
+
 def _sicherung_publizieren(
     dateien: dict[str, bytes],
     ziel_dir: str | Path,
@@ -365,12 +599,10 @@ def _sicherung_publizieren(
     release_id: str | None = None,
     git_commit: str | None = None,
     release_manifest_sha256: str | None = None,
+    backup_target_id: str | None = None,
 ) -> Path:
     """Publiziert einen bereits unter Festwissen-Lock gelesenen Snapshot."""
-    ziel = Path(ziel_dir)
-    _pruefe_verzeichniskette(ziel)
-    ziel.mkdir(parents=True, exist_ok=True)
-    _pruefe_verzeichniskette(ziel)
+    ziel = pruefe_backup_ziel(ziel_dir, backup_target_id, writable=True)
     pfad = ziel / f"{ARCHIV_PREFIX}{zeitstempel_dateiname(zeitstempel)}.zip"
     if pfad.exists() or pfad.is_symlink():
         raise SicherungsFehler(
@@ -387,11 +619,14 @@ def _sicherung_publizieren(
     manifest_bytes = (
         json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
     ).encode("utf-8")
+    # Unmittelbar vor der ersten Mutation erneut an den Mount-Sentinel binden.
+    pruefe_backup_ziel(ziel, backup_target_id, writable=True)
     fd, tmp_name = tempfile.mkstemp(
         dir=str(ziel), prefix=f".{pfad.name}.", suffix=".tmp"
     )
     tmp = Path(tmp_name)
     per_rename_publiziert = False
+    temp_identitaet: tuple[int, int, int, int] | None = None
     try:
         with os.fdopen(fd, "wb") as fh:
             with zipfile.ZipFile(fh, "w") as zf:
@@ -405,7 +640,20 @@ def _sicherung_publizieren(
                 ).encode("utf-8")
             fh.flush()
             os.fsync(fh.fileno())
+            info = os.fstat(fh.fileno())
+            temp_identitaet = (
+                info.st_dev,
+                info.st_ino,
+                info.st_size,
+                info.st_mtime_ns,
+            )
         _restriktive_rechte(tmp)
+        if temp_identitaet is None:
+            raise SicherungsFehler("Backup-Temp-Identitaet konnte nicht gebunden werden")
+        # Lazy-Unmount/Remount und Sentinel-Austausch auch nach dem potenziell
+        # langen ZIP-Write unmittelbar an der Publish-Grenze abfangen.
+        pruefe_backup_ziel(ziel, backup_target_id, writable=True)
+        _pruefe_publikations_temp(tmp, temp_identitaet)
         try:
             # Temp und Ziel liegen im selben Verzeichnis/Filesystem. Der
             # Hardlink publiziert nur die bereits vollstaendig geschriebene und
@@ -426,6 +674,8 @@ def _sicherung_publizieren(
                 # Windows MoveFile/rename ersetzt ein bestehendes Ziel nicht.
                 # Das bietet insbesondere auf SMB-Shares eine atomare
                 # No-clobber-Alternative, wenn Hardlinks nicht verfuegbar sind.
+                pruefe_backup_ziel(ziel, backup_target_id, writable=True)
+                _pruefe_publikations_temp(tmp, temp_identitaet)
                 os.rename(tmp, pfad)
                 per_rename_publiziert = True
             except FileExistsError as rename_exc:
@@ -458,6 +708,7 @@ def sichere_festwissen(
     release_id: str | None = None,
     git_commit: str | None = None,
     release_manifest_sha256: str | None = None,
+    backup_target_id: str | None = None,
 ) -> Path:
     """Erzeugt atomar ein manifestiertes, semantisch validiertes v2-Backup."""
     quelle = Path(berater_dir)
@@ -476,6 +727,7 @@ def sichere_festwissen(
                 release_id=release_id,
                 git_commit=git_commit,
                 release_manifest_sha256=release_manifest_sha256,
+                backup_target_id=backup_target_id,
             )
     except DateisperrenFehler as exc:
         raise SicherungsFehler(str(exc)) from exc
@@ -552,7 +804,7 @@ def _json_ohne_doppelte_keys(daten: bytes, archiv: Path) -> dict[str, Any]:
             object_pairs_hook=hook,
             parse_constant=unendliche_konstante,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise SicherungsFehler(f"{archiv}: Manifest ist ungueltig: {exc}") from exc
     if not isinstance(wert, dict):
         raise SicherungsFehler(f"{archiv}: Manifest-Root muss ein Objekt sein")
@@ -663,9 +915,12 @@ def _validiere_manifest(
     return eintraege, counts
 
 
-def _lade_archiv(archiv: Path) -> tuple[dict[str, bytes], dict[str, Any]]:
+def _lade_archiv_quelle(
+    quelle: Any,
+    archiv: Path,
+) -> tuple[dict[str, bytes], dict[str, Any]]:
     try:
-        zf = zipfile.ZipFile(archiv)
+        zf = zipfile.ZipFile(quelle)
     except (zipfile.BadZipFile, OSError) as exc:
         raise SicherungsFehler(
             f"{archiv}: kein gueltiges Zip-Archiv ({exc})"
@@ -752,11 +1007,133 @@ def _lade_archiv(archiv: Path) -> tuple[dict[str, bytes], dict[str, Any]]:
     return dateien, {**manifest, "legacy": False}
 
 
+def _lade_archiv(archiv: Path) -> tuple[dict[str, bytes], dict[str, Any]]:
+    return _lade_archiv_quelle(archiv, archiv)
+
+
+def _lade_archiv_snapshot(
+    archiv: Path,
+    expected_sha256: str | None,
+) -> tuple[dict[str, bytes], dict[str, Any]]:
+    """Liest, bindet und validiert genau einen unveraenderlichen Archiv-Snapshot."""
+
+    absolut = Path(os.path.abspath(archiv))
+    _pruefe_verzeichniskette(absolut.parent)
+    if _ist_link_oder_reparse(absolut):
+        raise SicherungsFehler(f"Unsicheres Restore-Archiv: {absolut}")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(absolut, flags)
+    except OSError as exc:
+        raise SicherungsFehler(
+            f"Restore-Archiv nicht sicher lesbar: {absolut}: {exc}"
+        ) from exc
+    spool: tempfile.SpooledTemporaryFile[bytes] | None = None
+    try:
+        vorher = os.fstat(descriptor)
+        try:
+            benannt = os.lstat(absolut)
+        except OSError as exc:
+            raise SicherungsFehler(
+                f"Restore-Archiv wurde vor dem Lesen ausgetauscht: {absolut}"
+            ) from exc
+        identitaet = (
+            vorher.st_dev,
+            vorher.st_ino,
+            vorher.st_size,
+            vorher.st_mtime_ns,
+        )
+        if (
+            not stat.S_ISREG(vorher.st_mode)
+            or vorher.st_nlink != 1
+            or not stat.S_ISREG(benannt.st_mode)
+            or stat.S_ISLNK(benannt.st_mode)
+            or _ist_link_oder_reparse(absolut)
+            or (vorher.st_dev, vorher.st_ino) != (benannt.st_dev, benannt.st_ino)
+            or vorher.st_size > _MAX_ARCHIV_KOMPRIMIERT
+        ):
+            raise SicherungsFehler(
+                f"Restore-Archiv wurde ausgetauscht oder ist unsicher: {absolut}"
+            )
+        snapshot = tempfile.SpooledTemporaryFile(
+            max_size=_ARCHIV_SPOOL_SPEICHER,
+            mode="w+b",
+        )
+        spool = snapshot
+        digest = hashlib.sha256()
+        groesse = 0
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            groesse += len(block)
+            if groesse > _MAX_ARCHIV_KOMPRIMIERT:
+                raise SicherungsFehler(
+                    f"Restore-Archiv ueberschreitet {_MAX_ARCHIV_KOMPRIMIERT} Bytes"
+                )
+            digest.update(block)
+            snapshot.write(block)
+        nachher = os.fstat(descriptor)
+        try:
+            final_benannt = os.lstat(absolut)
+        except OSError as exc:
+            raise SicherungsFehler(
+                f"Restore-Archiv wurde beim sicheren Lesen ausgetauscht: {absolut}"
+            ) from exc
+        reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+        if (
+            groesse != vorher.st_size
+            or not stat.S_ISREG(final_benannt.st_mode)
+            or stat.S_ISLNK(final_benannt.st_mode)
+            or final_benannt.st_nlink != 1
+            or bool(
+                reparse_flag
+                and getattr(final_benannt, "st_file_attributes", 0) & reparse_flag
+            )
+            or (
+                nachher.st_dev,
+                nachher.st_ino,
+                nachher.st_size,
+                nachher.st_mtime_ns,
+            )
+            != identitaet
+            or (
+                final_benannt.st_dev,
+                final_benannt.st_ino,
+                final_benannt.st_size,
+                final_benannt.st_mtime_ns,
+            )
+            != identitaet
+        ):
+            raise SicherungsFehler(
+                f"Restore-Archiv wurde beim sicheren Lesen veraendert: {absolut}"
+            )
+        actual_sha256 = digest.hexdigest()
+        if expected_sha256 is not None:
+            if not _SHA256_RE.fullmatch(expected_sha256):
+                raise SicherungsFehler(
+                    "--expected-sha256 muss 64 lowercase Hex-Zeichen enthalten"
+                )
+            if not hmac.compare_digest(actual_sha256, expected_sha256):
+                raise SicherungsFehler(
+                    "Restore-Archiv stimmt nicht mit --expected-sha256 ueberein"
+                )
+        snapshot.seek(0)
+        os.close(descriptor)
+        descriptor = -1
+        return _lade_archiv_quelle(snapshot, absolut)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if spool is not None:
+            spool.close()
+
+
 def pruefe_sicherung(archiv: str | Path) -> dict[str, Any]:
     """Prueft ein Archiv vollstaendig, ohne ein Restore-Ziel zu veraendern.
 
     Die Rueckgabe ist direkt JSON-serialisierbar und eignet sich fuer
-    ``risk-layerctl backup verify``. Bei manifestlosen Altarchiven ist
+    ``risk-layer-ops backup verify``. Bei manifestlosen Altarchiven ist
     ``legacy=True`` gesetzt; die berechneten Hashes sind dort nur Diagnose und
     nicht durch ein mitgeliefertes Manifest gebunden.
     """
@@ -770,6 +1147,7 @@ def pruefe_sicherung(archiv: str | Path) -> dict[str, Any]:
 def bereinige_sicherungen(
     ziel_dir: str | Path,
     *,
+    backup_target_id: str | None = None,
     keep_last: int = 30,
     keep_days: int = 90,
     apply: bool = False,
@@ -794,10 +1172,7 @@ def bereinige_sicherungen(
         or keep_days < 1
     ):
         raise SicherungsFehler("keep_days muss eine Ganzzahl >= 1 sein")
-    ziel = Path(ziel_dir)
-    _pruefe_verzeichniskette(ziel)
-    if _ist_link_oder_reparse(ziel) or not ziel.is_dir():
-        raise SicherungsFehler(f"Unsicheres oder fehlendes Backup-Ziel: {ziel}")
+    ziel = pruefe_backup_ziel(ziel_dir, backup_target_id)
 
     archive: list[tuple[Path, os.stat_result]] = []
     for pfad in ziel.iterdir():
@@ -833,6 +1208,7 @@ def bereinige_sicherungen(
     geloescht: list[str] = []
     if apply:
         for pfad, vorher in kandidaten:
+            pruefe_backup_ziel(ziel, backup_target_id, writable=True)
             try:
                 aktuell = os.lstat(pfad)
             except OSError as exc:
@@ -1031,7 +1407,9 @@ def stelle_wieder_her_mit_sicherung(
     release_id: str | None = None,
     git_commit: str | None = None,
     release_manifest_sha256: str | None = None,
-) -> tuple[list[str], Path | None]:
+    expected_sha256: str | None = None,
+    backup_target_id: str | None = None,
+) -> tuple[list[str], Path | None, dict[str, Any]]:
     """Sichert den Live-Stand und restauriert unter genau demselben Lock.
 
     Damit kann zwischen Pflicht-Vorher-Sicherung und Promotion keine
@@ -1039,14 +1417,12 @@ def stelle_wieder_her_mit_sicherung(
     oder noch nicht vorhandenes Ziel braucht keine Vorher-Sicherung.
     """
     archiv_pfad = Path(archiv)
-    if not archiv_pfad.is_file():
-        raise SicherungsFehler(f"Archiv nicht gefunden: {archiv_pfad}")
     ziel = Path(ziel_dir)
     _pruefe_verzeichniskette(ziel)
     if _ist_link_oder_reparse(ziel):
         raise SicherungsFehler(f"Unsicheres Restore-Ziel (Link/Reparse-Point): {ziel}")
 
-    dateien, _info = _lade_archiv(archiv_pfad)
+    dateien, info = _lade_archiv_snapshot(archiv_pfad, expected_sha256)
     staging = _staging_erstellen(ziel, dateien)
     vorher: Path | None = None
     try:
@@ -1072,6 +1448,7 @@ def stelle_wieder_her_mit_sicherung(
                         release_id=release_id,
                         git_commit=git_commit,
                         release_manifest_sha256=release_manifest_sha256,
+                        backup_target_id=backup_target_id,
                     )
                     # Die Pflichtsicherung muss noch unter demselben Lock wieder
                     # vollstaendig lesbar und semantisch gueltig sein.
@@ -1082,4 +1459,4 @@ def stelle_wieder_her_mit_sicherung(
     finally:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
-    return [name for name in FESTWISSEN_DATEIEN if name in dateien], vorher
+    return [name for name in FESTWISSEN_DATEIEN if name in dateien], vorher, info

@@ -142,8 +142,13 @@ Schutzbedarf nach Regenerierbarkeit (Regel zur Lücke L5 des Mappings):
 - **Nicht regenerierbar — sicherungspflichtig:** die Berater-YAMLs des
   Festwissens (`personal.yaml`, `geteilt.yaml`, `norm_kuratierung.yaml` im
   Berater-Store, Deploy-Standard `definitionen/`). Konsistente Sicherung per
-  `risk-layerctl backup create --berater DIR --ziel OFFHOST_DIR` **vor jedem
-  Deploy** und standardmäßig **täglich**. Das Werkzeug nimmt den Snapshot unter
+  `risk-layerctl --config PROFIL backup` **vor jedem Deploy** und standardmäßig
+  **täglich**. Ziel und Retention sind im geschützten Betreiberprofil gebunden.
+  Eine `backup_target_id` im Profil und der erst nach Prüfung des externen
+  Ziels manuell provisionierte Sentinel `.risk-layer-backup-target.json`
+  müssen übereinstimmen; das Werkzeug erzeugt beide nicht selbst und lehnt
+  fehlende beziehungsweise falsche Mounts vor jeder Mutation ab.
+  Das Werkzeug nimmt den Snapshot unter
   demselben Interprozess-Lock wie Store-Schreibvorgänge auf, bindet Dateien an
   ein Hashmanifest und verifiziert das atomar geschriebene Zip. Das Ziel liegt
   auf einem vom Engine-Host getrennten, zugriffsbeschränkten Speicherort der
@@ -159,9 +164,10 @@ Schutzbedarf nach Regenerierbarkeit (Regel zur Lücke L5 des Mappings):
   werden im Desasterfall rotiert beziehungsweise neu ausgestellt.
 - **Wiederherstellungsprobe:** einmal je Quartal (gekoppelt an das
   Kennzahlen-Review, § 3) wird eine Sicherung zunächst mit
-  `risk-layerctl backup verify ARCHIV` geprüft und danach per
-  `risk-layerctl backup restore ARCHIV --berater LEERES_TESTVERZEICHNIS` in
-  eine isolierte Testumgebung eingespielt. Der Restore baut und validiert einen
+  `risk-layerctl --config TESTPROFIL backup-verify ARCHIV` geprüft und danach
+  über `restore --list` sowie die an Archiv-SHA und leeres Testziel gebundene
+  Bestätigung in eine isolierte Testumgebung eingespielt. Der Restore baut und
+  validiert einen
   vollständigen Staging-Store vor dem atomaren Wechsel; bei einem nichtleeren
   produktiven Ziel ist eine persistente, verifizierte Vorher-Sicherung technisch
   erzwungen. Einträge und

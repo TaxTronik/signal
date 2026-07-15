@@ -1,0 +1,32 @@
+{
+  "schema": "taxtronik.risk-layer-ops/v1",
+  "mode": "native",
+  "python": "/usr/bin/python3.12",
+  "bootstrap_python": "/tmp/risk-layer-bootstrap/bin/python",
+  "docker_bin": null,
+  "release_home": "/opt/risk-layer",
+  "state_dir": null,
+  "berater_dir": "/var/lib/risk-layer/definitionen",
+  "backup_dir": "/mnt/offhost/risk-layer-backups",
+  "backup_target_id": "REPLACE-backup-target-id",
+  "launcher": "/opt/risk-layer/bootstrap/release-launcher.py",
+  "release_tools": null,
+  "compose_file": null,
+  "secrets_env": null,
+  "token_file": "/home/REPLACE/.config/risk-layer/engine.token",
+  "health_url": "http://127.0.0.1:8000",
+  "status_url": "http://127.0.0.1:8000/v1/status",
+  "activation_command": [
+    "/usr/bin/systemctl",
+    "--user",
+    "restart",
+    "risk-layer-release.service"
+  ],
+  "required_layers": [
+    "matcher"
+  ],
+  "retention": {
+    "keep_last": 30,
+    "keep_days": 90
+  }
+}

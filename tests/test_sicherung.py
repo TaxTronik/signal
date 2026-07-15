@@ -6,11 +6,14 @@ import hashlib
 import json
 import os
 import shutil
+import stat
+from types import SimpleNamespace
 import zipfile
 from pathlib import Path
 
 import pytest
 
+import risk_layer.dateisperre as dateisperre_modul
 import risk_layer.sicherung as sicherung_modul
 from risk_layer.berater import BeraterStore
 from risk_layer.dateisperre import (
@@ -25,13 +28,59 @@ from risk_layer.sicherung import (
     FESTWISSEN_DATEIEN,
     MANIFEST_DATEI,
     SicherungsFehler,
-    bereinige_sicherungen,
+    bereinige_sicherungen as _bereinige_sicherungen,
     pruefe_sicherung,
-    sichere_festwissen,
+    sichere_festwissen as _sichere_festwissen,
     stelle_wieder_her,
-    stelle_wieder_her_mit_sicherung,
+    stelle_wieder_her_mit_sicherung as _stelle_wieder_her_mit_sicherung,
     zeitstempel_dateiname,
 )
+
+
+BACKUP_TARGET_ID = "test-offhost"
+
+
+def _provisioniere_backup_ziel(path: Path, target_id: str = BACKUP_TARGET_ID) -> Path:
+    if path.is_symlink():
+        return path
+    path.mkdir(parents=True, exist_ok=True)
+    sentinel = path / sicherung_modul.BACKUP_TARGET_FILENAME
+    if not sentinel.exists():
+        sentinel.write_text(
+            json.dumps(
+                {
+                    "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                    "target_id": target_id,
+                }
+            ),
+            encoding="utf-8",
+        )
+        if os.name != "nt":
+            sentinel.chmod(0o600)
+    return path
+
+
+def sichere_festwissen(berater, ziel, zeitstempel, **kwargs):
+    ziel_pfad = _provisioniere_backup_ziel(Path(ziel))
+    kwargs.setdefault("backup_target_id", BACKUP_TARGET_ID)
+    return _sichere_festwissen(berater, ziel_pfad, zeitstempel, **kwargs)
+
+
+def stelle_wieder_her_mit_sicherung(archiv, ziel, backup_ziel, zeitstempel, **kwargs):
+    backup_pfad = _provisioniere_backup_ziel(Path(backup_ziel))
+    kwargs.setdefault("backup_target_id", BACKUP_TARGET_ID)
+    return _stelle_wieder_her_mit_sicherung(
+        archiv,
+        ziel,
+        backup_pfad,
+        zeitstempel,
+        **kwargs,
+    )
+
+
+def bereinige_sicherungen(ziel, **kwargs):
+    kwargs.setdefault("backup_target_id", BACKUP_TARGET_ID)
+    return _bereinige_sicherungen(ziel, **kwargs)
 
 
 def _store_mit_inhalt(verzeichnis: Path) -> BeraterStore:
@@ -101,6 +150,44 @@ def test_lockpfad_liegt_neben_store_und_zweiter_lock_timeout(tmp_path):
         with pytest.raises(DateisperrenFehler):
             with festwissen_sperre(store, timeout=0.01, poll_intervall=0.002):
                 pytest.fail("zweite exklusive Sperre darf nicht erworben werden")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -1,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        3601,
+        pytest.param(10**10000, id="huge-int"),
+    ],
+)
+def test_festwissen_lock_timeout_ist_endlich_nichtnegativ_und_begrenzt(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    with pytest.raises(ValueError, match="timeout"):
+        with festwissen_sperre(tmp_path / "berater", timeout=value):
+            pass
+
+
+def test_festwissen_lock_timeout_null_bleibt_nonblocking(tmp_path: Path) -> None:
+    store = tmp_path / "berater"
+    with festwissen_sperre(store, timeout=0):
+        with pytest.raises(DateisperrenFehler, match="nicht innerhalb"):
+            with festwissen_sperre(store, timeout=0):
+                pass
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), float("-inf"), 61])
+def test_festwissen_lock_pollintervall_ist_endlich_positiv_und_begrenzt(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    with pytest.raises(ValueError, match="poll_intervall"):
+        with festwissen_sperre(tmp_path / "berater", poll_intervall=value):
+            pass
 
 
 def test_lock_blockt_praeparierte_symlink_datei(tmp_path):
@@ -329,8 +416,284 @@ def test_snapshot_blockt_fortlaufende_aenderung(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sicherung, "_lese_quelle", instabil)
     monkeypatch.setattr(sicherung, "_SNAPSHOT_VERSUCHE", 2)
+    backup = _provisioniere_backup_ziel(tmp_path / "sich")
     with pytest.raises(SicherungsFehler, match="konsistenter Snapshot"):
-        sicherung.sichere_festwissen(berater, tmp_path / "sich", "2026")
+        sicherung.sichere_festwissen(
+            berater,
+            backup,
+            "2026",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        '{"schema":"taxtronik.risk-layer-backup-target/v1","target_id":"falsch"}',
+        (
+            '{"schema":"taxtronik.risk-layer-backup-target/v1",'
+            '"target_id":"test-offhost","target_id":"test-offhost"}'
+        ),
+        (
+            '{"schema":"taxtronik.risk-layer-backup-target/v1",'
+            '"target_id":"test-offhost","extra":true}'
+        ),
+    ],
+)
+def test_backup_mutation_braucht_strikten_identitaets_sentinel(
+    tmp_path: Path,
+    raw: str,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = tmp_path / "backups"
+    ziel.mkdir()
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    sentinel.write_text(raw, encoding="utf-8")
+    if os.name != "nt":
+        sentinel.chmod(0o600)
+
+    with pytest.raises(SicherungsFehler, match="target_id|Doppelter|Schluessel"):
+        _sichere_festwissen(
+            quelle,
+            ziel,
+            "sentinel",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+    assert not list(ziel.glob("festwissen_*.zip"))
+
+
+def test_backup_mutation_erzeugt_fehlenden_sentinel_nie_selbst(tmp_path: Path) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = tmp_path / "backups"
+    ziel.mkdir()
+
+    with pytest.raises(SicherungsFehler, match="Sentinel"):
+        _sichere_festwissen(
+            quelle,
+            ziel,
+            "missing",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+    assert not (ziel / sicherung_modul.BACKUP_TARGET_FILENAME).exists()
+
+
+def test_backup_ziel_sentinel_darf_keinen_hardlink_besitzen(tmp_path: Path) -> None:
+    ziel = _provisioniere_backup_ziel(tmp_path / "backups")
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    try:
+        os.link(sentinel, ziel / "sentinel-hardlink.json")
+    except OSError:
+        pytest.skip("Hardlinks werden auf diesem Test-Dateisystem nicht unterstuetzt")
+
+    with pytest.raises(SicherungsFehler, match="Unsicherer.*Sentinel"):
+        sicherung_modul.pruefe_backup_ziel(ziel, BACKUP_TARGET_ID)
+
+
+def test_backup_ziel_sentinel_prueft_finalen_reparse_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ziel = _provisioniere_backup_ziel(tmp_path / "backups")
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    real_lstat = os.lstat
+    sentinel_calls = 0
+
+    def final_reparse(path):
+        nonlocal sentinel_calls
+        info = real_lstat(path)
+        if Path(path) == sentinel:
+            sentinel_calls += 1
+            if sentinel_calls == 4:
+                return SimpleNamespace(
+                    st_dev=info.st_dev,
+                    st_ino=info.st_ino,
+                    st_size=info.st_size,
+                    st_mtime_ns=info.st_mtime_ns,
+                    st_mode=info.st_mode,
+                    st_nlink=info.st_nlink,
+                    st_file_attributes=getattr(info, "st_file_attributes", 0)
+                    | getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400),
+                )
+        return info
+
+    monkeypatch.setattr(sicherung_modul.os, "lstat", final_reparse)
+    with pytest.raises(SicherungsFehler, match="ausgetauscht"):
+        sicherung_modul._backup_target_lesen(sentinel)
+    assert sentinel_calls == 4
+
+
+def test_backup_target_wird_unmittelbar_vor_publikation_neu_validiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = _provisioniere_backup_ziel(tmp_path / "backups")
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    original = sicherung_modul.pruefe_backup_ziel
+    calls = 0
+
+    def austausch(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            sentinel.write_text(
+                json.dumps(
+                    {
+                        "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                        "target_id": "anderes-ziel",
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(sicherung_modul, "pruefe_backup_ziel", austausch)
+    with pytest.raises(SicherungsFehler, match="andere target_id"):
+        _sichere_festwissen(
+            quelle,
+            ziel,
+            "recheck",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+
+    assert calls == 1
+    assert not list(ziel.glob("festwissen_*.zip"))
+    assert not list(ziel.glob(".*.tmp"))
+
+
+def test_backup_target_wird_nach_temp_write_an_publish_grenze_neu_validiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = _provisioniere_backup_ziel(tmp_path / "backups")
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    original = sicherung_modul._restriktive_rechte
+
+    def tausche_nach_write(path: Path, *, verzeichnis: bool = False) -> None:
+        original(path, verzeichnis=verzeichnis)
+        if path.suffix == ".tmp":
+            sentinel.write_text(
+                json.dumps(
+                    {
+                        "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                        "target_id": "anderes-ziel",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+    monkeypatch.setattr(sicherung_modul, "_restriktive_rechte", tausche_nach_write)
+    with pytest.raises(SicherungsFehler, match="andere target_id"):
+        _sichere_festwissen(
+            quelle,
+            ziel,
+            "late-target-swap",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+
+    assert not list(ziel.glob("festwissen_*.zip"))
+    assert not list(ziel.glob(".*.tmp"))
+
+
+def test_backup_temp_ist_vor_publish_an_erzeugten_inode_gebunden(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = _provisioniere_backup_ziel(tmp_path / "backups")
+    original = sicherung_modul._restriktive_rechte
+
+    def tausche_temp(path: Path, *, verzeichnis: bool = False) -> None:
+        original(path, verzeichnis=verzeichnis)
+        if path.suffix == ".tmp":
+            ersatz = path.with_suffix(".ersatz")
+            ersatz.write_bytes(b"fremd")
+            os.replace(ersatz, path)
+
+    monkeypatch.setattr(sicherung_modul, "_restriktive_rechte", tausche_temp)
+    with pytest.raises(SicherungsFehler, match="Temp-Datei.*ausgetauscht"):
+        _sichere_festwissen(
+            quelle,
+            ziel,
+            "temp-swap",
+            backup_target_id=BACKUP_TARGET_ID,
+        )
+
+    assert not list(ziel.glob("festwissen_*.zip"))
+    assert not list(ziel.glob(".*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        "&zyklus\n- *zyklus\n",
+        "- &geteilt\n  id: eins\n- *geteilt\n",
+    ],
+)
+def test_yaml_alias_und_zyklen_werden_vor_semantik_abgelehnt(
+    tmp_path: Path,
+    yaml_text: str,
+) -> None:
+    quelle = tmp_path / "berater"
+    quelle.mkdir()
+    (quelle / "personal.yaml").write_text(yaml_text, encoding="utf-8")
+
+    with pytest.raises(SicherungsFehler, match="Alias|Zyklus"):
+        sichere_festwissen(quelle, tmp_path / "backups", "yaml-alias")
+
+
+def test_yaml_graph_hat_harte_tiefen_und_knotengrenzen(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    quelle.mkdir()
+    personal = quelle / "personal.yaml"
+    personal.write_text("- a:\n    b:\n      c: 1\n", encoding="utf-8")
+    monkeypatch.setattr(sicherung_modul, "_MAX_YAML_TIEFE", 2)
+    with pytest.raises(SicherungsFehler, match="Tiefe"):
+        sichere_festwissen(quelle, tmp_path / "tiefe", "tiefe")
+
+    personal.write_text("- a\n- b\n- c\n- d\n", encoding="utf-8")
+    monkeypatch.setattr(sicherung_modul, "_MAX_YAML_TIEFE", 64)
+    monkeypatch.setattr(sicherung_modul, "_MAX_YAML_KNOTEN", 3)
+    with pytest.raises(SicherungsFehler, match="Knoten"):
+        sichere_festwissen(quelle, tmp_path / "knoten", "knoten")
+
+
+def test_yaml_recursionerror_wird_als_sicherungsfehler_normalisiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    monkeypatch.setattr(
+        sicherung_modul.yaml,
+        "safe_load",
+        lambda _raw: (_ for _ in ()).throw(RecursionError("zu tief")),
+    )
+
+    with pytest.raises(SicherungsFehler, match="UTF-8/YAML"):
+        sichere_festwissen(quelle, tmp_path / "backups", "recursion")
+
+
+def test_manifest_json_recursionerror_wird_normalisiert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sicherung_modul.json,
+        "loads",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RecursionError("zu tief")),
+    )
+    with pytest.raises(SicherungsFehler, match="Manifest ist ungueltig"):
+        sicherung_modul._json_ohne_doppelte_keys(b"{}", Path("backup.zip"))
 
 
 # -- Restore/Verify -----------------------------------------------------------
@@ -680,23 +1043,64 @@ def test_vorher_sicherung_und_restore_teilen_exakt_einen_live_lock(
 
     def pruefe_lock(dateien, *args, **kwargs):
         with pytest.raises(DateisperrenFehler, match="nicht innerhalb"):
-            with festwissen_sperre(live, timeout=0):
+            with festwissen_sperre(live, timeout=0.001, poll_intervall=0.0005):
                 pass
         return original(dateien, *args, **kwargs)
 
     monkeypatch.setattr(sicherung_modul, "_sicherung_publizieren", pruefe_lock)
-    dateien, vorher = stelle_wieder_her_mit_sicherung(
+    dateien, vorher, info = stelle_wieder_her_mit_sicherung(
         archiv,
         live,
         tmp_path / "offhost",
         "2026-pre-restore",
         force=True,
     )
+    assert info["format"] == "risk-layer-festwissen"
 
     assert dateien == ["personal.yaml"]
     assert vorher is not None
     assert pruefe_sicherung(vorher)["counts"]["definitionen"] == 2
     assert {eintrag.id for eintrag in BeraterStore(live).alle()} == {"alt"}
+
+
+def test_restore_nutzt_nach_pfadaustausch_nur_bestaetigten_archiv_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bestaetigt = tmp_path / "bestaetigt"
+    BeraterStore(bestaetigt).definiere("Alt", "bestaetigt", autor="a", datum="d")
+    archiv = sichere_festwissen(bestaetigt, tmp_path / "backups-a", "a")
+    expected = hashlib.sha256(archiv.read_bytes()).hexdigest()
+
+    austausch = tmp_path / "austausch"
+    BeraterStore(austausch).definiere("Neu", "ausgetauscht", autor="a", datum="d")
+    anderes_archiv = sichere_festwissen(austausch, tmp_path / "backups-b", "b")
+    original = sicherung_modul._lade_archiv_quelle
+    ausgetauscht = False
+
+    def tausche_nach_snapshot(quelle, archiv_name):
+        nonlocal ausgetauscht
+        if not ausgetauscht and not isinstance(quelle, Path):
+            os.replace(anderes_archiv, archiv_name)
+            ausgetauscht = True
+        return original(quelle, archiv_name)
+
+    monkeypatch.setattr(sicherung_modul, "_lade_archiv_quelle", tausche_nach_snapshot)
+    dateien, vorher, _info = stelle_wieder_her_mit_sicherung(
+        archiv,
+        tmp_path / "live",
+        tmp_path / "pre-restore",
+        "race",
+        force=True,
+        expected_sha256=expected,
+    )
+
+    assert ausgetauscht is True
+    assert dateien == ["personal.yaml"]
+    assert vorher is None
+    assert {eintrag.id for eintrag in BeraterStore(tmp_path / "live").alle()} == {
+        "alt"
+    }
 
 
 def test_backup_retention_ist_dry_run_und_behaelt_mindestanzahl(tmp_path):
@@ -737,6 +1141,54 @@ def test_backup_retention_bricht_vor_loeschung_bei_korruptem_archiv_ab(tmp_path)
     assert gut.exists()
 
 
+def test_retention_validiert_target_unmittelbar_vor_jeder_loeschung(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    ziel = tmp_path / "backups"
+    archive = [
+        sichere_festwissen(quelle, ziel, f"retention-{index}")
+        for index in range(2)
+    ]
+    for index, pfad in enumerate(archive):
+        os.utime(pfad, (index + 1, index + 1))
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+    original = sicherung_modul.pruefe_backup_ziel
+    calls = 0
+
+    def austausch(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 1:
+            sentinel.write_text(
+                json.dumps(
+                    {
+                        "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                        "target_id": "anderes-ziel",
+                    }
+                ),
+                encoding="utf-8",
+            )
+        return result
+
+    monkeypatch.setattr(sicherung_modul, "pruefe_backup_ziel", austausch)
+    with pytest.raises(SicherungsFehler, match="andere target_id"):
+        _bereinige_sicherungen(
+            ziel,
+            backup_target_id=BACKUP_TARGET_ID,
+            keep_last=1,
+            keep_days=1,
+            apply=True,
+            now=2_000_000_000.0,
+        )
+
+    assert calls == 1
+    assert all(path.exists() for path in archive)
+
+
 @pytest.mark.parametrize("neuer_stand_schon_aktiv", [False, True])
 def test_restore_journal_repariert_prozessabbruch_beim_naechsten_zugriff(
     tmp_path, neuer_stand_schon_aktiv
@@ -761,3 +1213,25 @@ def test_restore_journal_repariert_prozessabbruch_beim_naechsten_zugriff(
     assert not rollback.exists()
     assert not staging.exists()
     assert not (tmp_path / f".{ziel.name}.restore-journal.json").exists()
+
+
+def test_restore_journal_recursionerror_wird_normalisiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ziel = tmp_path / "berater"
+    ziel.mkdir()
+    staging = tmp_path / ".berater.restore-test"
+    staging.mkdir()
+    rollback = tmp_path / ".berater.vor-restore-test"
+    with festwissen_sperre(ziel):
+        restore_transaktion_beginnen(ziel, staging, rollback)
+    monkeypatch.setattr(
+        dateisperre_modul.json,
+        "loads",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RecursionError("zu tief")),
+    )
+
+    with pytest.raises(DateisperrenFehler, match="gueltiges JSON"):
+        with festwissen_sperre(ziel):
+            pass

@@ -14,10 +14,31 @@ from pathlib import Path
 import pytest
 
 from risk_layer import ops_cli as O
+from risk_layer import sicherung as sicherung_modul
 from risk_layer.berater import BeraterStore
 from risk_layer.release_lifecycle import ReleaseManager, ReleaseRecord
 from risk_layer.release_manifest import ArtifactDigest, ReleaseManifest
-from risk_layer.sicherung import pruefe_sicherung
+from risk_layer.sicherung import SicherungsFehler, pruefe_sicherung
+
+
+BACKUP_TARGET_ID = "test-offhost"
+
+
+def _backup_ziel(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    sentinel = path / sicherung_modul.BACKUP_TARGET_FILENAME
+    sentinel.write_text(
+        json.dumps(
+            {
+                "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                "target_id": BACKUP_TARGET_ID,
+            }
+        ),
+        encoding="utf-8",
+    )
+    if os.name != "nt":
+        sentinel.chmod(0o600)
+    return path
 
 
 def _artefakt(bundle: Path, relativ: Path) -> ArtifactDigest:
@@ -115,10 +136,11 @@ def test_backup_cli_create_verify_restore_mit_persistenter_vorher_sicherung(
 ):
     quelle = tmp_path / "berater"
     BeraterStore(quelle).definiere("Alt", "alter Stand", autor="a", datum="d")
-    backups = tmp_path / "offhost"
+    backups = _backup_ziel(tmp_path / "offhost")
 
     assert O.main([
         "backup", "create", "--berater", str(quelle), "--ziel", str(backups),
+        "--backup-target-id", BACKUP_TARGET_ID,
         "--zeitstempel", "2026-07-13T12:00:00Z",
     ]) == 0
     archiv = Path(capsys.readouterr().out.strip())
@@ -129,6 +151,7 @@ def test_backup_cli_create_verify_restore_mit_persistenter_vorher_sicherung(
     BeraterStore(quelle).definiere("Neu", "neuer Stand", autor="a", datum="d")
     assert O.main([
         "backup", "restore", str(archiv), "--berater", str(quelle), "--force",
+        "--backup-target-id", BACKUP_TARGET_ID,
     ]) == 0
     ausgabe = capsys.readouterr().out
     assert "wiederhergestellt" in ausgabe
@@ -142,6 +165,165 @@ def test_backup_cli_create_verify_restore_mit_persistenter_vorher_sicherung(
 def test_backup_cli_verlangt_explizites_ziel():
     with pytest.raises(SystemExit):
         O.build_parser().parse_args(["backup", "create", "--berater", "x"])
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["backup", "create", "--berater", "x", "--ziel", "y"],
+        ["backup", "prune", "--ziel", "y"],
+        ["backup", "restore", "a.zip", "--berater", "x"],
+        [
+            "release",
+            "install",
+            "bundle",
+            "--home",
+            "home",
+            "--berater",
+            "berater",
+            "--backup-ziel",
+            "backup",
+            "--trust-local-manifest",
+            "--no-activate",
+            "--no-health-check",
+        ],
+    ],
+)
+def test_jede_experten_mutation_verlangt_backup_target_id(argv: list[str]) -> None:
+    with pytest.raises(SystemExit):
+        O.build_parser().parse_args(argv)
+
+
+def test_restore_bindet_archiv_an_erwarteten_sha256(tmp_path, capsys) -> None:
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    backups = _backup_ziel(tmp_path / "backups")
+    assert O.main([
+        "backup", "create", "--berater", str(quelle), "--ziel", str(backups),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--zeitstempel", "hash-bound",
+    ]) == 0
+    archiv = Path(capsys.readouterr().out.strip())
+    ziel = tmp_path / "restore"
+    assert O.main([
+        "backup", "restore", str(archiv), "--expected-sha256", "0" * 64,
+        "--berater", str(ziel),
+        "--backup-target-id", BACKUP_TARGET_ID,
+    ]) == 2
+    assert not ziel.exists()
+    assert "expected-sha256" in capsys.readouterr().err
+
+
+def test_backup_cli_uebernimmt_release_id_aus_launcher_umgebung(
+    tmp_path, monkeypatch, capsys
+):
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    backups = _backup_ziel(tmp_path / "backups")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_ID", "v9.8.7")
+
+    assert O.main([
+        "backup", "create", "--berater", str(quelle), "--ziel", str(backups),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--zeitstempel", "release-env", "--json",
+    ]) == 0
+    info = json.loads(capsys.readouterr().out)
+    assert info["backup"]["release"]["id"] == "v9.8.7"
+
+
+def test_backup_cli_priorisiert_tatsaechlich_laufenden_container_altstand(
+    tmp_path, monkeypatch, capsys
+):
+    quelle = tmp_path / "berater"
+    BeraterStore(quelle).definiere("X", "Y", autor="a", datum="d")
+    backups = _backup_ziel(tmp_path / "backups")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_ID", "launcher-release")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_GIT_SHA", "1" * 40)
+    monkeypatch.setenv("RISK_LAYER_RELEASE_MANIFEST_SHA256", "2" * 64)
+    monkeypatch.setenv("RISK_LAYER_BACKUP_CURRENT_RELEASE_ID", "container-alt")
+    monkeypatch.setenv("RISK_LAYER_BACKUP_CURRENT_GIT_SHA", "a" * 40)
+    monkeypatch.setenv("RISK_LAYER_BACKUP_CURRENT_MANIFEST_SHA256", "b" * 64)
+
+    assert O.main([
+        "backup", "create", "--berater", str(quelle), "--ziel", str(backups),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--zeitstempel", "container-alt", "--json",
+    ]) == 0
+    release = json.loads(capsys.readouterr().out)["backup"]["release"]
+    assert release["id"] == "container-alt"
+    assert release["git_commit"] == "a" * 40
+    assert release["release_manifest_sha256"] == "b" * 64
+
+
+def test_restore_vorher_sicherung_priorisiert_explizite_container_identitaet(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    quelle = tmp_path / "quelle"
+    BeraterStore(quelle).definiere("Alt", "Archiv", autor="a", datum="d")
+    archive_dir = _backup_ziel(tmp_path / "archive")
+    assert O.main([
+        "backup", "create", "--berater", str(quelle), "--ziel", str(archive_dir),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--zeitstempel", "restore-source",
+    ]) == 0
+    archiv = Path(capsys.readouterr().out.strip())
+    expected = hashlib.sha256(archiv.read_bytes()).hexdigest()
+
+    live = tmp_path / "live"
+    BeraterStore(live).definiere("Live", "Vorher", autor="a", datum="d")
+    vorher_ziel = _backup_ziel(tmp_path / "pre-restore")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_ID", "native-launcher")
+    monkeypatch.setenv("RISK_LAYER_RELEASE_GIT_SHA", "1" * 40)
+    monkeypatch.setenv("RISK_LAYER_RELEASE_MANIFEST_SHA256", "2" * 64)
+
+    assert O.main([
+        "backup", "restore", str(archiv),
+        "--expected-sha256", expected,
+        "--berater", str(live),
+        "--backup-ziel", str(vorher_ziel),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--release-id", "container-current",
+        "--git-sha", "a" * 40,
+        "--release-manifest-sha256", "b" * 64,
+        "--force", "--json",
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    vorher = Path(result["pre_restore_backup"])
+    release = pruefe_sicherung(vorher)["release"]
+    assert release["id"] == "container-current"
+    assert release["git_commit"] == "a" * 40
+    assert release["release_manifest_sha256"] == "b" * 64
+
+
+def test_restore_promotet_nicht_wenn_vorher_sicherung_nicht_schreibbar_ist(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    quelle = tmp_path / "quelle"
+    BeraterStore(quelle).definiere("Alt", "Archiv", autor="a", datum="d")
+    archive_dir = _backup_ziel(tmp_path / "archive")
+    assert O.main([
+        "backup", "create", "--berater", str(quelle), "--ziel", str(archive_dir),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--zeitstempel", "source",
+    ]) == 0
+    archiv = Path(capsys.readouterr().out.strip())
+
+    live = tmp_path / "live"
+    BeraterStore(live).definiere("Live", "Muss bleiben", autor="a", datum="d")
+
+    def nicht_schreibbar(*_args, **_kwargs):
+        raise SicherungsFehler("Vorher-Ziel ist nicht schreibbar")
+
+    monkeypatch.setattr(sicherung_modul, "_sicherung_publizieren", nicht_schreibbar)
+    assert O.main([
+        "backup", "restore", str(archiv),
+        "--berater", str(live),
+        "--backup-ziel", str(tmp_path / "read-only"),
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--force",
+    ]) == 2
+    assert {eintrag.id for eintrag in BeraterStore(live).alle()} == {"live"}
+    assert "nicht schreibbar" in capsys.readouterr().err
 
 
 def test_release_verify_braucht_trustentscheidung(tmp_path, capsys):
@@ -162,7 +344,7 @@ def test_release_install_pflichtbackup_current_previous_rollback(
     home = tmp_path / "runtime"
     berater = tmp_path / "berater"
     berater.mkdir()
-    backups = tmp_path / "backups"
+    backups = _backup_ziel(tmp_path / "backups")
     erstes = _bundle(tmp_path, "v1", "1" * 40)
     zweites = _bundle(tmp_path, "v2", "2" * 40)
     fake_runtime = O._ReleaseRuntime(tmp_path / "fake-runtime", Path(sys.executable))
@@ -180,17 +362,21 @@ def test_release_install_pflichtbackup_current_previous_rollback(
     basis = [
         "--home", str(home), "--berater", str(berater),
         "--backup-ziel", str(backups), "--trust-local-manifest",
+        "--backup-target-id", BACKUP_TARGET_ID,
+        "--retention-keep-last", "1", "--retention-keep-days", "1",
         "--no-activate", "--no-health-check",
     ]
     assert O.main(["release", "install", str(erstes), *basis]) == 0
     erste_info = json.loads(capsys.readouterr().out)
     assert erste_info["state"]["current"]["release_id"] == "v1"
     assert Path(erste_info["backup"]).is_file()
+    os.utime(erste_info["backup"], (1, 1))
 
     assert O.main(["release", "install", str(zweites), *basis]) == 0
     zweite_info = json.loads(capsys.readouterr().out)
     assert zweite_info["state"]["current"]["release_id"] == "v2"
     assert zweite_info["state"]["previous"]["release_id"] == "v1"
+    assert len(zweite_info["retention"]["deleted"]) == 1
 
     assert O.main([
         "release", "rollback", "--home", str(home),
@@ -199,7 +385,83 @@ def test_release_install_pflichtbackup_current_previous_rollback(
     rollback = json.loads(capsys.readouterr().out)
     assert rollback["state"]["current"]["release_id"] == "v1"
     assert rollback["state"]["previous"]["release_id"] == "v2"
-    assert len(list(backups.glob("festwissen_*.zip"))) == 2
+    assert len(list(backups.glob("festwissen_*.zip"))) == 1
+
+
+@pytest.mark.parametrize(
+    "retention_args",
+    [
+        ["--retention-keep-last", "1"],
+        ["--retention-keep-days", "1"],
+        ["--retention-keep-last", "0", "--retention-keep-days", "1"],
+        ["--retention-keep-last", "1", "--retention-keep-days", "-1"],
+    ],
+)
+def test_release_install_validiert_retention_gepaart_positiv_und_vor_bundle(
+    retention_args,
+) -> None:
+    args = O.build_parser().parse_args(
+        [
+            "release",
+            "install",
+            "nicht-vorhanden",
+            "--home",
+            "home",
+            "--berater",
+            "berater",
+            "--backup-ziel",
+            "backup",
+            "--backup-target-id",
+            BACKUP_TARGET_ID,
+            "--trust-local-manifest",
+            "--no-activate",
+            "--no-health-check",
+            *retention_args,
+        ]
+    )
+    with pytest.raises(O.OpsFehler, match="Retention|gemeinsam"):
+        O._cmd_release_install(args)
+
+
+def test_release_install_validiert_backup_target_vor_jeder_lokalen_mutation(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    bundle = _bundle(tmp_path, "target-guard", runtime=False)
+    backup = _backup_ziel(tmp_path / "backups")
+    (backup / sicherung_modul.BACKUP_TARGET_FILENAME).write_text(
+        json.dumps(
+            {
+                "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                "target_id": "anderes-ziel",
+            }
+        ),
+        encoding="utf-8",
+    )
+    home = tmp_path / "home"
+    berater = tmp_path / "berater"
+
+    assert O.main(
+        [
+            "release",
+            "install",
+            str(bundle),
+            "--home",
+            str(home),
+            "--berater",
+            str(berater),
+            "--backup-ziel",
+            str(backup),
+            "--backup-target-id",
+            BACKUP_TARGET_ID,
+            "--trust-local-manifest",
+            "--no-activate",
+            "--no-health-check",
+        ]
+    ) == 2
+    assert not home.exists()
+    assert not berater.exists()
+    assert "target_id" in capsys.readouterr().err
 
 
 def test_candidate_hook_ist_json_array_ohne_shell():
@@ -419,10 +681,11 @@ def test_rollback_behaelt_beide_release_runtimes(tmp_path, capsys):
 def test_backup_create_wendet_explizite_retention_nach_erfolg_an(tmp_path, capsys):
     berater = tmp_path / "berater"
     BeraterStore(berater).definiere("X", "Y", autor="a", datum="d")
-    ziel = tmp_path / "backups"
+    ziel = _backup_ziel(tmp_path / "backups")
     for index in range(2):
         assert O.main([
             "backup", "create", "--berater", str(berater), "--ziel", str(ziel),
+            "--backup-target-id", BACKUP_TARGET_ID,
             "--zeitstempel", f"alt-{index}",
         ]) == 0
         capsys.readouterr()
@@ -431,6 +694,7 @@ def test_backup_create_wendet_explizite_retention_nach_erfolg_an(tmp_path, capsy
 
     assert O.main([
         "backup", "create", "--berater", str(berater), "--ziel", str(ziel),
+        "--backup-target-id", BACKUP_TARGET_ID,
         "--zeitstempel", "neu", "--retention-keep-last", "1",
         "--retention-keep-days", "1", "--json",
     ]) == 0
@@ -467,3 +731,53 @@ def test_release_prune_cli_entfernt_nur_inaktive_generationen_und_runtimes(
     assert runtimes == ["prune-v2", "prune-v1"]
     assert manager.current().manifest.release_id == "prune-v4"
     assert manager.previous().manifest.release_id == "prune-v3"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "3600.1"])
+def test_ops_cli_health_timeout_ist_endlich_positiv_und_begrenzt(
+    value: str,
+) -> None:
+    parser = O.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["doctor", "--timeout", value])
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "-inf", "3600.1"])
+def test_ops_cli_lock_timeout_ist_endlich_nichtnegativ_und_begrenzt(
+    value: str,
+) -> None:
+    parser = O.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(
+            ["release", "status", "--home", "home", "--lock-timeout", value]
+        )
+
+
+def test_ops_cli_lock_timeout_null_bleibt_erlaubt() -> None:
+    args = O.build_parser().parse_args(
+        ["release", "status", "--home", "home", "--lock-timeout", "0"]
+    )
+    assert args.lock_timeout == 0
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), 3601])
+def test_http_timeout_wird_auch_unterhalb_des_parsers_validiert(value: float) -> None:
+    with pytest.raises(O.OpsFehler, match="Timeout"):
+        O._hole_json("https://example.com", "/v1/status", None, value)
+
+
+def test_ops_json_recursionerror_wird_normalisiert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        O.json,
+        "loads",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RecursionError("zu tief")),
+    )
+    with pytest.raises(O.OpsFehler, match="JSON-Array"):
+        O._parse_command('["echo"]', "--activation-command")
+
+
+def test_ops_timeout_huge_int_wird_als_domaenenfehler_normalisiert() -> None:
+    with pytest.raises(O.OpsFehler, match="Timeout"):
+        O._positive_timeout(10**10000, "Timeout")

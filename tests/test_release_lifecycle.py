@@ -463,6 +463,72 @@ def test_update_lock_blockt_konkurrierende_mutation(tmp_path):
     assert manager.stage(bundle).manifest.release_id == "r1"
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        -1,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        3601,
+        pytest.param(10**10000, id="huge-int"),
+    ],
+)
+def test_update_lock_timeout_ist_endlich_nichtnegativ_und_begrenzt(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    path = tmp_path / "update.lock"
+    with pytest.raises(ValueError, match="timeout"):
+        UpdateLock(path, timeout=value)
+    assert not path.exists()
+
+
+def test_update_lock_timeout_null_bleibt_nonblocking(tmp_path: Path) -> None:
+    path = tmp_path / "update.lock"
+    with UpdateLock(path, timeout=0):
+        with pytest.raises(ReleaseLockError, match="belegt"):
+            with UpdateLock(path, timeout=0):
+                pass
+
+
+@pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), float("-inf"), 61])
+def test_update_lock_pollintervall_ist_endlich_positiv_und_begrenzt(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    path = tmp_path / "update.lock"
+    with pytest.raises(ValueError, match="poll_interval"):
+        UpdateLock(path, poll_interval=value)
+    assert not path.exists()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        -1,
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        3601,
+        pytest.param(10**10000, id="huge-int"),
+    ],
+)
+def test_release_manager_lock_timeout_wird_vor_mutation_validiert(
+    tmp_path: Path,
+    value: float,
+) -> None:
+    home = tmp_path / "install"
+    with pytest.raises(ValueError, match="lock_timeout"):
+        ReleaseManager(home, lock_timeout=value)
+    assert not home.exists()
+
+
+def test_release_manager_erlaubt_nonblocking_lock_timeout_null(tmp_path: Path) -> None:
+    manager = ReleaseManager(tmp_path / "install", lock_timeout=0)
+    assert manager.lock_timeout == 0
+
+
 def test_state_blockt_korruptes_json_doppelte_keys_und_traversal(tmp_path):
     manager = ReleaseManager(tmp_path / "install")
     manager.state_path.write_text(
@@ -489,6 +555,21 @@ def test_state_blockt_korruptes_json_doppelte_keys_und_traversal(tmp_path):
         "updated_at": None,
     }), encoding="utf-8")
     with pytest.raises(ReleaseStateError, match="identisch"):
+        manager.read_state()
+
+
+def test_state_json_recursionerror_wird_normalisiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = ReleaseManager(tmp_path / "install")
+    manager.state_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        lifecycle.json,
+        "loads",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RecursionError("zu tief")),
+    )
+    with pytest.raises(ReleaseStateError, match="gueltiges UTF-8-JSON"):
         manager.read_state()
 
 

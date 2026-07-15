@@ -118,4 +118,4 @@ Write-Host "=== fertig ===" -ForegroundColor Green
 Write-Host "  $out"
 Write-Host "  $out.sha256"
 Write-Host "  $out.manifest.json"
-Write-Host "Installation ausschließlich über risk-layerctl release install; nicht live entpacken."
+Write-Host "Installation ausschließlich über das profilbasierte risk-layerctl; nicht live entpacken."

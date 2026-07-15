@@ -25,10 +25,20 @@ BOOTSTRAP_KEYS = frozenset(
         "extract_native",
         "deploy_container",
         "install_release_service",
+        "release_systemd_service_template",
         "release_launcher",
         "windows_install_service",
         "windows_restart_task",
         "windows_install_backup_task",
+        "operator_profile_container_linux",
+        "operator_profile_native_linux",
+        "operator_profile_native_windows",
+        "operator_wrapper_posix",
+        "operator_wrapper_windows",
+        "backup_systemd_service",
+        "backup_systemd_timer",
+        "backup_systemd_env",
+        "container_secrets_env_example",
     }
 )
 
@@ -82,10 +92,22 @@ def main() -> int:
     parser.add_argument("--extract-native-tool", type=Path, required=True)
     parser.add_argument("--deploy-container-tool", type=Path, required=True)
     parser.add_argument("--install-release-service", type=Path, required=True)
+    parser.add_argument(
+        "--release-systemd-service-template", type=Path, required=True
+    )
     parser.add_argument("--release-launcher", type=Path, required=True)
     parser.add_argument("--windows-install-service", type=Path, required=True)
     parser.add_argument("--windows-restart-task", type=Path, required=True)
     parser.add_argument("--windows-install-backup-task", type=Path, required=True)
+    parser.add_argument("--operator-profile-container-linux", type=Path, required=True)
+    parser.add_argument("--operator-profile-native-linux", type=Path, required=True)
+    parser.add_argument("--operator-profile-native-windows", type=Path, required=True)
+    parser.add_argument("--operator-wrapper-posix", type=Path, required=True)
+    parser.add_argument("--operator-wrapper-windows", type=Path, required=True)
+    parser.add_argument("--backup-systemd-service", type=Path, required=True)
+    parser.add_argument("--backup-systemd-timer", type=Path, required=True)
+    parser.add_argument("--backup-systemd-env", type=Path, required=True)
+    parser.add_argument("--container-secrets-env-example", type=Path, required=True)
     parser.add_argument("--llm-model", type=Path)
     parser.add_argument("--llm-revision")
     parser.add_argument("--llm-provenance")
@@ -134,11 +156,31 @@ def main() -> int:
         "extract_native": _artifact_block(args.extract_native_tool),
         "deploy_container": _artifact_block(args.deploy_container_tool),
         "install_release_service": _artifact_block(args.install_release_service),
+        "release_systemd_service_template": _artifact_block(
+            args.release_systemd_service_template
+        ),
         "release_launcher": _artifact_block(args.release_launcher),
         "windows_install_service": _artifact_block(args.windows_install_service),
         "windows_restart_task": _artifact_block(args.windows_restart_task),
         "windows_install_backup_task": _artifact_block(
             args.windows_install_backup_task
+        ),
+        "operator_profile_container_linux": _artifact_block(
+            args.operator_profile_container_linux
+        ),
+        "operator_profile_native_linux": _artifact_block(
+            args.operator_profile_native_linux
+        ),
+        "operator_profile_native_windows": _artifact_block(
+            args.operator_profile_native_windows
+        ),
+        "operator_wrapper_posix": _artifact_block(args.operator_wrapper_posix),
+        "operator_wrapper_windows": _artifact_block(args.operator_wrapper_windows),
+        "backup_systemd_service": _artifact_block(args.backup_systemd_service),
+        "backup_systemd_timer": _artifact_block(args.backup_systemd_timer),
+        "backup_systemd_env": _artifact_block(args.backup_systemd_env),
+        "container_secrets_env_example": _artifact_block(
+            args.container_secrets_env_example
         ),
     }
     if set(bootstrap) != BOOTSTRAP_KEYS:

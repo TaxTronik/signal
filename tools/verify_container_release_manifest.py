@@ -43,10 +43,20 @@ BOOTSTRAP_KEYS = frozenset(
         "extract_native",
         "deploy_container",
         "install_release_service",
+        "release_systemd_service_template",
         "release_launcher",
         "windows_install_service",
         "windows_restart_task",
         "windows_install_backup_task",
+        "operator_profile_container_linux",
+        "operator_profile_native_linux",
+        "operator_profile_native_windows",
+        "operator_wrapper_posix",
+        "operator_wrapper_windows",
+        "backup_systemd_service",
+        "backup_systemd_timer",
+        "backup_systemd_env",
+        "container_secrets_env_example",
     }
 )
 

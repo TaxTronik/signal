@@ -9,6 +9,7 @@ verwenden; Backup und Restore tun dies ebenfalls.
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import stat
@@ -26,6 +27,32 @@ class DateisperrenFehler(TimeoutError):
 
 _RESTORE_JOURNAL_VERSION = 1
 _MAX_RESTORE_JOURNAL_BYTES = 4096
+MAX_OPERATION_TIMEOUT_SECONDS = 3600.0
+MAX_POLL_INTERVAL_SECONDS = 60.0
+
+
+def _bounded_float(
+    value: float,
+    name: str,
+    maximum: float,
+    *,
+    allow_zero: bool = False,
+) -> float:
+    try:
+        normalized = float(value)
+    except (OverflowError, TypeError, ValueError):
+        normalized = math.nan
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(normalized)
+        or normalized < 0
+        or (normalized == 0 and not allow_zero)
+        or normalized > maximum
+    ):
+        operator = ">= 0" if allow_zero else "> 0"
+        raise ValueError(f"{name} muss endlich und {operator} bis {maximum:g}s sein")
+    return normalized
 
 
 def festwissen_sperrpfad(verzeichnis: str | Path) -> Path:
@@ -208,7 +235,7 @@ def _restore_nach_crash_reparieren(store: Path) -> None:
         os.close(fd)
     try:
         document = json.loads(raw.decode("utf-8"), object_pairs_hook=_json_eindeutig)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise DateisperrenFehler(f"Restore-Journal ist kein gueltiges JSON: {journal}") from exc
     if not isinstance(document, dict) or set(document) != {
         "format_version", "staging", "rollback"
@@ -409,10 +436,17 @@ def festwissen_sperre(
     automatisch frei; eine verwaiste Lockdatei ist daher harmlos und muss nicht
     anhand unsicherer PID-/Zeitstempel-Heuristiken geloescht werden.
     """
-    if timeout < 0:
-        raise ValueError("timeout muss >= 0 sein")
-    if poll_intervall <= 0:
-        raise ValueError("poll_intervall muss > 0 sein")
+    timeout = _bounded_float(
+        timeout,
+        "timeout",
+        MAX_OPERATION_TIMEOUT_SECONDS,
+        allow_zero=True,
+    )
+    poll_intervall = _bounded_float(
+        poll_intervall,
+        "poll_intervall",
+        MAX_POLL_INTERVAL_SECONDS,
+    )
 
     store = Path(os.path.abspath(verzeichnis))
     # Der reale Store selbst gehoert zur Sicherheitsidentitaet. Ein Alias ueber

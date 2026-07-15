@@ -5,12 +5,14 @@ laufen über ``main([...])`` ohne Netz und ohne LLM (--no-schicht2).
 """
 
 import json
+import os
 import shutil
 from pathlib import Path
 
 import pytest
 
 from risk_layer import radar
+from risk_layer import sicherung as sicherung_modul
 from risk_layer.berater import BeraterStore
 from risk_layer.cli import build_parser, main
 from risk_layer.gii import NormKnoten
@@ -293,6 +295,26 @@ def test_radar_ohne_archiv_schreibt_nichts(tmp_path, capsys):
 
 # -- festwissen (L5: Sicherung des nicht-regenerierbaren Festwissens) -----------
 
+BACKUP_TARGET_ID = "test-offhost"
+
+
+def _backup_ziel(path: Path, target_id: str = BACKUP_TARGET_ID) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    sentinel = path / sicherung_modul.BACKUP_TARGET_FILENAME
+    sentinel.write_text(
+        json.dumps(
+            {
+                "schema": sicherung_modul.BACKUP_TARGET_SCHEMA,
+                "target_id": target_id,
+            }
+        ),
+        encoding="utf-8",
+    )
+    if os.name != "nt":
+        sentinel.chmod(0o600)
+    return path
+
+
 def _befuellter_store(tmp_path) -> Path:
     d = tmp_path / "berater"
     BeraterStore(d).definiere("Betriebsaufspaltung", "Besitz und Betrieb.",
@@ -302,7 +324,9 @@ def _befuellter_store(tmp_path) -> Path:
 
 def test_festwissen_sichern_default_ziel_und_pfadausgabe(tmp_path, capsys):
     berater = _befuellter_store(tmp_path)
+    _backup_ziel(berater / "sicherungen")
     rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--backup-target-id", BACKUP_TARGET_ID,
                "--zeitstempel", "2026-06-10T12:00:00"])
     assert rc == 0
     erwartet = berater / "sicherungen" / "festwissen_2026-06-10T12-00-00.zip"
@@ -312,9 +336,10 @@ def test_festwissen_sichern_default_ziel_und_pfadausgabe(tmp_path, capsys):
 
 def test_festwissen_sichern_eigenes_ziel(tmp_path, capsys):
     berater = _befuellter_store(tmp_path)
-    ziel = tmp_path / "backups"
+    ziel = _backup_ziel(tmp_path / "backups")
     rc = main(["festwissen", "sichern", "--berater", str(berater),
-               "--ziel", str(ziel), "--zeitstempel", "2026-06-10T12:00:00"])
+               "--ziel", str(ziel), "--backup-target-id", BACKUP_TARGET_ID,
+               "--zeitstempel", "2026-06-10T12:00:00"])
     assert rc == 0
     assert (ziel / "festwissen_2026-06-10T12-00-00.zip").exists()
 
@@ -322,22 +347,79 @@ def test_festwissen_sichern_eigenes_ziel(tmp_path, capsys):
 def test_festwissen_sichern_leerer_store_hinweis(tmp_path, capsys):
     leer = tmp_path / "leer"
     leer.mkdir()
+    _backup_ziel(leer / "sicherungen")
     rc = main(["festwissen", "sichern", "--berater", str(leer),
+               "--backup-target-id", BACKUP_TARGET_ID,
                "--zeitstempel", "2026-01-01"])
     assert rc == 0                                       # gültiges leeres Archiv
     assert "leer" in capsys.readouterr().err
 
 
 def test_festwissen_sichern_fehlender_store_exit_2(tmp_path, capsys):
-    rc = main(["festwissen", "sichern", "--berater", str(tmp_path / "fehlt")])
+    ziel = _backup_ziel(tmp_path / "backups")
+    rc = main(["festwissen", "sichern", "--berater", str(tmp_path / "fehlt"),
+               "--ziel", str(ziel), "--backup-target-id", BACKUP_TARGET_ID])
     assert rc == 2
     assert "Sicherungs-Fehler" in capsys.readouterr().err
 
 
+def test_festwissen_sichern_verlangt_backup_target_id(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    ziel = _backup_ziel(tmp_path / "backups")
+
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--ziel", str(ziel), "--zeitstempel", "ohne-id"])
+
+    assert rc == 2
+    assert "--backup-target-id" in capsys.readouterr().err
+    assert not list(ziel.glob("festwissen_*.zip"))
+
+
+def test_festwissen_sichern_erzeugt_fehlenden_sentinel_nie(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    ziel = tmp_path / "backups"
+    ziel.mkdir()
+    sentinel = ziel / sicherung_modul.BACKUP_TARGET_FILENAME
+
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--ziel", str(ziel), "--backup-target-id", BACKUP_TARGET_ID])
+
+    assert rc == 2
+    assert "Sentinel" in capsys.readouterr().err
+    assert not sentinel.exists()
+    assert not list(ziel.glob("festwissen_*.zip"))
+
+
+def test_festwissen_sichern_erzeugt_fehlendes_ziel_nie(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    ziel = tmp_path / "nicht-provisioniert"
+
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--ziel", str(ziel), "--backup-target-id", BACKUP_TARGET_ID])
+
+    assert rc == 2
+    assert "Backup-Ziel" in capsys.readouterr().err
+    assert not ziel.exists()
+
+
+def test_festwissen_sichern_blockt_falsche_backup_target_id(tmp_path, capsys):
+    berater = _befuellter_store(tmp_path)
+    ziel = _backup_ziel(tmp_path / "backups", target_id="anderes-ziel")
+
+    rc = main(["festwissen", "sichern", "--berater", str(berater),
+               "--ziel", str(ziel), "--backup-target-id", BACKUP_TARGET_ID])
+
+    assert rc == 2
+    assert "andere target_id" in capsys.readouterr().err
+    assert not list(ziel.glob("festwissen_*.zip"))
+
+
 def test_festwissen_wiederherstellen_roundtrip(tmp_path, capsys):
     berater = _befuellter_store(tmp_path)
+    backup = _backup_ziel(tmp_path / "b")
     assert main(["festwissen", "sichern", "--berater", str(berater),
-                 "--ziel", str(tmp_path / "b"), "--zeitstempel", "2026-06-10"]) == 0
+                 "--ziel", str(backup), "--backup-target-id", BACKUP_TARGET_ID,
+                 "--zeitstempel", "2026-06-10"]) == 0
     capsys.readouterr()
     archiv = tmp_path / "b" / "festwissen_2026-06-10.zip"
 
@@ -350,8 +432,10 @@ def test_festwissen_wiederherstellen_roundtrip(tmp_path, capsys):
 
 def test_festwissen_wiederherstellen_nicht_leer_braucht_force(tmp_path, capsys):
     berater = _befuellter_store(tmp_path)
+    backup = _backup_ziel(tmp_path / "b")
     assert main(["festwissen", "sichern", "--berater", str(berater),
-                 "--ziel", str(tmp_path / "b"), "--zeitstempel", "t"]) == 0
+                 "--ziel", str(backup), "--backup-target-id", BACKUP_TARGET_ID,
+                 "--zeitstempel", "t"]) == 0
     archiv = tmp_path / "b" / "festwissen_t.zip"
     # Ziel = der (nicht-leere) Store selbst → ohne --force Exit 2 + klare Meldung
     rc = main(["festwissen", "wiederherstellen", str(archiv), "--berater", str(berater)])
@@ -365,6 +449,16 @@ def test_festwissen_wiederherstellen_ohne_archiv_exit_2(tmp_path, capsys):
     rc = main(["festwissen", "wiederherstellen", "--berater", str(tmp_path)])
     assert rc == 2
     assert "ARCHIV" in capsys.readouterr().err
+
+
+def test_festwissen_hilfe_kennzeichnet_restore_als_direktpfad(capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["festwissen", "--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    normalized = " ".join(help_text.split())
+    assert "Legacy-Direktrestore" in normalized
+    assert "ohne automatische Vorher-Sicherung" in normalized
 
 
 # -- modell verify (Artefakt-Verifikation; Funktion lebt in modell.py) ----------

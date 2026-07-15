@@ -99,3 +99,21 @@ def test_release_tools_zipapp_enthaelt_container_deployer(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "{deploy,rollback,status}" in result.stdout
+
+
+def test_release_tools_zipapp_enthaelt_checkout_freie_operator_fassade(tmp_path):
+    app = tmp_path / "tools.pyz"
+    build(app, 1_700_000_000)
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    result = subprocess.run(
+        [sys.executable, "-I", str(app), "ops", "--help"],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "bootstrap" in result.stdout
+    assert "backup-verify" in result.stdout
