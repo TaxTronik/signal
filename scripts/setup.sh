@@ -65,18 +65,58 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Der von `./signal bootstrap` verlangte Service-Vertrag wird vor Downloads und
-# Builds geprueft. So endet ein versehentlicher root-/Nicht-systemd-Aufruf
-# sofort statt erst nach dem potenziell langen Setup.
+# Builds geprueft. Root provisioniert eine systemweite Unit mit dediziertem
+# unprivilegiertem Laufzeitkonto; ein normaler Benutzer behaelt die User-Unit.
+SYSTEM_SERVICE=0
+SERVICE_USER="risk-layer"
+SERVICE_GROUP="risk-layer"
+SERVICE_HOME="/var/lib/risk-layer"
+SERVICE_CACHE="/var/cache/risk-layer"
+
+ensure_system_service_account() {
+  local nologin passwd_entry uid primary_group shell
+  if ! getent group "$SERVICE_GROUP" >/dev/null 2>&1; then
+    groupadd --system "$SERVICE_GROUP"
+  fi
+  if id "$SERVICE_USER" >/dev/null 2>&1; then
+    uid="$(id -u "$SERVICE_USER")"
+    primary_group="$(id -gn "$SERVICE_USER")"
+    passwd_entry="$(getent passwd "$SERVICE_USER")"
+    shell="${passwd_entry##*:}"
+    [[ "$uid" != "0" && "$primary_group" == "$SERVICE_GROUP" ]] \
+      || { echo "Bestehendes Konto '$SERVICE_USER' ist kein sicheres Dienstkonto." >&2; exit 2; }
+    case "$shell" in
+      */nologin|*/false) ;;
+      *) echo "Bestehendes Konto '$SERVICE_USER' besitzt keine gesperrte Login-Shell." >&2; exit 2 ;;
+    esac
+  else
+    nologin="$(command -v nologin || true)"
+    [[ -n "$nologin" ]] || { echo "nologin nicht gefunden." >&2; exit 1; }
+    useradd --system --gid "$SERVICE_GROUP" --home-dir "$SERVICE_HOME" \
+      --create-home --shell "$nologin" "$SERVICE_USER"
+  fi
+  install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" \
+    "$SERVICE_HOME" "$SERVICE_CACHE"
+}
+
 if [[ $SERVICE -eq 1 ]]; then
   command -v systemctl >/dev/null 2>&1 \
     || { echo "systemctl nicht gefunden - kein systemd-System." >&2; exit 1; }
   if [[ $EUID -eq 0 ]]; then
-    echo "Refuse: Der Checkout-Service darf nicht als root/sudo installiert werden." >&2
-    echo "./signal bootstrap als Zielbenutzer ohne sudo ausfuehren." >&2
-    exit 2
+    SYSTEM_SERVICE=1
+    for command_name in getent groupadd id install useradd; do
+      command -v "$command_name" >/dev/null 2>&1 \
+        || { echo "Systemdienst braucht '$command_name'." >&2; exit 1; }
+    done
+    [[ -f deploy/risk-layer-system.service.in ]] \
+      || { echo "Vorlage fehlt: deploy/risk-layer-system.service.in" >&2; exit 1; }
+    ensure_system_service_account
+    export XDG_CACHE_HOME="$SERVICE_CACHE"
+    export HF_HOME="$SERVICE_CACHE/huggingface"
+  else
+    [[ -f deploy/risk-layer.service.in ]] \
+      || { echo "Vorlage fehlt: deploy/risk-layer.service.in" >&2; exit 1; }
   fi
-  [[ -f deploy/risk-layer.service.in ]] \
-    || { echo "Vorlage fehlt: deploy/risk-layer.service.in" >&2; exit 1; }
 fi
 
 # Farben nur, wenn Terminal
@@ -609,6 +649,64 @@ fi
 maybe_prompt_docker_native_bind
 BASE_URL="$(client_base_url)"
 maybe_prompt_systemd
+SERVICE_SCOPE="user"
+[[ $SYSTEM_SERVICE -eq 0 ]] || SERVICE_SCOPE="system"
+"$PY" - ".signal/service.json" "$BIND_HOST" "$PORT" "$SERVICE_SCOPE" <<'PY'
+import ipaddress
+import json
+import os
+from pathlib import Path
+import secrets
+import sys
+
+
+target = Path(sys.argv[1])
+host, raw_port, scope = sys.argv[2:]
+try:
+    port = int(raw_port)
+except ValueError as exc:
+    raise SystemExit("Ungueltiger Service-Port") from exc
+if not 1 <= port <= 65535:
+    raise SystemExit("Ungueltiger Service-Port")
+if host != "localhost":
+    try:
+        ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise SystemExit("Ungueltiger Service-Host") from exc
+if scope not in {"system", "user"}:
+    raise SystemExit("Ungueltiger Service-Scope")
+if target.parent.is_symlink():
+    raise SystemExit("Service-State-Verzeichnis darf kein Symlink sein")
+target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+os.chmod(target.parent, 0o700)
+if target.is_symlink():
+    raise SystemExit("Service-State darf kein Symlink sein")
+payload = (
+    json.dumps(
+        {
+            "schema": "risk-layer-checkout-service/v1",
+            "host": host,
+            "port": port,
+            "scope": scope,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    + "\n"
+)
+temporary = target.parent / f".{target.name}.{secrets.token_hex(12)}.tmp"
+descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(payload)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.replace(temporary, target)
+    os.chmod(target, 0o600)
+finally:
+    temporary.unlink(missing_ok=True)
+PY
 
 printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Kanzleikonsole .env (Host-Prozess, nicht Docker):${N}\n"
@@ -630,36 +728,44 @@ if [[ -n "$DOCKER_NATIVE_URL" ]]; then
 fi
 printf "${Y}Token bei Bedarf bewusst anzeigen:${N}\n"
 printf "  cat -- %s\n" "$TOKEN_FILE"
-printf "${Y}Alltagsbetrieb (Engine + LLM als Benutzer-Service):${N}\n"
+printf "${Y}Alltagsbetrieb (Engine + LLM als verwalteter Service):${N}\n"
 printf "  ./signal start | ./signal stop | ./signal restart | ./signal status\n"
 
 # --- systemd-Dienst direkt einrichten (--service) --------------------------
 if [[ $SERVICE -eq 1 ]]; then
-  schritt "systemd-User-Dienst einrichten (--llm-autostart, Autostart bei Anmeldung)"
-  command -v systemctl >/dev/null 2>&1 || { echo "systemctl nicht gefunden – kein systemd-System." >&2; exit 1; }
-  if [[ $EUID -eq 0 ]]; then
-    echo "Refuse: --service darf nicht als root/sudo aus dem benutzerschreibbaren Checkout installiert werden." >&2
-    echo "Als Zielbenutzer ohne sudo erneut ausfuehren; fuer Boot ohne Login danach optional: sudo loginctl enable-linger BENUTZER" >&2
-    exit 2
-  fi
+  schritt "systemd-Dienst einrichten (--llm-autostart)"
   PYBIN="$(python_abs)"
-  UNIT_SRC="deploy/risk-layer.service.in"
-  [[ -f "$UNIT_SRC" ]] || { echo "Vorlage fehlt: $UNIT_SRC" >&2; exit 1; }
-  # Token NICHT in die Unit rendern (/etc/systemd/system/* ist welt-lesbar, 644) —
-  # stattdessen in eine separate EnvironmentFile mit chmod 600 (umask 077 deckt
-  # auch die Neuanlage ab); die Unit referenziert sie nur per Pfad.
-  ENV_DIR="$HOME/.config/risk-layer"
+  BERATER_DIR="$(pwd)/definitionen"
+  if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+    UNIT_SRC="deploy/risk-layer-system.service.in"
+    UNIT_DIR="/etc/systemd/system"
+    UNIT_TARGET="$UNIT_DIR/risk-layer.service"
+    ENV_DIR="/etc/risk-layer"
+  else
+    UNIT_SRC="deploy/risk-layer.service.in"
+    UNIT_DIR="$HOME/.config/systemd/user"
+    UNIT_TARGET="$UNIT_DIR/risk-layer.service"
+    ENV_DIR="$HOME/.config/risk-layer"
+  fi
   ENV_FILE="$ENV_DIR/engine.env"
-  mkdir -p "$ENV_DIR"
-  chmod 700 "$ENV_DIR"
-  (umask 077; printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > "$ENV_FILE")
-  chmod 600 "$ENV_FILE"
+  if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+    install -d -m 0700 -o root -g root "$ENV_DIR"
+    install -d -m 0755 -o root -g root "$UNIT_DIR"
+  else
+    install -d -m 0700 "$ENV_DIR"
+    install -d -m 0700 "$UNIT_DIR"
+  fi
+  ENV_TEMP="$(mktemp "$ENV_DIR/.engine.env.XXXXXX")"
+  (umask 077; printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > "$ENV_TEMP")
+  chmod 0600 "$ENV_TEMP"
+  mv -fT "$ENV_TEMP" "$ENV_FILE"
   ok "Token-EnvironmentFile geschrieben: $ENV_FILE (chmod 600)"
   # Keine sed-Ersetzung mit ungefilterten Pfaden: '&', '|', Backslashes und
   # systemd-Specifier ('%') wuerden sonst die Unit veraendern. Der Renderer
   # maskiert systemd-Quoted-Strings und verweigert Steuerzeichen fail-closed.
   RENDER="$("$PY" - "$UNIT_SRC" "$(pwd)" "$ENV_FILE" \
-      "${RISK_LAYER_EMB_DEVICE:-cuda}" "$PYBIN" "$BIND_HOST" "$PORT" <<'PY'
+      "${RISK_LAYER_EMB_DEVICE:-cuda}" "$PYBIN" "$BIND_HOST" "$PORT" \
+      "$SERVICE_USER" "$SERVICE_GROUP" "$BERATER_DIR" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -674,7 +780,18 @@ def systemd_escape(name: str, value: str) -> str:
             .replace("%", "%%"))
 
 
-template_path, workdir, envfile, emb_device, python, host, port = sys.argv[1:]
+(
+    template_path,
+    workdir,
+    envfile,
+    emb_device,
+    python,
+    host,
+    port,
+    service_user,
+    service_group,
+    berater_dir,
+) = sys.argv[1:]
 rendered = Path(template_path).read_text(encoding="utf-8")
 values = {
     "WORKDIR": workdir,
@@ -683,6 +800,9 @@ values = {
     "PYTHON": python,
     "HOST": host,
     "PORT": port,
+    "SERVICE_USER": service_user,
+    "SERVICE_GROUP": service_group,
+    "BERATER_DIR": berater_dir,
 }
 for key, value in values.items():
     rendered = rendered.replace(f"@{key}@", systemd_escape(key, value))
@@ -692,13 +812,40 @@ if remaining:
 sys.stdout.write(rendered)
 PY
 )"
-  # User-Unit (laeuft bei Login; 'loginctl enable-linger' fuer Boot ohne Login).
-  mkdir -p "$HOME/.config/systemd/user"
-  printf '%s\n' "$RENDER" > "$HOME/.config/systemd/user/risk-layer.service"
-  run_systemctl "systemd User-Unit neu laden" --user daemon-reload
-  run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
-  run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
-  systemctl --user is-active --quiet risk-layer.service || { systemctl --user --no-pager status risk-layer.service; exit 1; }
+  UNIT_TEMP="$(mktemp "$UNIT_DIR/.risk-layer.service.XXXXXX")"
+  printf '%s\n' "$RENDER" > "$UNIT_TEMP"
+  chmod 0644 "$UNIT_TEMP"
+  mv -fT "$UNIT_TEMP" "$UNIT_TARGET"
+  if command -v systemd-analyze >/dev/null 2>&1; then
+    if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+      systemd-analyze verify "$UNIT_TARGET"
+    else
+      systemd-analyze --user verify "$UNIT_TARGET"
+    fi
+  fi
+  if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+    chgrp "$SERVICE_GROUP" "$(pwd)"
+    chmod g+rx,g-w "$(pwd)"
+    for runtime_path in .venv catalog corpus models engine engine_*; do
+      [[ -e "$runtime_path" ]] || continue
+      chgrp -R "$SERVICE_GROUP" "$runtime_path"
+      chmod -R g+rX,g-w "$runtime_path"
+    done
+    install -d -m 0700 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$BERATER_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_GROUP" "$BERATER_DIR" "$SERVICE_CACHE"
+    chmod 0700 "$BERATER_DIR"
+    run_systemctl "systemd System-Unit neu laden" daemon-reload
+    run_systemctl "systemd System-Autostart aktivieren" enable risk-layer.service
+    run_systemctl "systemd System-Dienst neu starten" restart risk-layer.service
+    systemctl is-active --quiet risk-layer.service \
+      || { systemctl --no-pager status risk-layer.service; exit 1; }
+  else
+    run_systemctl "systemd User-Unit neu laden" --user daemon-reload
+    run_systemctl "systemd User-Autostart aktivieren" --user enable risk-layer.service
+    run_systemctl "systemd User-Dienst neu starten" --user restart risk-layer.service
+    systemctl --user is-active --quiet risk-layer.service \
+      || { systemctl --user --no-pager status risk-layer.service; exit 1; }
+  fi
   HEALTH_HOST="$BIND_HOST"
   [[ "$HEALTH_HOST" != "0.0.0.0" && "$HEALTH_HOST" != "::" && -n "$HEALTH_HOST" ]] \
     || HEALTH_HOST="127.0.0.1"
@@ -707,8 +854,12 @@ PY
     --url "http://$HEALTH_HOST:$PORT" --token-file "$TOKEN_PATH" \
     --timeout 300 --require-layer matcher
   ok "Health/Status nach Restart erfolgreich"
-  ok "User-Dienst aktiv: systemctl --user status risk-layer"
-  info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
+  if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+    ok "Systemdienst aktiv: systemctl status risk-layer"
+  else
+    ok "User-Dienst aktiv: systemctl --user status risk-layer"
+    info "Boot ohne Login: sudo loginctl enable-linger $(id -un)"
+  fi
 elif [[ $START -eq 1 ]]; then
   schritt "Engine starten (Engine + LLM, Vordergrund)"
   export RISK_LAYER_TOKEN="$TOKEN"

@@ -133,6 +133,29 @@ def test_systemd_unit_verweigert_root_und_begrenzt_rechte() -> None:
     assert "WantedBy=multi-user.target" not in unit
 
 
+def test_root_bootstrap_installiert_gehaerteten_unprivilegierten_systemdienst() -> None:
+    unit = (ROOT / "deploy" / "risk-layer-system.service.in").read_text(
+        encoding="utf-8"
+    )
+    script = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+
+    assert "User=@SERVICE_USER@" in unit
+    assert "Group=@SERVICE_GROUP@" in unit
+    assert "User=root" not in unit
+    assert "ProtectSystem=strict" in unit
+    assert 'ReadWritePaths="@BERATER_DIR@"' in unit
+    assert "StateDirectory=risk-layer" in unit
+    assert "CacheDirectory=risk-layer" in unit
+    assert "WantedBy=multi-user.target" in unit
+    assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
+    assert 'SERVICE_USER="risk-layer"' in script
+    assert "useradd --system" in script
+    assert 'UNIT_DIR="/etc/systemd/system"' in script
+    assert 'ENV_DIR="/etc/risk-layer"' in script
+    assert 'chown -R "$SERVICE_USER:$SERVICE_GROUP"' in script
+    assert "Checkout-Service darf nicht als root" not in script
+
+
 def test_systemd_renderer_maskiert_pfade_und_specifier() -> None:
     script = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
     unit = (ROOT / "deploy" / "risk-layer.service.in").read_text(encoding="utf-8")
@@ -158,13 +181,20 @@ def test_signal_bootstrap_installiert_service_und_ersetzt_vordergrund_hinweis() 
     assert "Ein-Befehl-Start (Engine + LLM)" not in windows
     assert "./signal start | ./signal stop | ./signal restart" in linux
     assert ".\\signal.ps1 start | .\\signal.ps1 stop | .\\signal.ps1 restart" in windows
+    assert "risk-layer-checkout-service/v1" in linux
+    assert "risk-layer-checkout-service/v1" in windows
+    assert 'scope = "windows-task"' in windows
 
 
 def test_native_dienste_importieren_nicht_aus_dem_checkout() -> None:
     unit = (ROOT / "deploy" / "risk-layer.service.in").read_text(encoding="utf-8")
+    system_unit = (ROOT / "deploy" / "risk-layer-system.service.in").read_text(
+        encoding="utf-8"
+    )
     windows = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")
 
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
+    assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in system_unit
     assert '& $python -P -m risk_layer.web' in windows
 
 

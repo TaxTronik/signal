@@ -483,6 +483,19 @@ if ($nerModell) {
 
 Maybe-PromptDockerNativeAccess
 $baseUrl = Client-BaseUrl
+$serviceStateDir = Join-Path $RepoRoot ".signal"
+$serviceStatePath = Join-Path $serviceStateDir "service.json"
+if (-not (Test-Path -LiteralPath $serviceStateDir -PathType Container)) {
+    [void][System.IO.Directory]::CreateDirectory($serviceStateDir)
+}
+$serviceState = [ordered]@{
+    schema = "risk-layer-checkout-service/v1"
+    host = $BindHost
+    port = $Port
+    scope = "windows-task"
+}
+Write-EngineTokenAtomically -Path $serviceStatePath `
+    -Value (($serviceState | ConvertTo-Json -Compress) + "`n")
 Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
 Write-Host "Kanzleikonsole .env (Host-Prozess, nicht Docker):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=$baseUrl"

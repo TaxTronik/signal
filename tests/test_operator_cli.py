@@ -330,6 +330,49 @@ def test_checkout_layout_erzeugt_lokale_pfade_token_und_sentinel(tmp_path: Path)
     assert str(profile.token_file) in created
 
 
+def test_checkout_profil_nutzt_persistierten_service_endpoint(tmp_path: Path) -> None:
+    state_dir = tmp_path / O.CHECKOUT_STATE_DIR
+    state_dir.mkdir(mode=0o700)
+    state = state_dir / O.CHECKOUT_SERVICE_STATE_NAME
+    state.write_text(
+        json.dumps(
+            {
+                "schema": O.CHECKOUT_SERVICE_SCHEMA,
+                "host": "172.18.0.1",
+                "port": 8123,
+                "scope": "system",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    profile = O._checkout_profile(tmp_path)
+
+    assert profile.health_url == "http://172.18.0.1:8123"
+    assert profile.status_url == "http://172.18.0.1:8123/v1/status"
+
+
+def test_checkout_service_endpoint_mappt_wildcard_auf_loopback(tmp_path: Path) -> None:
+    state_dir = tmp_path / O.CHECKOUT_STATE_DIR
+    state_dir.mkdir(mode=0o700)
+    (state_dir / O.CHECKOUT_SERVICE_STATE_NAME).write_text(
+        json.dumps(
+            {
+                "schema": O.CHECKOUT_SERVICE_SCHEMA,
+                "host": "::",
+                "port": 8000,
+                "scope": "user",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert O._checkout_health_urls(tmp_path) == (
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8000/v1/status",
+    )
+
+
 def test_checkout_bootstrap_delegiert_parameterlos_an_lokales_setup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -399,12 +442,77 @@ def test_checkout_dienstbefehl_nutzt_plattformeigenen_benutzerdienst(
     else:
         monkeypatch.setattr(O.shutil, "which", lambda _name: "/usr/bin/systemctl")
         monkeypatch.setattr(O, "_require_executable_control", lambda *_args: None)
+        monkeypatch.setattr(
+            O,
+            "_checkout_systemd_scope",
+            lambda: (
+                Path("/home/signal/.config/systemd/user/risk-layer.service"),
+                ["--user"],
+                "User-Unit",
+            ),
+        )
         assert O._checkout_service_command(tmp_path, operation) == [
             "/usr/bin/systemctl",
             "--user",
             operation,
             O.CHECKOUT_SYSTEMD_UNIT,
         ]
+
+
+def test_root_steuert_systemweite_unit_ohne_user_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(O.os, "geteuid", lambda: 0, raising=False)
+
+    unit, scope, description = O._checkout_systemd_scope()
+
+    assert unit == Path("/etc/systemd/system/risk-layer.service")
+    assert scope == []
+    assert "System-Unit" in description
+
+
+def test_normaler_benutzer_steuert_user_unit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(O.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(O.Path, "home", lambda: Path("/home/signal"))
+
+    unit, scope, description = O._checkout_systemd_scope()
+
+    assert unit == Path("/home/signal/.config/systemd/user/risk-layer.service")
+    assert scope == ["--user"]
+    assert "User-Unit" in description
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX-Ownership-Vertrag")
+def test_root_checkout_akzeptiert_dienstkonto_als_definitionseigentuemer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "definitionen"
+    directory.mkdir(mode=0o700)
+    identity = (os.getuid(), os.getgid())
+    monkeypatch.setattr(O, "_checkout_service_identity", lambda: identity)
+
+    O._secure_checkout_directory(directory, allow_service_owner=True)
+
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX-Ownership-Vertrag")
+def test_restore_normalisiert_definitionen_fuer_dienstkonto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "definitionen"
+    nested = directory / "fachlich"
+    nested.mkdir(parents=True)
+    definition = nested / "persoenlich.yaml"
+    definition.write_text("schema: test\n", encoding="utf-8")
+    identity = (os.getuid(), os.getgid())
+    monkeypatch.setattr(O, "_checkout_service_identity", lambda: identity)
+
+    O._normalize_checkout_berater_ownership(directory)
+
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert stat.S_IMODE(nested.stat().st_mode) == 0o700
+    assert stat.S_IMODE(definition.stat().st_mode) == 0o600
 
 
 def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
@@ -442,6 +550,53 @@ def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
         ("git", ["pull", "--ff-only"]),
         ("setup", ["setup"]),
     ]
+
+
+def test_checkout_update_benennt_blockierende_git_eintraege(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    profile = O._checkout_profile(root)
+    monkeypatch.setattr(O, "_ensure_checkout_layout", lambda _profile: [])
+    monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: True)
+    monkeypatch.setattr(
+        O,
+        "_checkout_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            ["git", "status"], 0, "?? corpus/unbekannt.json\n M signal\n", ""
+        ),
+    )
+    monkeypatch.setattr(
+        O,
+        "_cmd_backup",
+        lambda *_args: pytest.fail("Bei blockiertem Update darf kein Backup starten"),
+    )
+
+    with pytest.raises(O.OperatorError, match="corpus/unbekannt.json") as error:
+        O._checkout_deployment(root, profile, _args("update"))
+
+    assert "M signal" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "generated",
+    [
+        "corpus/norm_manifest.json",
+        "corpus/norm_manifest.vorher.json",
+        "service-start.ps1",
+        "service-start.cmd",
+    ],
+)
+def test_checkout_update_ignoriert_generierte_betriebsartefakte(generated: str) -> None:
+    result = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", generated],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, generated
 
 
 def test_checkout_ops_nutzt_lokalen_venv_interpreter(

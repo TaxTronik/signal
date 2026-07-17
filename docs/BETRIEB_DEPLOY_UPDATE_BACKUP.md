@@ -27,9 +27,11 @@ in diesem Dokument:
 
 Im Repository bedeutet diese Form Zero-Config: `bootstrap` erzeugt lokale
 Runtime-, Definitions-, Backup- und Secret-Pfade unter dem Checkout, führt das
-vorhandene Setup aus und provisioniert den unprivilegierten systemd-User-Service
-beziehungsweise Windows-Benutzer-Task. Engine und LLM werden anschließend
-gemeinsam über `start`, `stop` oder `restart` gesteuert. Ein explizites
+vorhandene Setup aus und provisioniert den verwalteten systemd-Service
+beziehungsweise Windows-Benutzer-Task. Root legt eine System-Unit an, deren
+Engine-Prozess unter dem dedizierten unprivilegierten Konto `risk-layer` läuft;
+ein normaler Benutzer erhält eine User-Unit. Engine und LLM werden anschließend
+gemeinsam über `start`, `stop` oder `restart` im passenden Scope gesteuert. Ein explizites
 `--config`, `RISK_LAYER_OPS_PROFILE` oder
 der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
 beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`

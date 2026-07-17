@@ -1,0 +1,48 @@
+# systemweite Unit fuer einen root-provisionierten Risk-Layer-Checkout.
+# `./signal bootstrap` rendert sie nach /etc/systemd/system/risk-layer.service.
+# Der Checkout und die virtuelle Umgebung bleiben root-kontrolliert; der
+# laufende Prozess verwendet ausschliesslich das dedizierte Dienstkonto.
+[Unit]
+Description=Risk-Layer /v1 Engine (TaxTronik) - systemweit, unprivilegiert
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_GROUP@
+WorkingDirectory=@WORKDIR@
+ExecStartPre=/bin/sh -c 'if [ "$(id -u)" -eq 0 ]; then echo "Risk-Layer verweigert einen root-Laufzeitprozess" >&2; exit 1; fi'
+EnvironmentFile=@ENVFILE@
+Environment="RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@"
+Environment="HOME=/var/lib/risk-layer"
+Environment="XDG_CACHE_HOME=/var/cache/risk-layer"
+Environment="HF_HOME=/var/cache/risk-layer/huggingface"
+ExecStart="@PYTHON@" -P -m risk_layer.web --host "@HOST@" --port "@PORT@" --graph corpus/graph.sqlite --llm-autostart
+Restart=on-failure
+RestartSec=5
+UMask=0077
+StateDirectory=risk-layer
+StateDirectoryMode=0750
+CacheDirectory=risk-layer
+CacheDirectoryMode=0750
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths="@BERATER_DIR@" /var/lib/risk-layer /var/cache/risk-layer
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

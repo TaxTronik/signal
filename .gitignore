@@ -7,6 +7,8 @@
 /deploy/risk-layer-ops.json
 /.signal/
 /definitionen/
+/service-start.ps1
+/service-start.cmd
 
 # Python
 __pycache__/
@@ -81,6 +83,7 @@ engine_*/
 # 'risk-layer korpus fetch' + 'risk-layer graph build'). gesetze.yaml bleibt.
 corpus/gii/
 corpus/*.sqlite
+corpus/norm_manifest*.json
 !corpus/gesetze.yaml
 
 # IDE / OS

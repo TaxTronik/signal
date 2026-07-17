@@ -115,7 +115,11 @@ CHECKOUT_ROOT_ENV = "RISK_LAYER_CHECKOUT_ROOT"
 CHECKOUT_STATE_DIR = ".signal"
 CHECKOUT_BACKUP_TARGET_PREFIX = "checkout-"
 CHECKOUT_SYSTEMD_UNIT = "risk-layer.service"
+CHECKOUT_SYSTEMD_SYSTEM_DIR = Path("/etc/systemd/system")
+CHECKOUT_SYSTEMD_USER = "risk-layer"
 CHECKOUT_WINDOWS_TASK = "RiskLayer"
+CHECKOUT_SERVICE_SCHEMA = "risk-layer-checkout-service/v1"
+CHECKOUT_SERVICE_STATE_NAME = "service.json"
 MINIMUM_PYTHON = (3, 11, 4)
 INTERPRETER_CHECK_TIMEOUT = 10.0
 WINDOWS_POWERSHELL_TIMEOUT = 15.0
@@ -2162,7 +2166,7 @@ def _cmd_doctor(profile: Profile, args: argparse.Namespace) -> int:
 
 
 def _cmd_backup(profile: Profile, args: argparse.Namespace) -> int:
-    _require_managed_directory(profile.berater_dir, "Berater-Verzeichnis")
+    _require_operator_berater_directory(profile, args)
     _require_managed_directory(profile.backup_dir, "Backup-Verzeichnis")
     _require_backup_target(profile)
     identity = _current_identity(profile, "Backup")
@@ -2323,11 +2327,11 @@ def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
         actual_hash, expected_hash
     ):
         raise OperatorError("Restore-Archiv wurde nach der Auswahl ausgetauscht")
-    _require_managed_directory(profile.berater_dir, "Berater-Verzeichnis")
+    _require_operator_berater_directory(profile, args)
     _require_control_directory(profile.backup_dir, "Backup-Verzeichnis")
     _require_backup_target(profile)
     identity = _current_identity(profile, "Restore-Vorher-Sicherung")
-    return _passthrough(
+    result = _passthrough(
         _operator_ops_command(
             profile,
             args,
@@ -2349,6 +2353,9 @@ def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
             ],
         )
     )
+    if result == 0 and isinstance(getattr(args, "checkout_root", None), Path):
+        _normalize_checkout_berater_ownership(profile.berater_dir)
+    return result
 
 
 def _explicit_profile_requested(arguments: Sequence[str]) -> bool:
@@ -2387,8 +2394,44 @@ def _checkout_target_id(root: Path) -> str:
     return CHECKOUT_BACKUP_TARGET_PREFIX + hashlib.sha256(canonical).hexdigest()[:32]
 
 
+def _checkout_health_urls(root: Path) -> tuple[str, str]:
+    state = root / CHECKOUT_STATE_DIR / CHECKOUT_SERVICE_STATE_NAME
+    if not state.exists() and not _is_link_like(state):
+        return "http://127.0.0.1:8000", "http://127.0.0.1:8000/v1/status"
+    _require_control_file(state, "Lokaler Service-State")
+    document = _decode_object(
+        _read_regular(state, MAX_BACKUP_TARGET_BYTES, "Lokaler Service-State"),
+        "Lokaler Service-State",
+    )
+    if set(document) != {"schema", "host", "port", "scope"}:
+        raise OperatorError("Lokaler Service-State hat unerwartete Felder")
+    if document["schema"] != CHECKOUT_SERVICE_SCHEMA:
+        raise OperatorError("Lokaler Service-State hat ein unerwartetes Schema")
+    host = document["host"]
+    port = document["port"]
+    scope = document["scope"]
+    if not isinstance(host, str) or not host or any(ord(char) < 32 for char in host):
+        raise OperatorError("Lokaler Service-State hat keinen gueltigen Host")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        if host != "localhost":
+            raise OperatorError("Lokaler Service-State hat keinen gueltigen Host") from None
+        address = None
+    if type(port) is not int or not 1 <= port <= 65_535:
+        raise OperatorError("Lokaler Service-State hat keinen gueltigen Port")
+    if scope not in {"system", "user", "windows-task"}:
+        raise OperatorError("Lokaler Service-State hat keinen gueltigen Scope")
+    health_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    if address is not None and address.version == 6 and ":" in health_host:
+        health_host = f"[{health_host}]"
+    base = f"http://{health_host}:{port}"
+    return base, f"{base}/v1/status"
+
+
 def _checkout_profile(root: Path) -> Profile:
     state_root = root / CHECKOUT_STATE_DIR
+    health_url, status_url = _checkout_health_urls(root)
     return Profile(
         source=state_root / "checkout.json",
         mode="native",
@@ -2405,8 +2448,8 @@ def _checkout_profile(root: Path) -> Profile:
         compose_file=None,
         secrets_env=None,
         token_file=root / ".engine_token",
-        health_url="http://127.0.0.1:8000",
-        status_url="http://127.0.0.1:8000/v1/status",
+        health_url=health_url,
+        status_url=status_url,
         activation_command=None,
         required_layers=("matcher",),
         keep_last=30,
@@ -2414,9 +2457,106 @@ def _checkout_profile(root: Path) -> Profile:
     )
 
 
-def _secure_checkout_directory(path: Path) -> list[str]:
+def _checkout_service_identity() -> tuple[int, int] | None:
+    if os.name == "nt":
+        return None
+    geteuid = getattr(os, "geteuid", None)
+    if not callable(geteuid) or geteuid() != 0:
+        return None
+    try:
+        import pwd
+
+        lookup = getattr(pwd, "getpwnam", None)
+        if not callable(lookup):
+            return None
+        account = lookup(CHECKOUT_SYSTEMD_USER)
+    except (ImportError, KeyError):
+        return None
+    if account.pw_uid == 0:
+        raise OperatorError(
+            f"Dienstkonto {CHECKOUT_SYSTEMD_USER} darf nicht UID 0 besitzen"
+        )
+    return account.pw_uid, account.pw_gid
+
+
+def _require_checkout_data_directory(path: Path, description: str) -> None:
+    if os.name == "nt":
+        _require_private_directory(path, description)
+        return
+    _require_directory(path, f"{description}-Elternverzeichnis")
+    info = os.lstat(path)
+    geteuid = getattr(os, "geteuid", None)
+    current_uid = geteuid() if callable(geteuid) else info.st_uid
+    allowed = {current_uid}
+    identity = _checkout_service_identity()
+    if identity is not None:
+        allowed.add(identity[0])
+    if info.st_uid not in allowed:
+        raise OperatorError(
+            f"{description}-Elternverzeichnis gehoert keinem erlaubten Checkout-Konto"
+        )
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        raise OperatorError(f"{description}-Elternverzeichnis muss Modus 0700 besitzen")
+
+
+def _require_operator_berater_directory(
+    profile: Profile,
+    args: argparse.Namespace,
+) -> None:
+    if isinstance(getattr(args, "checkout_root", None), Path):
+        _require_checkout_data_directory(profile.berater_dir, "Berater-Verzeichnis")
+    else:
+        _require_managed_directory(profile.berater_dir, "Berater-Verzeichnis")
+
+
+def _normalize_checkout_berater_ownership(path: Path) -> None:
+    identity = _checkout_service_identity()
+    if identity is None:
+        return
+    uid, gid = identity
+    chown = getattr(os, "chown", None)
+    if not callable(chown):
+        raise OperatorError("Checkout-Dienstkonto kann auf diesem System nicht gesetzt werden")
+    _require_directory(path, "Lokale Definitionen")
+    for directory, child_directories, filenames in os.walk(path, followlinks=False):
+        current = Path(directory)
+        for name in [*child_directories, *filenames]:
+            candidate = current / name
+            info = os.lstat(candidate)
+            if stat.S_ISLNK(info.st_mode):
+                raise OperatorError(
+                    f"Lokale Definitionen duerfen keine Links enthalten: {candidate}"
+                )
+            if stat.S_ISDIR(info.st_mode):
+                mode = 0o700
+            elif stat.S_ISREG(info.st_mode):
+                if info.st_nlink != 1:
+                    raise OperatorError(
+                        f"Lokale Definition darf keine Hardlinks besitzen: {candidate}"
+                    )
+                mode = 0o600
+            else:
+                raise OperatorError(
+                    f"Lokale Definition hat einen ungueltigen Dateityp: {candidate}"
+                )
+            chown(candidate, uid, gid, follow_symlinks=False)
+            os.chmod(candidate, mode, follow_symlinks=False)
+    chown(path, uid, gid, follow_symlinks=False)
+    os.chmod(path, 0o700, follow_symlinks=False)
+
+
+def _secure_checkout_directory(
+    path: Path,
+    *,
+    allow_service_owner: bool = False,
+) -> list[str]:
     if path.exists() or _is_link_like(path):
-        _require_managed_directory(path, "Vorhandenes Checkout-Verzeichnis")
+        identity = _checkout_service_identity() if allow_service_owner else None
+        owner = os.lstat(path).st_uid if os.name != "nt" and path.exists() else None
+        if identity is not None and owner == identity[0]:
+            _require_checkout_data_directory(path, "Vorhandenes Checkout-Verzeichnis")
+        else:
+            _require_managed_directory(path, "Vorhandenes Checkout-Verzeichnis")
     created = _create_secure_directory(path)
     for directory in created:
         if os.name == "nt":
@@ -2427,7 +2567,10 @@ def _secure_checkout_directory(path: Path) -> list[str]:
         _harden_windows_directory_acl(path)
     else:
         os.chmod(path, 0o700)
-    _require_private_directory(path, "Lokales Checkout-Verzeichnis")
+    if allow_service_owner:
+        _require_checkout_data_directory(path, "Lokales Checkout-Verzeichnis")
+    else:
+        _require_private_directory(path, "Lokales Checkout-Verzeichnis")
     return [str(item) for item in created]
 
 
@@ -2464,10 +2607,12 @@ def _ensure_checkout_layout(profile: Profile) -> list[str]:
     for directory in (
         profile.release_home,
         profile.release_home / RELEASE_INBOX_NAME,
-        profile.berater_dir,
         profile.backup_dir,
     ):
         created.extend(_secure_checkout_directory(directory))
+    created.extend(
+        _secure_checkout_directory(profile.berater_dir, allow_service_owner=True)
+    )
     sentinel = profile.backup_dir / BACKUP_TARGET_FILENAME
     if _create_private_file(
         sentinel,
@@ -2523,6 +2668,21 @@ def _checkout_service_ready(root: Path, profile: Profile) -> None:
     _checkout_python(root)
 
 
+def _checkout_systemd_scope() -> tuple[Path, list[str], str]:
+    geteuid = getattr(os, "geteuid", None)
+    if callable(geteuid) and geteuid() == 0:
+        return (
+            CHECKOUT_SYSTEMD_SYSTEM_DIR / CHECKOUT_SYSTEMD_UNIT,
+            [],
+            "Lokale systemd-System-Unit",
+        )
+    return (
+        Path.home() / ".config/systemd/user" / CHECKOUT_SYSTEMD_UNIT,
+        ["--user"],
+        "Lokale systemd-User-Unit",
+    )
+
+
 def _checkout_service_command(root: Path, operation: str) -> list[str]:
     if operation not in {"start", "stop", "restart"}:
         raise OperatorError(f"Unbekannte Dienstaktion: {operation}")
@@ -2570,9 +2730,9 @@ def _checkout_service_command(root: Path, operation: str) -> list[str]:
         raise OperatorError("Dienststeuerung braucht systemctl")
     systemctl = Path(os.path.abspath(executable))
     _require_executable_control(systemctl, "systemctl")
-    unit = Path.home() / ".config/systemd/user" / CHECKOUT_SYSTEMD_UNIT
-    _require_control_file(unit, "Lokale systemd-User-Unit")
-    return [str(systemctl), "--user", operation, CHECKOUT_SYSTEMD_UNIT]
+    unit, scope, description = _checkout_systemd_scope()
+    _require_control_file(unit, description)
+    return [str(systemctl), *scope, operation, CHECKOUT_SYSTEMD_UNIT]
 
 
 def _checkout_service_control(
@@ -2677,7 +2837,15 @@ def _checkout_deployment(root: Path, profile: Profile, args: argparse.Namespace)
         if status.returncode != 0:
             raise OperatorError("Git-Arbeitsbaum konnte vor dem Update nicht geprueft werden")
         if status.stdout.strip():
-            raise OperatorError("Lokales update braucht einen sauberen Git-Arbeitsbaum")
+            entries = [line[:512] for line in status.stdout.splitlines() if line][:20]
+            remaining = len(status.stdout.splitlines()) - len(entries)
+            details = "\n".join(f"  {line}" for line in entries)
+            if remaining > 0:
+                details += f"\n  ... und {remaining} weitere"
+            raise OperatorError(
+                "Lokales update braucht einen sauberen Git-Arbeitsbaum. "
+                f"Blockierende Eintraege:\n{details}"
+            )
         backup_result = _cmd_backup(profile, args)
         if backup_result != 0:
             return backup_result
@@ -2759,7 +2927,12 @@ def _checkout_doctor(root: Path, profile: Profile, args: argparse.Namespace) -> 
     check("python", lambda: _interpreter_contract(profile.python, "Checkout-Python"))
     check("setup", lambda: _require_control_file(root / ("scripts/setup.ps1" if os.name == "nt" else "scripts/setup.sh"), "Checkout-Setup"))
     check("runtime", lambda: _require_private_directory(profile.release_home, "Lokale Runtime"))
-    check("berater", lambda: _require_private_directory(profile.berater_dir, "Lokale Definitionen"))
+    check(
+        "berater",
+        lambda: _require_checkout_data_directory(
+            profile.berater_dir, "Lokale Definitionen"
+        ),
+    )
     check("backup", lambda: _require_private_directory(profile.backup_dir, "Lokales Backup"))
     check("backup_target", lambda: str(_require_backup_target(profile)))
     check("token", lambda: _require_checkout_token(profile.token_file))

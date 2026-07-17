@@ -9,8 +9,9 @@ und den Produktions-Compose-Stack. Die einheitliche Oberfläche ist unter Linux
 Im Repository ist kein `/etc`-Profil nötig. Der Wrapper erkennt den Checkout
 und `bootstrap` legt `.signal/`, `definitionen/`, das lokale Backupziel samt
 Sentinel und `.engine_token` selbst an. Anschließend läuft das vorhandene
-plattformgerechte Setup, installiert den unprivilegierten Benutzer-Service und
-startet Engine samt LLM:
+plattformgerechte Setup, installiert den verwalteten Service und startet Engine
+samt LLM. Root provisioniert eine System-Unit mit dediziertem unprivilegiertem
+Konto `risk-layer`; ein normaler Benutzer provisioniert seine User-Unit:
 
 ```text
 ./signal bootstrap
@@ -79,7 +80,7 @@ PowerShell verwendet dieselben Kommandos:
 | `bootstrap` | erste Aktivierung; wird bei vorhandenem Deployment-State verweigert |
 | `deploy` | ein lokal bereitgestelltes Release verifizieren und aktivieren |
 | `update` | bei vorhandenem State ein Folgerelease mit Pflichtbackup und konfigurierter Nachprüfung aktivieren |
-| `start` / `stop` / `restart` | im Checkout den provisionierten systemd-User-Service beziehungsweise Windows-Benutzer-Task steuern |
+| `start` / `stop` / `restart` | im Checkout automatisch die provisionierte systemd-System-/User-Unit beziehungsweise den Windows-Benutzer-Task steuern |
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |
 | `backup` | den vollständigen nicht regenerierbaren Anwendungszustand sichern |
