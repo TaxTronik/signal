@@ -13,6 +13,9 @@ in diesem Dokument:
 ./signal bootstrap
 ./signal deploy
 ./signal update
+./signal start
+./signal stop
+./signal restart
 ./signal status
 ./signal doctor
 ./signal backup
@@ -23,8 +26,11 @@ in diesem Dokument:
 ```
 
 Im Repository bedeutet diese Form Zero-Config: `bootstrap` erzeugt lokale
-Runtime-, Definitions-, Backup- und Secret-Pfade unter dem Checkout und startet
-das vorhandene Setup. Ein explizites `--config`, `RISK_LAYER_OPS_PROFILE` oder
+Runtime-, Definitions-, Backup- und Secret-Pfade unter dem Checkout, führt das
+vorhandene Setup aus und provisioniert den unprivilegierten systemd-User-Service
+beziehungsweise Windows-Benutzer-Task. Engine und LLM werden anschließend
+gemeinsam über `start`, `stop` oder `restart` gesteuert. Ein explizites
+`--config`, `RISK_LAYER_OPS_PROFILE` oder
 der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
 beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`
 ist keine Voraussetzung für den Checkout.

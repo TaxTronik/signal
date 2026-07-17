@@ -9,10 +9,14 @@ und den Produktions-Compose-Stack. Die einheitliche Oberfläche ist unter Linux
 Im Repository ist kein `/etc`-Profil nötig. Der Wrapper erkennt den Checkout
 und `bootstrap` legt `.signal/`, `definitionen/`, das lokale Backupziel samt
 Sentinel und `.engine_token` selbst an. Anschließend läuft das vorhandene
-plattformgerechte Setup:
+plattformgerechte Setup, installiert den unprivilegierten Benutzer-Service und
+startet Engine samt LLM:
 
 ```text
 ./signal bootstrap
+./signal start
+./signal stop
+./signal restart
 ./signal status
 ./signal backup
 ./signal update
@@ -49,6 +53,9 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 ./signal bootstrap
 ./signal deploy
 ./signal update
+./signal start
+./signal stop
+./signal restart
 ./signal status
 ./signal doctor
 ./signal backup
@@ -61,6 +68,9 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 PowerShell verwendet dieselben Kommandos:
 
 ```powershell
+.\signal.ps1 start
+.\signal.ps1 stop
+.\signal.ps1 restart
 .\signal.ps1 status
 ```
 
@@ -69,6 +79,7 @@ PowerShell verwendet dieselben Kommandos:
 | `bootstrap` | erste Aktivierung; wird bei vorhandenem Deployment-State verweigert |
 | `deploy` | ein lokal bereitgestelltes Release verifizieren und aktivieren |
 | `update` | bei vorhandenem State ein Folgerelease mit Pflichtbackup und konfigurierter Nachprüfung aktivieren |
+| `start` / `stop` / `restart` | im Checkout den provisionierten systemd-User-Service beziehungsweise Windows-Benutzer-Task steuern |
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |
 | `backup` | den vollständigen nicht regenerierbaren Anwendungszustand sichern |

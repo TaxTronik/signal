@@ -64,6 +64,21 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# Der von `./signal bootstrap` verlangte Service-Vertrag wird vor Downloads und
+# Builds geprueft. So endet ein versehentlicher root-/Nicht-systemd-Aufruf
+# sofort statt erst nach dem potenziell langen Setup.
+if [[ $SERVICE -eq 1 ]]; then
+  command -v systemctl >/dev/null 2>&1 \
+    || { echo "systemctl nicht gefunden - kein systemd-System." >&2; exit 1; }
+  if [[ $EUID -eq 0 ]]; then
+    echo "Refuse: Der Checkout-Service darf nicht als root/sudo installiert werden." >&2
+    echo "./signal bootstrap als Zielbenutzer ohne sudo ausfuehren." >&2
+    exit 2
+  fi
+  [[ -f deploy/risk-layer.service.in ]] \
+    || { echo "Vorlage fehlt: deploy/risk-layer.service.in" >&2; exit 1; }
+fi
+
 # Farben nur, wenn Terminal
 if [[ -t 1 ]]; then C='\033[36m'; G='\033[32m'; D='\033[90m'; Y='\033[33m'; N='\033[0m'
 else C=''; G=''; D=''; Y=''; N=''; fi
@@ -615,9 +630,8 @@ if [[ -n "$DOCKER_NATIVE_URL" ]]; then
 fi
 printf "${Y}Token bei Bedarf bewusst anzeigen:${N}\n"
 printf "  cat -- %s\n" "$TOKEN_FILE"
-printf "${Y}Ein-Befehl-Start (Engine + LLM):${N}\n"
-printf '  export RISK_LAYER_TOKEN="$(tr -d '\''[:space:]'\'' < .engine_token)"\n'
-printf "  %s -m risk_layer.web --host %s --port %s --llm-autostart\n" "$PY" "$BIND_HOST" "$PORT"
+printf "${Y}Alltagsbetrieb (Engine + LLM als Benutzer-Service):${N}\n"
+printf "  ./signal start | ./signal stop | ./signal restart | ./signal status\n"
 
 # --- systemd-Dienst direkt einrichten (--service) --------------------------
 if [[ $SERVICE -eq 1 ]]; then

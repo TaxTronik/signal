@@ -503,10 +503,8 @@ if ($script:DockerNativeUrl) {
 }
 Write-Host "Token bei Bedarf bewusst anzeigen:" -ForegroundColor Yellow
 Write-Host "  Get-Content -LiteralPath .engine_token -Raw"
-Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
-Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
-Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"
-Write-Host "Alltagsbetrieb: .\signal.ps1 status   |   Checkout-Setup: .\scripts\setup.ps1" -ForegroundColor Yellow
+Write-Host "Alltagsbetrieb (Engine + LLM als Benutzer-Task):" -ForegroundColor Yellow
+Write-Host "  .\signal.ps1 start | .\signal.ps1 stop | .\signal.ps1 restart | .\signal.ps1 status"
 
 if ($Service) {
     Schritt "Windows-Autostart einrichten (begrenzter Benutzer-Task, --llm-autostart)"

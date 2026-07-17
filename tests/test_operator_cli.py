@@ -352,6 +352,61 @@ def test_checkout_bootstrap_delegiert_parameterlos_an_lokales_setup(
     assert calls == [["setup-program"]]
 
 
+def test_checkout_setup_provisioniert_service_ohne_benutzerparameter() -> None:
+    command = O._checkout_setup_command(ROOT)
+
+    if os.name == "nt":
+        assert command[-1] == "-Service"
+    else:
+        assert command[-1] == "--service"
+
+
+@pytest.mark.parametrize("operation", ["start", "stop", "restart"])
+def test_checkout_dienstkommandos_werden_zentral_delegiert(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    root = tmp_path / "checkout"
+    calls: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        O,
+        "_checkout_service_control",
+        lambda checkout, _profile, action: calls.append((checkout, action)) or 0,
+    )
+
+    assert O._dispatch_checkout(root, _args(operation)) == 0
+    assert calls == [(root, operation)]
+
+
+@pytest.mark.parametrize("operation", ["start", "stop", "restart"])
+def test_checkout_dienstbefehl_nutzt_plattformeigenen_benutzerdienst(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    monkeypatch.setattr(O, "_require_control_file", lambda *_args, **_kwargs: None)
+    if os.name == "nt":
+        powershell = Path("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe")
+        monkeypatch.setattr(O, "_windows_powershell", lambda: powershell)
+        command = O._checkout_service_command(tmp_path, operation)
+        assert command[0] == str(powershell)
+        if operation == "restart":
+            assert "restart-risk-layer-task.ps1" in " ".join(command)
+        else:
+            expected = "Start-ScheduledTask" if operation == "start" else "Stop-ScheduledTask"
+            assert expected in command[-1]
+    else:
+        monkeypatch.setattr(O.shutil, "which", lambda _name: "/usr/bin/systemctl")
+        monkeypatch.setattr(O, "_require_executable_control", lambda *_args: None)
+        assert O._checkout_service_command(tmp_path, operation) == [
+            "/usr/bin/systemctl",
+            "--user",
+            operation,
+            O.CHECKOUT_SYSTEMD_UNIT,
+        ]
+
+
 def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

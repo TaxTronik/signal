@@ -147,6 +147,19 @@ def test_systemd_renderer_maskiert_pfade_und_specifier() -> None:
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
 
 
+def test_signal_bootstrap_installiert_service_und_ersetzt_vordergrund_hinweis() -> None:
+    operator = (ROOT / "risk_layer" / "operator_cli.py").read_text(encoding="utf-8")
+    linux = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+    windows = (ROOT / "scripts" / "setup.ps1").read_text(encoding="utf-8")
+
+    assert 'str(script), "--service"' in operator
+    assert 'str(script),\n            "-Service"' in operator
+    assert "Ein-Befehl-Start (Engine + LLM)" not in linux
+    assert "Ein-Befehl-Start (Engine + LLM)" not in windows
+    assert "./signal start | ./signal stop | ./signal restart" in linux
+    assert ".\\signal.ps1 start | .\\signal.ps1 stop | .\\signal.ps1 restart" in windows
+
+
 def test_native_dienste_importieren_nicht_aus_dem_checkout() -> None:
     unit = (ROOT / "deploy" / "risk-layer.service.in").read_text(encoding="utf-8")
     windows = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")

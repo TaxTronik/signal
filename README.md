@@ -78,13 +78,16 @@ breitere Lemmatisierung).
 Der Checkout hat eine Zero-Config-Oberfläche. Linux verwendet `./signal`,
 Windows `.\signal.ps1`. Der erste Aufruf legt `.signal/`, `definitionen/`,
 Backupziel samt Sentinel und `.engine_token` lokal an und führt danach das
-plattformgerechte Setup aus:
+plattformgerechte Setup aus. Dabei wird der unprivilegierte Benutzer-Service
+eingerichtet und sofort mit Engine und LLM gestartet:
 
 ```bash
 ./signal bootstrap
+./signal start
 ./signal status
 ./signal backup
 ./signal update
+./signal stop
 ```
 
 Ein explizites `--config` beziehungsweise ein checkout-frei installierter
@@ -158,14 +161,18 @@ laufen. Der produktive Standardpfad verwendet den im Betreiberprofil
 konfigurierten release-aware Dienst beziehungsweise Windows-Task; dessen
 einmalige Einrichtung ist im
 [technischen Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) beschrieben.
-Der Checkout-Kompatibilitätspfad `./scripts/setup.sh --service` muss unter Linux **als
-Zielbenutzer, ohne `sudo`** laufen; er erzeugt eine systemd-User-Unit. Für Start
-schon vor der Anmeldung kann ein Administrator einmalig
+Der parameterlose Checkout-Pfad `./signal bootstrap` ruft unter Linux intern
+das Setup mit Service-Provisionierung auf und muss **als Zielbenutzer, ohne
+`sudo`** laufen. Er erzeugt und startet die systemd-User-Unit; danach steuern
+`./signal start`, `stop` und `restart` Engine und LLM gemeinsam. Für Start schon
+vor der Anmeldung kann ein Administrator einmalig
 `sudo loginctl enable-linger BENUTZER` setzen. Die Unit verweigert einen
 versehentlich als `root` gerenderten Start und setzt zusätzlich
 systemd-Sandboxing.
 
-Unter Windows verwendet der Standardpfad `.\signal.ps1 bootstrap`.
+Unter Windows verwendet der Standardpfad `.\signal.ps1 bootstrap` und richtet
+den begrenzten Benutzer-Task ebenfalls automatisch ein; `start`, `stop` und
+`restart` steuern ihn anschließend über dieselbe Oberfläche.
 Das interne beziehungsweise kompatible `.\deploy\install-service.ps1` installiert
 einen sofort gestarteten, auf `RunLevel Limited` begrenzten Task für den
 aktuellen Benutzer;

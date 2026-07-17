@@ -114,6 +114,8 @@ MAX_CHECKSUM_BYTES = 512
 CHECKOUT_ROOT_ENV = "RISK_LAYER_CHECKOUT_ROOT"
 CHECKOUT_STATE_DIR = ".signal"
 CHECKOUT_BACKUP_TARGET_PREFIX = "checkout-"
+CHECKOUT_SYSTEMD_UNIT = "risk-layer.service"
+CHECKOUT_WINDOWS_TASK = "RiskLayer"
 MINIMUM_PYTHON = (3, 11, 4)
 INTERPRETER_CHECK_TIMEOUT = 10.0
 WINDOWS_POWERSHELL_TIMEOUT = 15.0
@@ -2501,6 +2503,7 @@ def _checkout_setup_command(root: Path) -> list[str]:
             "Bypass",
             "-File",
             str(script),
+            "-Service",
         ]
     executable = shutil.which("bash")
     if executable is None:
@@ -2509,7 +2512,88 @@ def _checkout_setup_command(root: Path) -> list[str]:
     _require_executable_control(bash, "Bash")
     script = root / "scripts/setup.sh"
     _require_control_file(script, "Lokales Linux-Setup")
-    return [str(bash), str(script)]
+    return [str(bash), str(script), "--service"]
+
+
+def _checkout_service_ready(root: Path, profile: Profile) -> None:
+    if not _checkout_is_bootstrapped(root, profile):
+        raise OperatorError("Dienststeuerung braucht zuerst ./signal bootstrap")
+    _require_checkout_token(profile.token_file)
+    _require_control_file(root / "corpus/graph.sqlite", "Lokaler Normgraph")
+    _checkout_python(root)
+
+
+def _checkout_service_command(root: Path, operation: str) -> list[str]:
+    if operation not in {"start", "stop", "restart"}:
+        raise OperatorError(f"Unbekannte Dienstaktion: {operation}")
+    if os.name == "nt":
+        wrapper = root / "service-start.ps1"
+        _require_control_file(wrapper, "Windows-Autostart-Wrapper")
+        powershell = _windows_powershell()
+        if operation == "restart":
+            script = root / "deploy/restart-risk-layer-task.ps1"
+            _require_control_file(script, "Windows-Neustart-Hook")
+            return [
+                str(powershell),
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+                "-TaskName",
+                CHECKOUT_WINDOWS_TASK,
+            ]
+        verb = "Start-ScheduledTask" if operation == "start" else "Stop-ScheduledTask"
+        guard = (
+            "$task.State -ne 'Running'"
+            if operation == "start"
+            else "$task.State -eq 'Running'"
+        )
+        command = (
+            "$ErrorActionPreference='Stop';"
+            f"$task=Get-ScheduledTask -TaskName '{CHECKOUT_WINDOWS_TASK}' "
+            "-TaskPath '\\' -ErrorAction Stop;"
+            f"if ({guard}) {{{verb} -InputObject $task -ErrorAction Stop}}"
+        )
+        return [
+            str(powershell),
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+        ]
+    executable = shutil.which("systemctl")
+    if executable is None:
+        raise OperatorError("Dienststeuerung braucht systemctl")
+    systemctl = Path(os.path.abspath(executable))
+    _require_executable_control(systemctl, "systemctl")
+    unit = Path.home() / ".config/systemd/user" / CHECKOUT_SYSTEMD_UNIT
+    _require_control_file(unit, "Lokale systemd-User-Unit")
+    return [str(systemctl), "--user", operation, CHECKOUT_SYSTEMD_UNIT]
+
+
+def _checkout_service_control(
+    root: Path,
+    profile: Profile,
+    operation: str,
+) -> int:
+    _checkout_service_ready(root, profile)
+    result = _passthrough(_checkout_service_command(root, operation))
+    if result == 0:
+        labels = {"start": "gestartet", "stop": "gestoppt", "restart": "neu gestartet"}
+        print(f"Risk-Layer-Dienst {labels[operation]}.")
+    return result
+
+
+def _cmd_profiled_service_control(profile: Profile, args: argparse.Namespace) -> int:
+    del profile
+    raise OperatorError(
+        f"signal {args.command} ist fuer den lokalen Checkout-Service bestimmt; "
+        "profilierte Instanzen werden durch ihren konfigurierten Service-Manager gesteuert"
+    )
 
 
 def _checkout_python(root: Path) -> Path:
@@ -2707,6 +2791,8 @@ def _dispatch_checkout(root: Path, args: argparse.Namespace) -> int:
         return _checkout_status(root, profile, args)
     if args.command == "doctor":
         return _checkout_doctor(root, profile, args)
+    if args.command in {"start", "stop", "restart"}:
+        return _checkout_service_control(root, profile, args.command)
     if args.command == "backup":
         _ensure_checkout_layout(profile)
         return _cmd_backup(profile, args)
@@ -2803,6 +2889,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="nur sichere Verzeichnisse, Release-Eingang, Token und Secret-Env anlegen",
     )
     doctor.set_defaults(handler=_cmd_doctor)
+
+    service_help = {
+        "start": "lokalen Engine- und LLM-Dienst starten",
+        "stop": "lokalen Engine- und LLM-Dienst stoppen",
+        "restart": "lokalen Engine- und LLM-Dienst neu starten",
+    }
+    for name, help_text in service_help.items():
+        service = sub.add_parser(name, help=help_text, description=help_text)
+        service.set_defaults(handler=_cmd_profiled_service_control)
 
     backup = sub.add_parser("backup", help="manifestiertes Festwissen-Backup anlegen")
     backup.set_defaults(handler=_cmd_backup)
