@@ -1,5 +1,5 @@
 # systemd-Unit-Vorlage für die Risk-Layer /v1-Engine (TaxTronik).
-# Wird von `deploy.sh --service` gerendert (Platzhalter ersetzt) und als
+# Wird von `scripts/setup.sh --service` gerendert (Platzhalter ersetzt) und als
 # ~/.config/systemd/user/risk-layer.service installiert. Nicht direkt verwenden.
 #
 # Mandantengeheimnis (§ 203 StGB): die Engine ist zustandslos und persistiert
@@ -14,11 +14,11 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=@WORKDIR@
 # Ein aus einem benutzerschreibbaren Checkout gestarteter root-Dienst waere eine
-# lokale Privilegieneskalation. deploy.sh ohne sudo erzeugt eine User-Unit; eine
+# lokale Privilegieneskalation. scripts/setup.sh ohne sudo erzeugt eine User-Unit; eine
 # manuell installierte System-Unit muss explizit unprivilegiert konfiguriert sein.
 ExecStartPre=/bin/sh -c 'if [ "$(id -u)" -eq 0 ]; then echo "Risk-Layer verweigert root: als unprivilegierte User-Unit installieren" >&2; exit 1; fi'
 # Token NICHT inline (die Unit-Datei ist welt-lesbar, Default 644) — er liegt in
-# einer separaten EnvironmentFile (chmod 600), gerendert von deploy.sh --service.
+# einer separaten EnvironmentFile (chmod 600), gerendert von scripts/setup.sh --service.
 EnvironmentFile=@ENVFILE@
 Environment="RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@"
 # --llm-autostart bringt Schicht 2 (llama-server) im selben Aufruf mit hoch.

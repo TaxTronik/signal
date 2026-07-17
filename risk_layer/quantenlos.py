@@ -47,7 +47,7 @@ HMAC-Konditionierung mit dem Commitment als Schlüssel.
 
 Bewusst KEINE stille Degradation qpu→csprng: wer Attestierung verspricht,
 darf nicht leise lokal würfeln. Fehlende Pakete/Credentials sind laute Fehler
-(Install-Hinweis: ``deploy.sh --with-quanten`` bzw. ``deploy.ps1 -WithQuanten``
+(Install-Hinweis: ``scripts/setup.sh --with-quanten`` bzw. ``scripts/setup.ps1 -WithQuanten``
 aus den plattformspezifischen Hash-Locks); die Quelle steht im
 Nachweis (``quelle_klasse``), und Simulator/CSPRNG sagen dort selbst laut,
 dass sie keine Dritt-Attestierung liefern.
@@ -217,7 +217,7 @@ def mische_deterministisch(items: Sequence[str], seed: bytes) -> list[str]:
 
 _INSTALL_HINWEIS = (
     "Quanten-Extras fehlen — hash-gepinnt installieren mit: "
-    "deploy.sh --with-quanten bzw. deploy.ps1 -WithQuanten"
+    "scripts/setup.sh --with-quanten bzw. scripts/setup.ps1 -WithQuanten"
 )
 
 

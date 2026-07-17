@@ -151,7 +151,7 @@ Die Engine ist headless — keine GUI, kein eigener Audit-Log. Zwei Zugänge:
 - **CLI** (`cli.py`): `analyse`, `katalog`, `trigger`, `embedding`, `abgleich`,
   `zitat`, `korpus`, `graph`, `radar`, `modell` und `definiere` — einschließlich
   `modell verify` für Analyse, Build und Wartung. Die getrennte
-  profilbasierte Betriebsoberfläche `risk-layerctl` stellt manifestierte
+  profilbasierte Betriebsoberfläche `signal` stellt manifestierte
   Releases samt `bootstrap/deploy/update/status/rollback` sowie konsistente
   `backup/backup-verify/backup-prune/restore` bereit. Das CLI-Kommando `definiere` ist als
   Nicht-Audit-Pfad gekennzeichnet; produktive Schreibvorgänge laufen über `/v1`.

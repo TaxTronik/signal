@@ -547,7 +547,7 @@ def _cmd_festwissen(args: argparse.Namespace) -> int:
 
     # Kompatibilitaets-Direktpfad: anders als die Operator-Fassade legt dieser
     # Restore keine Pflicht-Vorher-Sicherung an. Fuer produktive Restores ist
-    # deshalb `risk-layerctl restore` der dokumentierte Betriebsweg.
+    # deshalb `signal restore` der dokumentierte Betriebsweg.
     if not args.archiv:
         print("Sicherungs-Fehler: 'wiederherstellen' braucht ein ARCHIV "
               "(risk-layer festwissen wiederherstellen <ARCHIV> --berater DIR).",

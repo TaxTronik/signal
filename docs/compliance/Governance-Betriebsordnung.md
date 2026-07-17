@@ -142,7 +142,7 @@ Schutzbedarf nach Regenerierbarkeit (Regel zur Lücke L5 des Mappings):
 - **Nicht regenerierbar — sicherungspflichtig:** die Berater-YAMLs des
   Festwissens (`personal.yaml`, `geteilt.yaml`, `norm_kuratierung.yaml` im
   Berater-Store, Deploy-Standard `definitionen/`). Konsistente Sicherung per
-  `risk-layerctl --config PROFIL backup` **vor jedem Deploy** und standardmäßig
+  `signal backup` **vor jedem Deploy** und standardmäßig
   **täglich**. Ziel und Retention sind im geschützten Betreiberprofil gebunden.
   Eine `backup_target_id` im Profil und der erst nach Prüfung des externen
   Ziels manuell provisionierte Sentinel `.risk-layer-backup-target.json`
@@ -164,7 +164,7 @@ Schutzbedarf nach Regenerierbarkeit (Regel zur Lücke L5 des Mappings):
   werden im Desasterfall rotiert beziehungsweise neu ausgestellt.
 - **Wiederherstellungsprobe:** einmal je Quartal (gekoppelt an das
   Kennzahlen-Review, § 3) wird eine Sicherung zunächst mit
-  `risk-layerctl --config TESTPROFIL backup-verify ARCHIV` geprüft und danach
+  `signal --config TESTPROFIL backup-verify ARCHIV` geprüft und danach
   über `restore --list` sowie die an Archiv-SHA und leeres Testziel gebundene
   Bestätigung in eine isolierte Testumgebung eingespielt. Der Restore baut und
   validiert einen
@@ -257,13 +257,13 @@ seiner Audit-Chain.
 **Token-Verwahrung:** Das Token liegt in `.engine_token` (gitignored, vom
 Deploy-Skript erzeugt; die Dateirechte **sind** auf den Dienstnutzer zu
 beschränken, unter Linux `600`) bzw. für den systemd-Betrieb in einer
-separaten EnvironmentFile mit `chmod 600` (von `deploy.sh --service`
+separaten EnvironmentFile mit `chmod 600` (von `scripts/setup.sh --service`
 geschrieben, referenziert aus `deploy/risk-layer.service.in`). Es wird nie in
 Logs, Antworten oder dem `engine_status` ausgegeben.
 
 **Rotationsverfahren (Schrittfolge):**
 
-1. Neues Token erzeugen (z. B. `deploy.sh`/`deploy.ps1` mit Force oder
+1. Neues Token erzeugen (z. B. `scripts/setup.sh`/`scripts/setup.ps1` mit Force oder
    `secrets.token_hex(32)`).
 2. Alten Wert nach `RISK_LAYER_TOKEN_VORGAENGER` übernehmen, neuen Wert in
    `RISK_LAYER_TOKEN` setzen, Engine neu starten — im Rotationsfenster

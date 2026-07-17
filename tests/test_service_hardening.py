@@ -83,7 +83,7 @@ def _run_backup_task_child(
 
 
 def test_windows_autostart_ist_ausschliesslich_begrenzter_benutzer_task() -> None:
-    script = (ROOT / "install-service.ps1").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")
 
     assert '/RU SYSTEM' not in script
     assert '/RL HIGHEST' not in script
@@ -99,7 +99,7 @@ def test_windows_autostart_ist_ausschliesslich_begrenzter_benutzer_task() -> Non
 
 
 def test_windows_autostart_wrapper_verweigert_ungueltiges_token() -> None:
-    script = (ROOT / "install-service.ps1").read_text(encoding="utf-8")
+    script = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")
 
     assert "[System.IO.File]::ReadAllText($tokenPath)" in script
     assert "$token.Length -lt 32" in script
@@ -134,7 +134,7 @@ def test_systemd_unit_verweigert_root_und_begrenzt_rechte() -> None:
 
 
 def test_systemd_renderer_maskiert_pfade_und_specifier() -> None:
-    script = (ROOT / "deploy.sh").read_text(encoding="utf-8")
+    script = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
     unit = (ROOT / "deploy" / "risk-layer.service.in").read_text(encoding="utf-8")
 
     assert "def systemd_escape" in script
@@ -149,7 +149,7 @@ def test_systemd_renderer_maskiert_pfade_und_specifier() -> None:
 
 def test_native_dienste_importieren_nicht_aus_dem_checkout() -> None:
     unit = (ROOT / "deploy" / "risk-layer.service.in").read_text(encoding="utf-8")
-    windows = (ROOT / "install-service.ps1").read_text(encoding="utf-8")
+    windows = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")
 
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
     assert '& $python -P -m risk_layer.web' in windows
@@ -174,7 +174,7 @@ def test_release_systemd_hat_sicheren_renderer_und_readonly_release_home() -> No
 
 
 def test_windows_release_task_startet_verifiziertes_current() -> None:
-    installer = (ROOT / "install-service.ps1").read_text(encoding="utf-8")
+    installer = (ROOT / "deploy" / "install-service.ps1").read_text(encoding="utf-8")
     restart = (ROOT / "deploy" / "restart-risk-layer-task.ps1").read_text(
         encoding="utf-8"
     )
@@ -277,8 +277,8 @@ def test_backup_scheduler_child_ist_fail_closed_und_propagiert_native_exitcodes(
 def test_force_rotiert_auth_token_nicht_still() -> None:
     """Artefakte neu bauen und Client-Credentials rotieren sind getrennte
     Betriebsereignisse; ein Update darf nicht nebenbei alle Clients aussperren."""
-    linux = (ROOT / "deploy.sh").read_text(encoding="utf-8")
-    windows = (ROOT / "deploy.ps1").read_text(encoding="utf-8")
+    linux = (ROOT / "scripts" / "setup.sh").read_text(encoding="utf-8")
+    windows = (ROOT / "scripts" / "setup.ps1").read_text(encoding="utf-8")
 
     assert "--rotate-token" in linux
     assert '$ROTATE_TOKEN -eq 1' in linux

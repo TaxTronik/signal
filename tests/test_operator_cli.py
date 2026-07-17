@@ -190,6 +190,43 @@ def _args(*values: str) -> object:
     return O.build_parser().parse_args(list(values))
 
 
+def _write_release_inbox(
+    document: dict[str, object],
+    *,
+    release_id: str = "v2.0.0",
+) -> tuple[Path, Path, str, str]:
+    inbox = Path(str(document["release_home"])) / O.RELEASE_INBOX_NAME
+    inbox.mkdir(parents=True, exist_ok=True)
+    bundle = inbox / f"release-{release_id}"
+    bundle.mkdir()
+    native_payload = (json.dumps({"release_id": release_id}, sort_keys=True) + "\n").encode()
+    (bundle / O.NATIVE_MANIFEST_NAME).write_bytes(native_payload)
+    native_digest = hashlib.sha256(native_payload).hexdigest()
+    container = inbox / f"taxtronik-container-{release_id}.json"
+    container_payload = (
+        json.dumps(
+            {
+                "schema": "taxtronik-release/v1",
+                "release_id": release_id,
+                "git_sha": "a" * 40,
+                "native_bundle": {
+                    "artifact": f"taxtronik-native-{release_id}.tar.gz",
+                    "sha256": "b" * 64,
+                    "manifest_sha256": native_digest,
+                },
+            },
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
+    container.write_bytes(container_payload)
+    container_digest = hashlib.sha256(container_payload).hexdigest()
+    Path(f"{container}.sha256").write_text(
+        f"{container_digest}  {container.name}\n", encoding="ascii"
+    )
+    return container, bundle, container_digest, native_digest
+
+
 def test_standardprofil_ist_kanonischer_produktionspfad(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -202,6 +239,13 @@ def test_standardprofil_ist_kanonischer_produktionspfad(
     )
     assert O.DEFAULT_PROFILE == expected
     assert args.config == expected
+
+
+def test_aufruf_ohne_kommando_zeigt_hilfe_ohne_profilzugriff(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert O.main([]) == 0
+    assert "signal" in capsys.readouterr().out
 
 
 def test_profil_ist_strikt_nicht_mehrdeutig_und_container_hat_keine_bootstrap_venv(
@@ -461,8 +505,10 @@ def test_doctor_fix_erzeugt_nur_profilierte_verzeichnisse_token_und_secret_env(
     assert result["ok"] is True
     token_file = Path(str(document["token_file"]))
     secrets_env = Path(str(document["secrets_env"]))
+    release_inbox = Path(str(document["release_home"])) / O.RELEASE_INBOX_NAME
     assert len(token_file.read_text(encoding="utf-8").strip()) >= 32
     assert "RISK_LAYER_TOKEN=" in secrets_env.read_text(encoding="utf-8")
+    assert release_inbox.is_dir()
     assert not (tmp_path / "state.json").exists()
     if os.name == "nt":
         for path in (token_file.parent, token_file, secrets_env):
@@ -557,6 +603,67 @@ def test_native_update_braucht_state_und_nutzt_danach_nur_launcher(tmp_path: Pat
     assert "--health-url" in command and "--no-health-check" not in command
     assert command[command.index("--retention-keep-last") + 1] == "30"
     assert command[command.index("--retention-keep-days") + 1] == "90"
+
+
+def test_parameterloses_native_update_nutzt_eindeutigen_gehashten_release_eingang(
+    tmp_path: Path,
+) -> None:
+    profile_path, document = _write_profile(
+        tmp_path,
+        mode="native",
+        bootstrap_python=str(REAL_PYTHON),
+    )
+    _state(document, native=True)
+    _container, bundle, _container_digest, native_digest = _write_release_inbox(
+        document
+    )
+
+    command = O._deployment_command(O.load_profile(profile_path), _args("update"))
+
+    assert str(bundle) in command
+    assert command[command.index("--manifest-sha256") + 1] == native_digest
+    assert "--trust-local-manifest" not in command
+
+
+def test_parameterloses_container_deploy_nutzt_publizierte_sidecar(
+    tmp_path: Path,
+) -> None:
+    profile_path, document = _write_profile(tmp_path)
+    container, _bundle, container_digest, _native_digest = _write_release_inbox(
+        document
+    )
+
+    artifact, digest = O._automatic_deployment_artifact(O.load_profile(profile_path))
+
+    assert artifact == container
+    assert digest == container_digest
+
+
+def test_parameterloses_update_blockt_mehrdeutige_oder_manipulierte_inbox(
+    tmp_path: Path,
+) -> None:
+    profile_path, document = _write_profile(
+        tmp_path,
+        mode="native",
+        bootstrap_python=str(REAL_PYTHON),
+    )
+    first, _bundle, _container_digest, _native_digest = _write_release_inbox(
+        document
+    )
+    second = first.with_name("taxtronik-container-v3.0.0.json")
+    second.write_bytes(first.read_bytes())
+    Path(f"{second}.sha256").write_text(
+        f"{hashlib.sha256(second.read_bytes()).hexdigest()}  {second.name}\n",
+        encoding="ascii",
+    )
+    with pytest.raises(O.OperatorError, match="genau ein"):
+        O._automatic_deployment_artifact(O.load_profile(profile_path))
+
+    second.unlink()
+    Path(f"{second}.sha256").unlink()
+    Path(f"{first}.sha256").write_text(f"{'0' * 64}  {first.name}\n", encoding="ascii")
+    with pytest.raises(O.OperatorError, match="stimmt nicht"):
+        O._automatic_deployment_artifact(O.load_profile(profile_path))
 
 
 def test_bootstrap_blockt_vorhandenen_state(tmp_path: Path) -> None:
@@ -925,6 +1032,37 @@ def test_backup_prune_dry_run_ist_read_only_apply_braucht_write(
     assert "read-only" in capsys.readouterr().err
 
 
+def test_parameterloses_backup_verify_prueft_das_neueste_archiv(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    profile_path, document = _write_profile(
+        tmp_path,
+        mode="native",
+        bootstrap_python=str(REAL_PYTHON),
+    )
+    backup_dir = Path(str(document["backup_dir"]))
+    old = backup_dir / "festwissen_alt.zip"
+    latest = backup_dir / "festwissen_neu.zip"
+    old.write_bytes(b"alt")
+    latest.write_bytes(b"neu")
+    os.utime(old, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(latest, ns=(2_000_000_000, 2_000_000_000))
+    calls: list[list[str]] = []
+    _patch_delegate_run(
+        monkeypatch,
+        lambda command, **kwargs: (
+            calls.append(list(command))
+            or subprocess.CompletedProcess(command, 0, "{}", "")
+        ),
+    )
+
+    assert O.main(["--config", str(profile_path), "backup-verify"]) == 0
+
+    assert len(calls) == 1
+    assert calls[0][-3:] == ["backup", "verify", str(latest)]
+
+
 def test_restore_list_ist_rein_lesend_und_braucht_keinen_delegate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -939,7 +1077,7 @@ def test_restore_list_ist_rein_lesend_und_braucht_keinen_delegate(
         lambda *args, **kwargs: pytest.fail("restore --list darf keinen Delegate starten"),
     )
 
-    assert O.main(["--config", str(profile_path), "restore", "--list"]) == 0
+    assert O.main(["--config", str(profile_path), "restore"]) == 0
 
     assert sorted(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before
     assert json.loads(capsys.readouterr().out)["backups"][0]["name"] == archive.name
@@ -1226,8 +1364,8 @@ def test_container_doctor_ist_ohne_nativen_launcher_state_nicht_gruen(
 
 
 def test_wrapper_sind_duenn_isoliert_und_paritaetisch() -> None:
-    bash = (ROOT / "risk-layerctl").read_text(encoding="utf-8")
-    powershell = (ROOT / "risk-layerctl.ps1").read_text(encoding="utf-8")
+    bash = (ROOT / "signal").read_text(encoding="utf-8")
+    powershell = (ROOT / "signal.ps1").read_text(encoding="utf-8")
 
     assert "risk_layer/operator_cli.py" in bash
     assert '"$PYTHON" -I' in bash
@@ -1256,11 +1394,11 @@ def test_plattform_wrapper_startet_die_echte_operator_hilfe() -> None:
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            str(ROOT / "risk-layerctl.ps1"),
+            str(ROOT / "signal.ps1"),
             "--help",
         ]
     else:
-        command = ["bash", str(ROOT / "risk-layerctl"), "--help"]
+        command = ["bash", str(ROOT / "signal"), "--help"]
     result = subprocess.run(
         command,
         cwd=ROOT,
@@ -1272,6 +1410,21 @@ def test_plattform_wrapper_startet_die_echte_operator_hilfe() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert "bootstrap" in result.stdout
+
+
+def test_veraltete_root_einstiegspunkte_sind_entfernt() -> None:
+    for name in (
+        "risk-layerctl",
+        "risk-layerctl.ps1",
+        "deploy.sh",
+        "deploy.ps1",
+        "build-release-artifact.sh",
+        "build-release-artifact.ps1",
+        "install-service.ps1",
+        ".env.release.example",
+        "start.cmd",
+    ):
+        assert not (ROOT / name).exists(), name
 
 
 def test_beispielprofil_hat_restriktives_schema_und_keine_secrets() -> None:

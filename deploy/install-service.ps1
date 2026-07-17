@@ -18,20 +18,20 @@
   Geraet fuer Embeddings/Reranker (cpu oder cuda[/cuda:N]).
 .PARAMETER ReleaseHome
   Optionales transaktionales Release-Home. Zusammen mit -BeraterDir startet
-  der Task den stabilen risk-layerctl-Launcher aus current statt den Bootstrap.
+  der Task den stabilen signal-Launcher aus current statt den Bootstrap.
 .PARAMETER BeraterDir
   Persistenter Berater-Store ausserhalb der Releases (nur mit -ReleaseHome).
 
 .EXAMPLE
-  ./install-service.ps1
+  ./deploy/install-service.ps1
 .EXAMPLE
-  ./install-service.ps1 -EmbeddingDevice cuda
+  ./deploy/install-service.ps1 -EmbeddingDevice cuda
 .EXAMPLE
-  ./install-service.ps1 `
+  ./deploy/install-service.ps1 `
     -ReleaseHome C:\ProgramData\TaxTronik\RiskLayer\runtime `
     -BeraterDir C:\ProgramData\TaxTronik\RiskLayer\definitionen
 .EXAMPLE
-  ./install-service.ps1 -Remove
+  ./deploy/install-service.ps1 -Remove
 
 .NOTES
   Migration von aelteren Versionen: Ein vorhandener Windows-Dienst namens
@@ -51,10 +51,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location -LiteralPath $PSScriptRoot
+$candidateRepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$RepoRoot = if (Test-Path -LiteralPath (Join-Path $candidateRepoRoot "pyproject.toml") -PathType Leaf) {
+    $candidateRepoRoot
+} else {
+    # Im Windows-Release liegt der Installer im stabilen Bootstrap-Verzeichnis.
+    $PSScriptRoot
+}
+Set-Location -LiteralPath $RepoRoot
 $Name = "RiskLayer"
-$wrapper = Join-Path $PSScriptRoot "service-start.ps1"
-$legacyWrapper = Join-Path $PSScriptRoot "service-start.cmd"
+$wrapper = Join-Path $RepoRoot "service-start.ps1"
+$legacyWrapper = Join-Path $RepoRoot "service-start.cmd"
 
 function Info($t) { Write-Host "  $t" -ForegroundColor DarkGray }
 function OkMsg($t) { Write-Host "  [ok] $t" -ForegroundColor Green }
@@ -137,9 +144,9 @@ if ($null -ne $existingService) {
     throw @"
 Der Legacy-Windows-Dienst '$Name' existiert noch (Konto: $($existingService.StartName)).
 Aus einem benutzerschreibbaren Checkout wird kein Windows-Dienst mehr installiert.
-Migration: ./install-service.ps1 -Remove
+Migration: ./deploy/install-service.ps1 -Remove
 Den Remove-Schritt bei einem Legacy-Dienst administrativ ausfuehren. Danach den
-begrenzten CurrentUser-Task als normaler Benutzer mit ./install-service.ps1 neu installieren.
+begrenzten CurrentUser-Task als normaler Benutzer mit ./deploy/install-service.ps1 neu installieren.
 "@
 }
 
@@ -169,7 +176,13 @@ if ($releaseMode) {
         throw "Berater-Verzeichnis nicht gefunden: $BeraterDir"
     }
     if ([string]::IsNullOrWhiteSpace($ReleaseLauncher)) {
-        $ReleaseLauncher = Join-Path $PSScriptRoot "deploy\release-launcher.py"
+        $checkoutLauncher = Join-Path $RepoRoot "deploy\release-launcher.py"
+        $packagedLauncher = Join-Path $PSScriptRoot "release-launcher.py"
+        $ReleaseLauncher = if (Test-Path -LiteralPath $checkoutLauncher -PathType Leaf) {
+            $checkoutLauncher
+        } else {
+            $packagedLauncher
+        }
     }
     $ReleaseLauncher = [IO.Path]::GetFullPath($ReleaseLauncher)
     if (-not (Test-Path -LiteralPath $ReleaseLauncher -PathType Leaf)) {
@@ -253,7 +266,7 @@ if ($null -eq $identity.User -or [string]::IsNullOrWhiteSpace($identity.Name)) {
 }
 
 $actionArgs = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File `"$wrapper`""
-$action = New-ScheduledTaskAction -Execute $powershellExe -Argument $actionArgs -WorkingDirectory $PSScriptRoot
+$action = New-ScheduledTaskAction -Execute $powershellExe -Argument $actionArgs -WorkingDirectory $RepoRoot
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $identity.Name
 $principal = New-ScheduledTaskPrincipal -UserId $identity.Name -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
@@ -265,4 +278,4 @@ Start-ScheduledTask -TaskName $Name -TaskPath "\"
 OkMsg "Task '$Name' fuer '$($identity.Name)' installiert und gestartet (RunLevel Limited)."
 Info "Autostart erfolgt bei Benutzeranmeldung; kein Kennwort wird gespeichert."
 Info "Ohne lesbares Token mit mindestens 32 Zeichen verweigert der Wrapper den Start."
-Info "Status: Get-ScheduledTask -TaskName $Name   |   Entfernen: ./install-service.ps1 -Remove"
+Info "Status: Get-ScheduledTask -TaskName $Name   |   Entfernen: ./deploy/install-service.ps1 -Remove"

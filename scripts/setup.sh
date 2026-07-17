@@ -19,17 +19,18 @@
 # nur 'mitLLM:true' ist inaktiv.
 #
 # Beispiele:
-#   ./deploy.sh                         # Deps + Modell + Engine + Korpus/Graph/Trigger
-#   ./deploy.sh --with-embedding --voll # zusaetzlich Embedding-Index + breiter Korpus
-#   ./deploy.sh --with-quanten          # Quantenlos-Extras fuer /v1/los/* installieren
-#   ./deploy.sh --skip-engine           # Engine separat bereitstellen
-#   ./deploy.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
-#   ./deploy.sh --rotate-token           # Auth-Token bewusst und separat rotieren
-#   ./deploy.sh --start                 # Setup, dann Engine starten
+#   ./scripts/setup.sh                         # Deps + Modell + Engine + Korpus/Graph/Trigger
+#   ./scripts/setup.sh --with-embedding --voll # zusaetzlich Embedding-Index + breiter Korpus
+#   ./scripts/setup.sh --with-quanten          # Quantenlos-Extras fuer /v1/los/* installieren
+#   ./scripts/setup.sh --skip-engine           # Engine separat bereitstellen
+#   ./scripts/setup.sh --ohne-ner              # ohne spaCy-NER (schlank/offline)
+#   ./scripts/setup.sh --rotate-token          # Auth-Token bewusst und separat rotieren
+#   ./scripts/setup.sh --start                 # Setup, dann Engine starten
 #
 set -euo pipefail
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
 
 SKIP_DEPS=0; SKIP_MODEL=0; SKIP_ENGINE=0; SKIP_CORPUS=0; WITH_EMBEDDING=0; WITH_QUANTEN=0; OHNE_NER=0; VOLL=0; FORCE=0; ROTATE_TOKEN=0; START=0; SERVICE=0
 BACKEND_EXPLICIT=0; HOST_EXPLICIT=0; QUANTEN_EXPLICIT=0
@@ -368,7 +369,7 @@ use_project_venv() {
   fi
   cat >&2 <<EOF
 Virtuelle Umgebung konnte nicht erstellt werden.
-Bitte installiere venv fuer diesen Python-Interpreter und starte deploy.sh erneut.
+Bitte installiere venv fuer diesen Python-Interpreter und starte scripts/setup.sh erneut.
 
 Debian/Ubuntu/WSL:
   sudo apt-get update
@@ -385,7 +386,7 @@ ensure_pip() {
   fi
   cat >&2 <<EOF
 pip ist fuer $PY nicht installiert und konnte nicht via ensurepip bereitgestellt werden.
-Bitte installiere pip fuer diesen Python-Interpreter und starte deploy.sh erneut.
+Bitte installiere pip fuer diesen Python-Interpreter und starte scripts/setup.sh erneut.
 
 Debian/Ubuntu/WSL:
   sudo apt-get update

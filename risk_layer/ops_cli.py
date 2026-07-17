@@ -1,7 +1,7 @@
 """Betriebs-CLI fuer Health, Backup und transaktionale Releases.
 
 ``risk-layer`` bleibt die fachliche Engine-CLI. ``risk-layer-ops`` ist die
-technische Delegate-/Expert-CLI hinter der profilbasierten ``risk-layerctl``-
+technische Delegate-/Expert-CLI hinter der profilbasierten ``signal``-
 Fassade: Sie schaltet Release-Generationen atomar und kann einen stabilen
 Dienst auf ``current`` starten, ohne Code aus einem Git-Checkout zu importieren.
 """

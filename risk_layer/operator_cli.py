@@ -106,6 +106,10 @@ DEFAULT_PROFILE = (
     if os.name == "nt"
     else "/etc/risk-layer/ops.json"
 )
+RELEASE_INBOX_NAME = "incoming"
+CONTAINER_MANIFEST_PATTERN = "taxtronik-container-*.json"
+NATIVE_MANIFEST_NAME = "release.json"
+MAX_CHECKSUM_BYTES = 512
 MINIMUM_PYTHON = (3, 11, 4)
 INTERPRETER_CHECK_TIMEOUT = 10.0
 WINDOWS_POWERSHELL_TIMEOUT = 15.0
@@ -1273,11 +1277,11 @@ def _validate_release_id(value: Any) -> str:
     return value
 
 
-def _container_release_path(
-    profile: Profile,
+def _container_manifest_contract(
     manifest: Path,
     expected_hash: str,
-) -> tuple[Path, dict[str, str]]:
+) -> tuple[str, str, str]:
+    """Validiert den aeusseren Release-Vertrauensanker einmal zentral."""
     payload = _read_regular(manifest, MAX_MANIFEST_BYTES, "Container-Manifest")
     actual = hashlib.sha256(payload).hexdigest()
     if not hmac.compare_digest(actual, expected_hash):
@@ -1312,6 +1316,17 @@ def _container_release_path(
         raise OperatorError("Container-Manifest hat keinen gueltigen nativen Artefakt-SHA")
     if not isinstance(native_manifest, str) or not SHA256_RE.fullmatch(native_manifest):
         raise OperatorError("Container-Manifest hat keinen gueltigen nativen Manifest-SHA")
+    return release_id, git_sha, native_manifest
+
+
+def _container_release_path(
+    profile: Profile,
+    manifest: Path,
+    expected_hash: str,
+) -> tuple[Path, dict[str, str]]:
+    release_id, git_sha, native_manifest = _container_manifest_contract(
+        manifest, expected_hash
+    )
     releases = profile.release_home / "releases"
     target = releases / release_id
     if target.parent != releases:
@@ -1324,7 +1339,123 @@ def _container_release_path(
     }
 
 
+def _release_inbox(profile: Profile) -> Path:
+    inbox = profile.release_home / RELEASE_INBOX_NAME
+    _require_control_directory(inbox, "Release-Eingang")
+    return inbox
+
+
+def _trusted_sidecar_digest(path: Path) -> str:
+    """Bindet ein Inbox-Artefakt an seine publizierte sha256sum-Sidecar."""
+    _require_control_file(path, "Release-Manifest")
+    sidecar = Path(f"{path}.sha256")
+    _require_control_file(sidecar, "Release-Pruefsumme")
+    payload = _read_regular(sidecar, MAX_CHECKSUM_BYTES, "Release-Pruefsumme")
+    try:
+        text = payload.decode("ascii")
+    except UnicodeDecodeError as exc:
+        raise OperatorError("Release-Pruefsumme ist nicht ASCII") from exc
+    match = re.fullmatch(r"([0-9a-f]{64})  ([^/\\\r\n]+)\r?\n", text)
+    if match is None or match.group(2) != path.name:
+        raise OperatorError(
+            "Release-Pruefsumme muss exakt '<sha256>  <Manifestname>' enthalten"
+        )
+    expected = match.group(1)
+    actual = hashlib.sha256(
+        _read_regular(path, MAX_MANIFEST_BYTES, "Release-Manifest")
+    ).hexdigest()
+    if not hmac.compare_digest(actual, expected):
+        raise OperatorError(
+            f"Release-Pruefsumme stimmt nicht: erwartet {expected}, ist {actual}"
+        )
+    return expected
+
+
+def _automatic_deployment_artifact(profile: Profile) -> tuple[Path, str]:
+    """Waehlt fail-closed genau ein publiziertes Release aus dem festen Eingang."""
+    inbox = _release_inbox(profile)
+    try:
+        manifests = sorted(inbox.glob(CONTAINER_MANIFEST_PATTERN), key=lambda item: item.name)
+    except OSError as exc:
+        raise OperatorError("Release-Eingang kann nicht aufgelistet werden") from exc
+    safe_manifests: list[Path] = []
+    for manifest in manifests:
+        if _is_link_like(manifest):
+            raise OperatorError(
+                f"Release-Eingang enthaelt einen Link/Reparse-Point: {manifest}"
+            )
+        _require_control_file(manifest, "Release-Manifest")
+        safe_manifests.append(manifest)
+    if len(safe_manifests) != 1:
+        raise OperatorError(
+            "Release-Eingang muss genau ein taxtronik-container-*.json enthalten: "
+            f"{inbox} (gefunden: {len(safe_manifests)})"
+        )
+
+    container_manifest = safe_manifests[0]
+    container_digest = _trusted_sidecar_digest(container_manifest)
+    release_id, _git_sha, native_manifest_digest = _container_manifest_contract(
+        container_manifest, container_digest
+    )
+    if profile.mode == "container":
+        return container_manifest, container_digest
+
+    matches: list[Path] = []
+    try:
+        children = list(inbox.iterdir())
+    except OSError as exc:
+        raise OperatorError("Release-Eingang kann nicht aufgelistet werden") from exc
+    for candidate in children:
+        if _is_link_like(candidate):
+            raise OperatorError(
+                f"Release-Eingang enthaelt einen Link/Reparse-Point: {candidate}"
+            )
+        if not candidate.is_dir():
+            continue
+        manifest = candidate / NATIVE_MANIFEST_NAME
+        if not manifest.exists():
+            continue
+        _require_directory(candidate, "Natives Release-Bundle im Eingang")
+        _require_control_file(manifest, "Natives Release-Manifest")
+        payload = _read_regular(
+            manifest, MAX_MANIFEST_BYTES, "Natives Release-Manifest"
+        )
+        if not hmac.compare_digest(
+            hashlib.sha256(payload).hexdigest(), native_manifest_digest
+        ):
+            continue
+        document = _decode_object(payload, "Natives Release-Manifest")
+        if document.get("release_id") != release_id:
+            raise OperatorError(
+                "Natives Release-Manifest und Container-Vertrauensanker haben "
+                "verschiedene release_id"
+            )
+        matches.append(candidate)
+    if len(matches) != 1:
+        raise OperatorError(
+            "Release-Eingang muss genau ein zum Vertrauensanker passendes entpacktes "
+            f"natives Bundle enthalten: {inbox} (gefunden: {len(matches)})"
+        )
+    return matches[0], native_manifest_digest
+
+
+def _resolve_deployment_arguments(
+    profile: Profile, args: argparse.Namespace
+) -> argparse.Namespace:
+    if args.artifact is not None:
+        return args
+    if args.manifest_sha256 is not None or args.trust_local_manifest:
+        raise OperatorError(
+            "Ohne explizites ARTIFAKT duerfen keine manuellen Trust-Optionen gesetzt werden"
+        )
+    artifact, digest = _automatic_deployment_artifact(profile)
+    args.artifact = str(artifact)
+    args.manifest_sha256 = digest
+    return args
+
+
 def _deployment_command(profile: Profile, args: argparse.Namespace) -> list[str]:
+    args = _resolve_deployment_arguments(profile, args)
     operation = args.command
     _require_state(profile, operation)
     artifact = Path(os.path.abspath(args.artifact))
@@ -1844,7 +1975,11 @@ def _doctor_fix(profile: Profile) -> list[str]:
     # ausgefallener Mount wuerde sonst scheinbar erfolgreiche Backups erzeugen.
     _require_managed_directory(profile.backup_dir, "Explizites Backup-Ziel")
     _require_backup_target(profile)
-    directories = [profile.release_home, profile.berater_dir]
+    directories = [
+        profile.release_home,
+        profile.release_home / RELEASE_INBOX_NAME,
+        profile.berater_dir,
+    ]
     secrets_env: Path | None = None
     if profile.mode == "container":
         directories.append(_required_container_path(profile.state_dir, "state_dir"))
@@ -1904,6 +2039,7 @@ def _doctor_checks(profile: Profile) -> list[dict[str, Any]]:
 
     check("python", lambda: _interpreter_contract(profile.python, "Profil-Python"))
     check("release_home", lambda: _require_managed_directory(profile.release_home, "Release-Home"))
+    check("release_inbox", lambda: str(_release_inbox(profile)))
     check("berater_dir", lambda: _require_managed_directory(profile.berater_dir, "Berater-Verzeichnis"))
     check("backup_dir", lambda: _require_managed_directory(profile.backup_dir, "Backup-Verzeichnis"))
     check("backup_target", lambda: str(_require_backup_target(profile)))
@@ -2027,7 +2163,13 @@ def _cmd_backup(profile: Profile, args: argparse.Namespace) -> int:
 
 def _cmd_backup_verify(profile: Profile, args: argparse.Namespace) -> int:
     _require_backup_target(profile)
-    archive = Path(os.path.abspath(args.file))
+    if args.file is None:
+        entries = _backup_entries(profile)
+        if not entries:
+            raise OperatorError("Kein Backup zum Verifizieren vorhanden")
+        archive = Path(entries[0]["path"])
+    else:
+        archive = Path(os.path.abspath(args.file))
     _require_file(archive, "Backup-Archiv")
     return _passthrough(
         _ops_command(profile, ["backup", "verify", str(archive)])
@@ -2141,7 +2283,7 @@ def _hash_backup_archive(path: Path) -> tuple[str, tuple[int, int, int, int]]:
 
 
 def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
-    if args.list:
+    if args.list or (not args.latest and args.file is None):
         entries = _backup_entries(profile)
         for item in entries:
             item.pop("_mtime_ns", None)
@@ -2201,17 +2343,19 @@ def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
 def _add_deployment_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "artifact",
+        nargs="?",
         metavar="ARTIFAKT",
         help=(
             "Pfad zum nativen Bundle-Verzeichnis oder, im Container-Modus, "
-            "zum Release-Manifest"
+            "zum Release-Manifest; ohne Angabe wird der kontrollierte Eingang "
+            "<release_home>/incoming verwendet"
         ),
     )
     trust = parser.add_mutually_exclusive_group()
     trust.add_argument(
         "--manifest-sha256",
         metavar="HASH",
-        help="erwarteter SHA-256 des Manifests (Container: Pflicht)",
+        help="erwarteter SHA-256 (bei explizitem Container-Artefakt Pflicht)",
     )
     trust.add_argument(
         "--trust-local-manifest",
@@ -2225,13 +2369,14 @@ def _add_deployment_arguments(parser: argparse.ArgumentParser) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="risk-layerctl",
+        prog="signal",
         description=(
             "TaxTronik-nahe Operator-Fassade; delegiert an bestehende transaktionale Werkzeuge."
         ),
         epilog=(
-            "ARTIFAKT richtet sich nach mode im Instanzprofil. Container-Releases "
-            "verlangen immer --manifest-sha256; nur native Releases duerfen bewusst "
+            "Ohne ARTIFAKT wird genau ein gehashtes Release aus "
+            "<release_home>/incoming gewaehlt. Explizite Artefakte brauchen "
+            "--manifest-sha256; nur native Releases duerfen bewusst "
             "--trust-local-manifest verwenden."
         ),
     )
@@ -2248,7 +2393,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=argparse.SUPPRESS,
         help=argparse.SUPPRESS,
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
     deployment_help = {
         "bootstrap": "Erstinstallation ohne vorhandenen Deployment-State",
         "deploy": "Release passend zum profilierten Modus anwenden",
@@ -2272,7 +2417,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument(
         "--fix",
         action="store_true",
-        help="nur sichere Verzeichnisse, Token und Secret-Env anlegen",
+        help="nur sichere Verzeichnisse, Release-Eingang, Token und Secret-Env anlegen",
     )
     doctor.set_defaults(handler=_cmd_doctor)
 
@@ -2280,7 +2425,9 @@ def build_parser() -> argparse.ArgumentParser:
     backup.set_defaults(handler=_cmd_backup)
 
     verify = sub.add_parser("backup-verify", help="Backup ohne Mutation voll pruefen")
-    verify.add_argument("file", metavar="ARCHIV")
+    verify.add_argument(
+        "file", nargs="?", metavar="ARCHIV", help="Standard: neuestes Backup"
+    )
     verify.set_defaults(handler=_cmd_backup_verify)
 
     prune = sub.add_parser("backup-prune", help="profilierte Retention auswerten")
@@ -2288,7 +2435,7 @@ def build_parser() -> argparse.ArgumentParser:
     prune.set_defaults(handler=_cmd_backup_prune)
 
     restore = sub.add_parser("restore", help="Backups auflisten oder sicher wiederherstellen")
-    selection = restore.add_mutually_exclusive_group(required=True)
+    selection = restore.add_mutually_exclusive_group()
     selection.add_argument("--list", action="store_true", help="Backups rein lesend auflisten")
     selection.add_argument("--latest", action="store_true", help="neuestes Backup waehlen")
     selection.add_argument("--file", metavar="ARCHIV", help="bestimmtes Backup waehlen")
@@ -2304,6 +2451,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None:
+        parser.print_help()
+        return 0
     try:
         if hasattr(args, "timeout"):
             args.timeout = _positive_timeout(args.timeout, "--timeout")

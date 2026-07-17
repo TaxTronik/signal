@@ -31,7 +31,7 @@ dev = [
 
 [project.scripts]
 risk-layer = "risk_layer.cli:main"
-risk-layerctl = "risk_layer.operator_cli:main"
+signal = "risk_layer.operator_cli:main"
 risk-layer-ops = "risk_layer.ops_cli:main"
 risk-layer-web = "risk_layer.web:main"
 

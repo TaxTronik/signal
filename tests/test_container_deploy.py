@@ -151,11 +151,11 @@ def _container_manifest(
                 "sha256": "0" * 64,
             },
             "operator_wrapper_posix": {
-                "artifact": "risk-layerctl",
+                "artifact": "signal",
                 "sha256": "1" * 64,
             },
             "operator_wrapper_windows": {
-                "artifact": "risk-layerctl.ps1",
+                "artifact": "signal.ps1",
                 "sha256": "2" * 64,
             },
             "backup_systemd_service": {
@@ -784,7 +784,9 @@ def test_bootstrap_schema_ist_exakt_mit_dem_container_manifest_vertrag_synchron(
 
 
 def test_veroeffentlichte_secret_env_enthaelt_keine_manifestwerte() -> None:
-    template = (ROOT / ".env.release.example").read_text(encoding="utf-8")
+    template = (ROOT / "deploy" / "container-secrets.env.example").read_text(
+        encoding="utf-8"
+    )
     assert "RISK_LAYER_TOKEN=" in template
     assert "RISK_LAYER_DEFINITIONEN_DIR=" in template
     active_lines = [

@@ -4,7 +4,7 @@
   Aktivierungs-Hook fuer transaktionale Windows-Releases.
 .DESCRIPTION
   Stoppt den begrenzten Benutzer-Task, falls er laeuft, und startet ihn neu.
-  Die anschliessende Release-/Health-Pruefung uebernimmt risk-layerctl. Das
+  Die anschliessende Release-/Health-Pruefung uebernimmt signal. Das
   Skript veraendert weder Taskdefinition noch Token und benoetigt keine
   administrativen Rechte.
 #>

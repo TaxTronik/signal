@@ -150,7 +150,7 @@ _IBM_CREDENTIALS_FEHLEN = (
     "(~/.qiskit/qiskit-ibm.json bzw. QISKIT_IBM_TOKEN) — oder das Backend "
     "bewusst anders wählen (simulator|csprng); stille Degradation "
     "auf lokalen Zufall gibt es nicht. Quanten-Extras hash-gepinnt: "
-    "deploy.sh --with-quanten bzw. deploy.ps1 -WithQuanten.")
+    "scripts/setup.sh --with-quanten bzw. scripts/setup.ps1 -WithQuanten.")
 
 
 def _ohne_token(text: str, token: str | None) -> str:

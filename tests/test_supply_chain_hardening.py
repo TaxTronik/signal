@@ -16,8 +16,8 @@ def _text(relativ: str) -> str:
 
 def test_produktionsinstaller_loesen_keine_ml_ranges_mehr_auf() -> None:
     docker = _text("Dockerfile")
-    linux = _text("deploy.sh")
-    windows = _text("deploy.ps1")
+    linux = _text("scripts/setup.sh")
+    windows = _text("scripts/setup.ps1")
 
     assert "requirements-runtime-lock.txt" in docker
     assert "requirements-lock.txt" not in docker

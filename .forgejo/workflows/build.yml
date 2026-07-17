@@ -37,9 +37,9 @@ jobs:
 
       - name: Bash-Syntax (Deploy-/Release-Skripte)
         run: |
-          bash -n deploy.sh
-          bash -n build-release-artifact.sh
-          bash -n risk-layerctl
+          bash -n scripts/setup.sh
+          bash -n scripts/build-release-artifact.sh
+          bash -n signal
 
       # PowerShell-Parse-Check OPPORTUNISTISCH: läuft nur, falls pwsh im
       # Runner-Image vorhanden ist (kein Windows-Runner in der Flotte — bewusst
@@ -51,7 +51,7 @@ jobs:
           if command -v pwsh >/dev/null 2>&1; then
             pwsh -NoProfile -Command '
               $gesamt = 0
-              foreach ($f in "deploy.ps1","risk-layerctl.ps1","install-service.ps1","build-release-artifact.ps1","deploy/install-backup-task.ps1","deploy/restart-risk-layer-task.ps1") {
+              foreach ($f in "scripts/setup.ps1","signal.ps1","deploy/install-service.ps1","scripts/build-release-artifact.ps1","deploy/install-backup-task.ps1","deploy/restart-risk-layer-task.ps1") {
                 $tokens = $null; $fehler = $null
                 [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $f).Path, [ref]$tokens, [ref]$fehler)
                 if ($fehler.Count -gt 0) {
@@ -345,7 +345,7 @@ jobs:
           docker build --build-arg "WITH_EMBEDDING=$embedding_build_arg" \
             -t risk-layer-engine:release .
           python -m pip wheel --no-build-isolation --no-deps --wheel-dir dist .
-          ./build-release-artifact.sh "$RELEASE_TAG" "$festwissen_mode"
+          ./scripts/build-release-artifact.sh "$RELEASE_TAG" "$festwissen_mode"
           wheel="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
           test -n "$wheel" || { echo "Wheel fehlt" >&2; exit 1; }
           python - "$wheel" <<'PY'
@@ -469,7 +469,7 @@ jobs:
             "taxtronik-native-$RELEASE_TAG.tar.gz" \
             "taxtronik-native-$RELEASE_TAG.tar.gz.sha256" \
             docker-compose.yml \
-            .env.release.example \
+            deploy/container-secrets.env.example \
             risk-layer-release-tools.pyz \
             risk-layer-release-tools.pyz.sha256 \
             tools/verify_container_release_manifest.py \
@@ -478,14 +478,14 @@ jobs:
             deploy/install-release-service.py \
             deploy/risk-layer-release.service.in \
             deploy/release-launcher.py \
-            install-service.ps1 \
+            deploy/install-service.ps1 \
             deploy/restart-risk-layer-task.ps1 \
             deploy/install-backup-task.ps1 \
             deploy/risk-layer-ops.example.json \
             deploy/risk-layer-ops.native-linux.example.json \
             deploy/risk-layer-ops.native-windows.example.json \
-            risk-layerctl \
-            risk-layerctl.ps1 \
+            signal \
+            signal.ps1 \
             deploy/risk-layer-backup.service \
             deploy/risk-layer-backup.timer \
             deploy/risk-layer-backup.env.example
@@ -516,12 +516,12 @@ jobs:
             --operator-profile-container-linux "$stage/risk-layer-ops.example.json" \
             --operator-profile-native-linux "$stage/risk-layer-ops.native-linux.example.json" \
             --operator-profile-native-windows "$stage/risk-layer-ops.native-windows.example.json" \
-            --operator-wrapper-posix "$stage/risk-layerctl" \
-            --operator-wrapper-windows "$stage/risk-layerctl.ps1" \
+            --operator-wrapper-posix "$stage/signal" \
+            --operator-wrapper-windows "$stage/signal.ps1" \
             --backup-systemd-service "$stage/risk-layer-backup.service" \
             --backup-systemd-timer "$stage/risk-layer-backup.timer" \
             --backup-systemd-env "$stage/risk-layer-backup.env.example" \
-            --container-secrets-env-example "$stage/.env.release.example" \
+            --container-secrets-env-example "$stage/container-secrets.env.example" \
             --output "$stage/taxtronik-container-$RELEASE_TAG.json"
           python -I "$stage/risk-layer-release-tools.pyz" verify-container \
             "$stage/taxtronik-container-$RELEASE_TAG.json" --artifact-dir "$stage"
@@ -593,7 +593,7 @@ jobs:
           upload "$stage/taxtronik-native-$RELEASE_TAG.tar.gz"
           upload "$stage/taxtronik-native-$RELEASE_TAG.tar.gz.sha256"
           upload "$stage/docker-compose.yml"
-          upload "$stage/.env.release.example"
+          upload "$stage/container-secrets.env.example"
           upload "$stage/risk-layer-release-tools.pyz"
           upload "$stage/risk-layer-release-tools.pyz.sha256"
           upload "$stage/verify_container_release_manifest.py"
@@ -608,8 +608,8 @@ jobs:
           upload "$stage/risk-layer-ops.example.json"
           upload "$stage/risk-layer-ops.native-linux.example.json"
           upload "$stage/risk-layer-ops.native-windows.example.json"
-          upload "$stage/risk-layerctl"
-          upload "$stage/risk-layerctl.ps1"
+          upload "$stage/signal"
+          upload "$stage/signal.ps1"
           upload "$stage/risk-layer-backup.service"
           upload "$stage/risk-layer-backup.timer"
           upload "$stage/risk-layer-backup.env.example"

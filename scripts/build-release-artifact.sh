@@ -5,11 +5,11 @@
 # Python-Paketen ab. Mandanten- und Beraterdaten werden niemals aufgenommen.
 #
 # Aufruf:
-#   ./build-release-artifact.sh VERSION [--mit-embedding|--ohne-embedding]
+#   ./scripts/build-release-artifact.sh VERSION [--mit-embedding|--ohne-embedding]
 # Für byte-identische Wiederholungen denselben SOURCE_DATE_EPOCH mitgeben.
 # =============================================================================
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 PY=python3
@@ -80,4 +80,4 @@ echo "=== fertig ==="
 echo "  $OUT"
 echo "  $OUT.sha256"
 echo "  $OUT.manifest.json"
-echo "Installation ausschließlich über das profilbasierte risk-layerctl; nicht live entpacken."
+echo "Installation ausschließlich über das profilbasierte signal; nicht live entpacken."

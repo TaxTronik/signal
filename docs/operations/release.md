@@ -6,14 +6,11 @@ Ein produktiver Host verwendet ein geprüftes Betreiberprofil und genau eine
 Oberfläche:
 
 ```bash
-CONFIG=/etc/risk-layer/ops.json
-ARTIFACT=/mnt/release-media/incoming-v1.4.0
-MANIFEST_SHA256=64_LOWERCASE_HEX
-# Backupziel und .risk-layer-backup-target.json wurden extern provisioniert.
-./risk-layerctl --config "$CONFIG" doctor --fix
-./risk-layerctl --config "$CONFIG" bootstrap "$ARTIFACT" \
-  --manifest-sha256 "$MANIFEST_SHA256"
-./risk-layerctl --config "$CONFIG" status
+# Backupziel und .risk-layer-backup-target.json wurden extern provisioniert;
+# genau ein vollständiges Release liegt unter <release_home>/incoming.
+./signal doctor --fix
+./signal bootstrap
+./signal status
 ```
 
 Diese Schreibweise bezeichnet den stabilen Operatorvertrag. Der Root-Wrapper
@@ -34,11 +31,9 @@ Ein Folgerelease wird nach Bereitstellung seiner Artefakte über `update`
 eingespielt:
 
 ```bash
-./risk-layerctl --config "$CONFIG" deploy "$ARTIFACT" \
-  --manifest-sha256 "$MANIFEST_SHA256"
-./risk-layerctl --config "$CONFIG" update "$NEXT_ARTIFACT" \
-  --manifest-sha256 "$NEXT_MANIFEST_SHA256"
-./risk-layerctl --config "$CONFIG" status
+./signal deploy
+./signal update
+./signal status
 ```
 
 `bootstrap` verlangt fehlenden, `update` vorhandenen Deployment-State. `deploy`
@@ -59,18 +54,19 @@ geeignet.
 ## Release-Eingaben und Authentizität
 
 Die Oberfläche lädt Bundle und Manifest nicht herunter. Vor `bootstrap`,
-`deploy` oder `update` müssen sie und alle weiteren dateibasierten
-Release-Eingaben lokal vorhanden sein. Das Betreiberprofil enthält nur stabile
-Instanzpfade und Einstellungen; das konkrete native Bundle-Verzeichnis oder
-Container-Manifest wird dem Release-Kommando als Argument übergeben. Der
-Container-Deployer darf das bereits manifestgebundene Engine-Image anschließend
-per OCI-Digest pullen.
+`deploy` oder `update` müssen sie im festen Eingang `<release_home>/incoming`
+liegen. Die Operator-CLI akzeptiert nur genau ein bindendes Container-Manifest
+mit streng formatierter, inhaltlich passender `.sha256`-Sidecar. Im nativen
+Modus muss genau ein extrahiertes Bundle mit passender Release-ID und passendem
+Manifest-Fingerprint danebenliegen. Mehrdeutigkeit, Links und Abweichungen sind
+harte Fehler. Der Container-Deployer darf das bereits manifestgebundene
+Engine-Image anschließend per OCI-Digest pullen.
 
-Der erwartete Manifest-SHA-256 wird über einen vom Artefakttransport getrennten
-Vertrauenskanal bezogen. Eine `.sha256`-Sidecar aus demselben Downloadort reicht
-allein nicht als Authentizitätsnachweis. Der derzeitige Release-Vertrag besitzt
-keine separate Artefaktsignatur; das darf in Betriebsfreigaben nicht anders
-behauptet werden.
+Der parameterlose Pfad vertraut auf den zugriffsgeschützten Release-Eingang, den
+authentisierten Registry-Transport und die gemeinsam veröffentlichte Sidecar.
+Diese schützt Integrität, ist aber keine kryptografische Signatur. Für eine
+Recovery mit separat bezogenem Fingerprint bleiben explizites Artefakt und
+`--manifest-sha256` als Expertenoptionen erhalten.
 
 ## Native und Container
 
@@ -111,8 +107,8 @@ Control-Venv ist dann nicht mehr Teil des Betriebs und darf entfernt werden;
 ## Rollback
 
 ```bash
-./risk-layerctl --config "$CONFIG" rollback
-./risk-layerctl --config "$CONFIG" status
+./signal rollback
+./signal status
 ```
 
 Rollback verwendet ausschließlich den gespeicherten, verifizierten

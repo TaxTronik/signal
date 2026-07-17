@@ -8,7 +8,7 @@
   harter Fehler. Mandanten- und Beraterdaten werden nie aufgenommen. Für
   byte-identische Wiederholungen denselben SOURCE_DATE_EPOCH setzen.
 .EXAMPLE
-  ./build-release-artifact.ps1 -Version 2026.07.13 -MitEmbedding
+  ./scripts/build-release-artifact.ps1 -Version 2026.07.13 -MitEmbedding
 #>
 [CmdletBinding()]
 param(
@@ -16,7 +16,8 @@ param(
     [switch]$MitEmbedding
 )
 $ErrorActionPreference = "Stop"
-Set-Location -LiteralPath $PSScriptRoot
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+Set-Location -LiteralPath $RepoRoot
 
 function Invoke-Cli([string[]]$Command) {
     & python -m risk_layer.cli @Command
@@ -118,4 +119,4 @@ Write-Host "=== fertig ===" -ForegroundColor Green
 Write-Host "  $out"
 Write-Host "  $out.sha256"
 Write-Host "  $out.manifest.json"
-Write-Host "Installation ausschließlich über das profilbasierte risk-layerctl; nicht live entpacken."
+Write-Host "Installation ausschließlich über das profilbasierte signal; nicht live entpacken."

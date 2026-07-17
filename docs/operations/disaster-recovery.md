@@ -10,7 +10,7 @@ Anwendungsdatenbackup. Nicht enthalten und getrennt vorzuhalten sind:
 - das Betreiberprofil und Secrets beziehungsweise ein Verfahren zur
   kontrollierten Neuausstellung;
 - die tatsächlich betriebenen unveränderlichen Release-Artefakte;
-- der erwartete Manifest-SHA aus dem getrennten Vertrauenskanal;
+- Release-Manifest und Sidecar sowie optional ein separat verwahrter Manifest-SHA;
 - Plattform- und Dienstkonfiguration sowie Zugang zum externen Backupziel.
 
 Zum gesicherten Betriebsvertrag gehören außerdem die `backup_target_id` und der
@@ -29,10 +29,9 @@ Vor einem produktiven Restore werden Archiv, Zielrelease und Vertrauenswert
 identifiziert. Das Archiv wird vor jeder Mutation geprüft:
 
 ```bash
-CONFIG=/etc/risk-layer/ops.json
-./risk-layerctl --config "$CONFIG" backup-verify /backup/festwissen_ZEIT.zip
-./risk-layerctl --config "$CONFIG" restore --list
-./risk-layerctl --config "$CONFIG" status
+./signal backup-verify /backup/festwissen_ZEIT.zip
+./signal restore
+./signal status
 ```
 
 Ein produktiver Restore findet nur in einem Wartungsfenster statt. Der aktuelle
@@ -44,10 +43,10 @@ Restore-Lifecycle zusätzlich ein geprüftes Vorher-Backup.
 ```bash
 ARCHIVE=/backup/festwissen_ZEIT.zip
 SHA256=HASH_AUS_RESTORE_LIST
-./risk-layerctl --config "$CONFIG" restore --file "$ARCHIVE" \
+./signal restore --file "$ARCHIVE" \
   --confirm "RESTORE festwissen_ZEIT.zip SHA256 $SHA256 TO /var/lib/risk-layer/definitionen"
-./risk-layerctl --config "$CONFIG" status
-./risk-layerctl --config "$CONFIG" doctor
+./signal status
+./signal doctor
 ```
 
 Die Bestätigung besteht exakt aus `RESTORE`, dem ausgewählten Basisdateinamen,

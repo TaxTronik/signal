@@ -10,7 +10,8 @@ if command -v readlink >/dev/null 2>&1; then
 fi
 ROOT="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 OPERATOR="$ROOT/risk_layer/operator_cli.py"
-if [[ -z "${RISK_LAYER_OPS_PROFILE:-}" && -f "$OPERATOR" ]]; then
+LOCAL_PROFILE="$ROOT/deploy/risk-layer-ops.json"
+if [[ -z "${RISK_LAYER_OPS_PROFILE:-}" && -f "$LOCAL_PROFILE" ]]; then
   export RISK_LAYER_OPS_PROFILE="$ROOT/deploy/risk-layer-ops.json"
 fi
 if [[ -n "${RISK_LAYER_OPERATOR_PYTHON:-}" ]]; then
@@ -24,7 +25,7 @@ elif command -v python3 >/dev/null 2>&1; then
 elif command -v python >/dev/null 2>&1; then
   PYTHON=python
 else
-  printf 'risk-layerctl: Kein Python gefunden (erwartet .venv, python3.12, python3 oder python).\n' >&2
+  printf 'signal: Kein Python gefunden (erwartet .venv, python3.12, python3 oder python).\n' >&2
   exit 127
 fi
 if [[ -f "$OPERATOR" ]]; then
@@ -34,5 +35,5 @@ RELEASE_TOOLS="${RISK_LAYER_RELEASE_TOOLS:-$ROOT/risk-layer-release-tools.pyz}"
 if [[ -f "$RELEASE_TOOLS" ]]; then
   exec "$PYTHON" -I "$RELEASE_TOOLS" ops "$@"
 fi
-printf 'risk-layerctl: Weder Operator-Modul noch Release-Zipapp gefunden.\n' >&2
+printf 'signal: Weder Operator-Modul noch Release-Zipapp gefunden.\n' >&2
 exit 127

@@ -848,7 +848,7 @@ def test_los_ziehen_qpu_ohne_credentials_503(app, monkeypatch):
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "qpu"}, {})
     assert code == 503 and obj["ok"] is False
     assert "IBM" in obj["fehler"] and "Credentials" in obj["fehler"]
-    assert "deploy.sh --with-quanten" in obj["fehler"]
+    assert "scripts/setup.sh --with-quanten" in obj["fehler"]
     assert obj["engineVersion"] == V1_VERSION
 
 
@@ -860,7 +860,7 @@ def test_los_ziehen_ohne_quanten_extras_503(app, monkeypatch):
     code, obj = dispatch(app, "POST", "/v1/los/ziehen",
                          {"rahmen": _LOS_RAHMEN, "k": 3, "backend": "simulator"}, {})
     assert code == 503 and obj["ok"] is False
-    assert "deploy.sh --with-quanten" in obj["fehler"]
+    assert "scripts/setup.sh --with-quanten" in obj["fehler"]
 
 
 class _FakeQpuSeite:

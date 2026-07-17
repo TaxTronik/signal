@@ -2,7 +2,7 @@
 
 Diese Seiten beschreiben den normalen Betreiberpfad für native Installationen
 und den Produktions-Compose-Stack. Die einheitliche Oberfläche ist unter Linux
-`./risk-layerctl`, unter Windows `.\risk-layerctl.ps1`.
+`./signal`, unter Windows `.\signal.ps1`.
 
 Die Arbeitskopien im Repo-Root sind Komfort-Wrapper für einen Checkout und für
 sich allein kein Vertrauensanker. Ihre veröffentlichten Kopien, die Profile und
@@ -21,22 +21,22 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 ## Ein Einstieg
 
 ```text
-./risk-layerctl [--config PFAD] bootstrap
-./risk-layerctl [--config PFAD] deploy
-./risk-layerctl [--config PFAD] update
-./risk-layerctl [--config PFAD] status
-./risk-layerctl [--config PFAD] doctor [--fix]
-./risk-layerctl [--config PFAD] backup
-./risk-layerctl [--config PFAD] backup-verify
-./risk-layerctl [--config PFAD] backup-prune
-./risk-layerctl [--config PFAD] restore
-./risk-layerctl [--config PFAD] rollback
+./signal bootstrap
+./signal deploy
+./signal update
+./signal status
+./signal doctor
+./signal backup
+./signal backup-verify
+./signal backup-prune
+./signal restore
+./signal rollback
 ```
 
 PowerShell verwendet dieselben Kommandos:
 
 ```powershell
-.\risk-layerctl.ps1 [--config PFAD] status
+.\signal.ps1 status
 ```
 
 | Kommando | Zweck |
@@ -47,16 +47,23 @@ PowerShell verwendet dieselben Kommandos:
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |
 | `backup` | den vollständigen nicht regenerierbaren Anwendungszustand sichern |
-| `backup-verify` | ein Backup vollständig und ohne Mutation prüfen |
+| `backup-verify` | das neueste Backup vollständig und ohne Mutation prüfen |
 | `backup-prune` | die konfigurierte Aufbewahrung planen beziehungsweise bewusst anwenden |
-| `restore` | ein geprüftes Backup kontrolliert wiederherstellen |
+| `restore` | ohne Parameter Backups auflisten; die Wiederherstellung bleibt bewusst bestätigungspflichtig |
 | `rollback` | auf die verifizierte vorherige Release-Generation zurückschalten |
 
-Die drei Release-Kommandos benötigen das lokale Artefakt und den separat
-bezogenen Manifest-Hash:
+Die drei Release-Kommandos wählen ihr Release automatisch aus dem kontrollierten
+Eingang `<release_home>/incoming`. Dort muss genau ein veröffentlichtes
+`taxtronik-container-*.json` samt gleichnamiger `.sha256`-Sidecar liegen. Im
+nativen Modus liegt dort zusätzlich genau ein extrahiertes Bundle, dessen
+`release.json` zu Release-ID und Manifest-Fingerprint passt. Fehlende,
+mehrdeutige, verlinkte oder manipulierte Eingaben werden abgelehnt.
+
+Damit sind die normalen Aufrufe parameterlos. Ein explizites Artefakt samt
+separat bezogenem Hash bleibt für Recovery und kontrollierte Sonderfälle möglich:
 
 ```bash
-./risk-layerctl --config PFAD update RELEASE-ARTEFAKT \
+./signal --config PFAD update RELEASE-ARTEFAKT \
   --manifest-sha256 MANIFEST_SHA256
 ```
 
@@ -75,11 +82,11 @@ und
 [`deploy/risk-layer-ops.native-windows.example.json`](../../deploy/risk-layer-ops.native-windows.example.json).
 Die passende Datei wird an einen zugriffsbeschränkten Ort kopiert und dort mit
 absoluten Release-, Daten-, Backup- und Dienstpfaden vervollständigt. Für Automation und
-Produktionsbetrieb sollte `--config PFAD` explizit gesetzt
-werden. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`, danach der kanonische
+Produktionsbetrieb liegt das Profil am kanonischen Pfad, sodass kein Parameter
+nötig ist. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`, danach der kanonische
 Produktionspfad `/etc/risk-layer/ops.json` beziehungsweise unter Windows
 `C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Nur der Checkout-Wrapper
-setzt bei vorhandenem Quellmodul stattdessen seinen absoluten
+setzt bei tatsächlich vorhandener Datei stattdessen seinen absoluten
 `deploy/risk-layer-ops.json`-Kompatibilitätspfad.
 
 `python` ist der stabile Betriebssystem-Interpreter für Standardbibliothek-
@@ -98,7 +105,8 @@ Berater- und Backup-Verzeichnis dürfen weder gleich sein noch ineinander liegen
 private Token-/Secret-Pfade bleiben außerhalb dieser Datenverzeichnisse.
 
 `doctor --fix` erzeugt ausschließlich fehlende lokale Release-/State-/Berater-
-Verzeichnisse sowie Token und Container-Secret-Env mit restriktiven Rechten.
+Verzeichnisse, den Release-Eingang sowie Token und Container-Secret-Env mit
+restriktiven Rechten.
 Das profilierte `backup_dir` wird bewusst nie erzeugt: Ein fehlender Off-host-
 Mount ist ein harter Fehler. Im bereits extern provisionierten Ziel muss
 `.risk-layer-backup-target.json` exakt Schema
@@ -120,23 +128,22 @@ Pflichtbackup.
 
 Die Operator-CLI lädt native Bundles, Container-Manifeste und andere
 dateibasierte Release-Artefakte nicht automatisch herunter. Sie werden vor dem
-Aufruf aus der authentisierten Package Registry bereitgestellt; nur der
-Container-Deployer darf danach das manifestgebundene Engine-Image per OCI-Digest
-pullen. Der erwartete SHA-256-Wert des bindenden Manifests muss aus einem
-getrennten, vertrauenswürdigen Kanal stammen. Die veröffentlichten
-`.sha256`-Dateien erkennen Übertragungsfehler, sind aber keine Signatur.
+Aufruf aus der authentisierten Package Registry im zugriffsgeschützten Eingang
+bereitgestellt; nur der Container-Deployer darf danach das manifestgebundene
+Engine-Image per OCI-Digest pullen. Die veröffentlichte `.sha256`-Datei bindet
+den parameterlosen Pfad an das Manifest und erkennt Übertragungsfehler, ist aber
+keine Signatur. Ein separat bezogener SHA-256 bleibt für Recovery möglich.
 
 ## Alt- und Expertenpfade
 
-`deploy.sh` und `deploy.ps1` bleiben lokale Checkout-Bootstraps und
-Kompatibilitätspfade; sie sind keine produktiven In-place-Updater. Lange Aufrufe
+`scripts/setup.sh` und `scripts/setup.ps1` bleiben lokale Checkout-Bootstraps;
+sie sind keine produktiven In-place-Updater. Lange Aufrufe
 von `risk-layer-ops release ...` und `release-launcher.py` sowie direkte
 `risk-layer-release-tools.pyz deploy-container ...`-Aufrufe sind weiterhin die
 Recovery-/Expertenebene hinter `risk-layer-release-tools.pyz ops ...`.
 
-Beim Umstieg gilt: Der bisherige technische Console-Einstieg `risk-layerctl
-release ...` heißt nun `risk-layer-ops release ...`. Der Name `risk-layerctl`
-bezeichnet ausschließlich die profilbasierte Standardoberfläche. Direkte
+`signal` bezeichnet ausschließlich die profilbasierte Standardoberfläche.
+Technische Release-Eingriffe laufen über `risk-layer-ops release ...`. Direkte
 `backup create`-/`prune`-/`restore`-Aufrufe werden im Normalbetrieb durch
 `backup`, `backup-prune` und `restore` der Fassade ersetzt.
 

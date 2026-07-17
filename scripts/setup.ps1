@@ -33,13 +33,13 @@
   kein Geheimnis und sperrt dadurch nicht unbeabsichtigt bestehende Clients aus.
 
 .EXAMPLE
-  ./deploy.ps1                          # Deps + Modell + Engine + Korpus/Graph/Trigger
+  ./scripts/setup.ps1                   # Deps + Modell + Engine + Korpus/Graph/Trigger
 .EXAMPLE
-  ./deploy.ps1 -WithEmbedding -Voll     # zusaetzlich Embedding-Index + breiter Korpus
+  ./scripts/setup.ps1 -WithEmbedding -Voll
 .EXAMPLE
-  ./deploy.ps1 -SkipModel -SkipEngine   # nur Korpus/Graph bauen (LLM separat)
+  ./scripts/setup.ps1 -SkipModel -SkipEngine
 .EXAMPLE
-  ./deploy.ps1 -Start                   # Setup, dann Engine starten
+  ./scripts/setup.ps1 -Start
 #>
 [CmdletBinding()]
 param(
@@ -63,7 +63,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-Set-Location -LiteralPath $PSScriptRoot
+$RepoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+Set-Location -LiteralPath $RepoRoot
 
 function Schritt($t) { Write-Host "`n=== $t ===" -ForegroundColor Cyan }
 function Info($t)    { Write-Host "  $t" -ForegroundColor DarkGray }
@@ -352,7 +353,7 @@ if (-not $OhneNer) {
 
 # --- Auth-Token ------------------------------------------------------------
 Schritt "Auth-Token (.engine_token)"
-$tokenPath = Join-Path $PSScriptRoot ".engine_token"
+$tokenPath = Join-Path $RepoRoot ".engine_token"
 if (Test-Path -LiteralPath $tokenPath) {
     $tokenItem = Get-Item -LiteralPath $tokenPath -Force
     if ($tokenItem.PSIsContainer -or (($tokenItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
@@ -402,7 +403,7 @@ if (-not $SkipEngine) {
         OkMsg "llama-server gefunden (./engine oder PATH) - uebersprungen"
     } else {
         Info "laedt die passende llama.cpp-Release (NVIDIA->cuda, AMD->hip, sonst Vulkan/CPU) nach ./engine ..."
-        # Download-Fehler NICHT fatal (wie deploy.sh): ohne llama-server laufen alle
+        # Download-Fehler NICHT fatal (wie setup.sh): ohne llama-server laufen alle
         # deterministischen Layer + /v1; nur 'mitLLM:true' ist inaktiv.
         & python -m risk_layer.cli modell engine --backend $Backend
         if ($LASTEXITCODE -ne 0) {
@@ -505,11 +506,11 @@ Write-Host "  Get-Content -LiteralPath .engine_token -Raw"
 Write-Host "Ein-Befehl-Start (Engine + LLM):" -ForegroundColor Yellow
 Write-Host '  $env:RISK_LAYER_TOKEN = (Get-Content .engine_token -Raw).Trim()'
 Write-Host "  python -m risk_layer.web --host $BindHost --port $Port --llm-autostart"
-Write-Host "Doppelklick-Alltagsstart: start.cmd   |   Sicherer Autostart: ./deploy.ps1 -Service" -ForegroundColor Yellow
+Write-Host "Alltagsbetrieb: .\signal.ps1 status   |   Checkout-Setup: .\scripts\setup.ps1" -ForegroundColor Yellow
 
 if ($Service) {
     Schritt "Windows-Autostart einrichten (begrenzter Benutzer-Task, --llm-autostart)"
-    & "$PSScriptRoot/install-service.ps1" -Port $Port -BindHost $BindHost `
+    & "$RepoRoot/deploy/install-service.ps1" -Port $Port -BindHost $BindHost `
         -EmbeddingDevice $env:RISK_LAYER_EMB_DEVICE
     if (-not $?) { throw "Windows-Autostart konnte nicht installiert werden." }
     $healthHost = if ($BindHost -in @("0.0.0.0", "::", "")) { "127.0.0.1" } else { $BindHost }

@@ -496,9 +496,9 @@ def test_quellen_import_guard_nennt_install_extra(monkeypatch):
     KEINE stille Degradation (sys.modules-Block simuliert fehlende Pakete)."""
     for modul in ("qiskit", "qiskit_aer", "qiskit_ibm_runtime"):
         monkeypatch.setitem(sys.modules, modul, None)
-    with pytest.raises(Q.QuantenlosFehler, match=r"deploy\.sh --with-quanten"):
+    with pytest.raises(Q.QuantenlosFehler, match=r"scripts/setup\.sh --with-quanten"):
         Q.SimulatorQuelle().hole_bits("c0ffee")
-    with pytest.raises(Q.QuantenlosFehler, match=r"deploy\.sh --with-quanten"):
+    with pytest.raises(Q.QuantenlosFehler, match=r"scripts/setup\.sh --with-quanten"):
         Q.QPUQuelle().hole_bits("c0ffee")
 
 

@@ -1,14 +1,13 @@
 # Day-2-Betrieb
 
-Für alle Beispiele ist `CONFIG` das zugriffsbeschränkte Betreiberprofil. Unter
-Windows werden dieselben Kommandos mit `.\risk-layerctl.ps1` ausgeführt.
+Das zugriffsbeschränkte Betreiberprofil liegt am kanonischen Systempfad. Unter
+Windows werden dieselben Kommandos mit `.\signal.ps1` ausgeführt.
 
 ## Regelmäßige Kontrolle
 
 ```bash
-CONFIG=/etc/risk-layer/ops.json
-./risk-layerctl --config "$CONFIG" status
-./risk-layerctl --config "$CONFIG" doctor
+./signal status
+./signal doctor
 ```
 
 `status` aggregiert Deployment-State und standardmäßig den authentisierten
@@ -20,17 +19,15 @@ Dienstzustand und `/v1/status` zum freigegebenen Release passen.
 
 ## Update-Fenster
 
-Vor dem Fenster werden Release-Artefakte und der erwartete Manifest-SHA über die
-festgelegten getrennten Kanäle bereitgestellt. Danach:
+Vor dem Fenster wird genau ein veröffentlichtes Release samt `.sha256` im
+profilierten Verzeichnis `<release_home>/incoming` bereitgestellt. Native Hosts
+erhalten dort zusätzlich das passend extrahierte Bundle. Danach:
 
 ```bash
-NEXT_ARTIFACT=/mnt/release-media/incoming-v1.4.1
-NEXT_MANIFEST_SHA256=64_LOWERCASE_HEX
-./risk-layerctl --config "$CONFIG" doctor
-./risk-layerctl --config "$CONFIG" backup
-./risk-layerctl --config "$CONFIG" update "$NEXT_ARTIFACT" \
-  --manifest-sha256 "$NEXT_MANIFEST_SHA256"
-./risk-layerctl --config "$CONFIG" status
+./signal doctor
+./signal backup
+./signal update
+./signal status
 ```
 
 Der explizite erste Snapshot ist eine zusätzliche Bedienkontrolle; der
@@ -40,10 +37,10 @@ lokal veränderter Git-Checkout ist kein Updatekanal.
 ## Backup und Aufbewahrung
 
 ```bash
-./risk-layerctl --config "$CONFIG" backup
-./risk-layerctl --config "$CONFIG" backup-verify /pfad/zum/backup.zip
-./risk-layerctl --config "$CONFIG" backup-prune
-./risk-layerctl --config "$CONFIG" backup-prune --apply
+./signal backup
+./signal backup-verify
+./signal backup-prune
+./signal backup-prune --apply
 ```
 
 Das Risk-Layer-Backup enthält den vollständigen nicht regenerierbaren
@@ -72,8 +69,8 @@ Bei einem fehlgeschlagenen Update nicht State-, Journal- oder Env-Dateien von
 Hand ändern. Zuerst:
 
 ```bash
-./risk-layerctl --config "$CONFIG" status
-./risk-layerctl --config "$CONFIG" doctor
+./signal status
+./signal doctor
 ```
 
 Ist `current` nicht gesund und `previous` verifiziert, folgt der dokumentierte

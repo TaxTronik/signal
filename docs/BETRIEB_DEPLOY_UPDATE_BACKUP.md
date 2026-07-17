@@ -10,37 +10,40 @@ Der normale Betreiberpfad ist absichtlich kürzer als die technischen Beispiele
 in diesem Dokument:
 
 ```text
-./risk-layerctl [--config PFAD] bootstrap
-./risk-layerctl [--config PFAD] deploy
-./risk-layerctl [--config PFAD] update
-./risk-layerctl [--config PFAD] status
-./risk-layerctl [--config PFAD] doctor [--fix]
-./risk-layerctl [--config PFAD] backup
-./risk-layerctl [--config PFAD] backup-verify
-./risk-layerctl [--config PFAD] backup-prune
-./risk-layerctl [--config PFAD] restore
-./risk-layerctl [--config PFAD] rollback
+./signal bootstrap
+./signal deploy
+./signal update
+./signal status
+./signal doctor
+./signal backup
+./signal backup-verify
+./signal backup-prune
+./signal restore
+./signal rollback
 ```
 
-`bootstrap`, `deploy` und `update` erhalten zusätzlich das lokale
-Release-Artefakt und `--manifest-sha256 HASH`. Im nativen Modus ist das Artefakt
-das extrahierte Bundle-Verzeichnis, im Container-Modus das bindende
-Container-Manifest. `restore` wählt mit `--list`, `--latest` oder `--file
-ARCHIV`; jede Mutation verlangt zusätzlich die exakt ausgegebene
-`--confirm`-Zeichenfolge.
+`bootstrap`, `deploy` und `update` wählen im Normalbetrieb automatisch genau ein
+Release aus `<release_home>/incoming`. Dort liegen das bindende
+`taxtronik-container-*.json`, seine `.sha256`-Sidecar und im nativen Modus das
+passende extrahierte Bundle. Fehlende, mehrdeutige, verlinkte oder nicht zum
+Manifest passende Eingaben scheitern geschlossen. `backup-verify` prüft ohne
+Argument das neueste Archiv. `restore` listet ohne Argument nur auf; jede
+Mutation verlangt weiterhin `--file` oder `--latest` und zusätzlich die exakt
+ausgegebene `--confirm`-Zeichenfolge.
 
-Windows verwendet dieselben Kommandos über `.\risk-layerctl.ps1`. Vorlagen
+Windows verwendet dieselben Kommandos über `.\signal.ps1`. Vorlagen
 existieren für
 [Container/Linux](../deploy/risk-layer-ops.example.json),
 [Native/Linux](../deploy/risk-layer-ops.native-linux.example.json) und
 [Native/Windows](../deploy/risk-layer-ops.native-windows.example.json).
-Für Automation wird `--config` explizit gesetzt. Ohne Angabe gilt zuerst
-`RISK_LAYER_OPS_PROFILE`, danach `/etc/risk-layer/ops.json` beziehungsweise
+Das Profil liegt im Normalbetrieb am kanonischen Pfad, daher braucht auch
+Automation keinen Parameter. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`,
+danach `/etc/risk-layer/ops.json` beziehungsweise
 unter Windows `C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Nur der
-Checkout-Wrapper setzt bei vorhandenem Quellmodul seinen absoluten
+Checkout-Wrapper setzt bei tatsächlich vorhandener Datei seinen absoluten
 `deploy/risk-layer-ops.json`-Kompatibilitätspfad.
 
-`./risk-layerctl` und `.\risk-layerctl.ps1` im Repo-Root sind als bloße
+`./signal` und `.\signal.ps1` im Repo-Root sind als bloße
 Arbeitskopien kein Vertrauensanker. Die veröffentlichten Kopien werden zusammen
 mit Profilen und Schedulern im Bootstrap-Block des Release-Manifests gehasht.
 Auf einem checkout-freien Produktions- oder Recovery-Host stellt diese
@@ -55,10 +58,11 @@ manifestgebundene Zipapp delegieren.
 
 Die Oberfläche lädt native Bundles, Container-Manifeste und andere
 dateibasierte Release-Artefakte nicht automatisch herunter und behauptet keine
-Artefaktsignatur. Diese Dateien müssen vorab lokal bereitstehen; nur der
-Container-Deployer darf anschließend das manifestgebundene Engine-Image per
-OCI-Digest pullen. Der erwartete Manifest-SHA kommt aus einem getrennten
-Vertrauenskanal. Für den Container-Pfad muss die native Release-Generation
+Artefaktsignatur. Diese Dateien müssen vorab im zugriffsgeschützten Eingang
+bereitstehen; nur der Container-Deployer darf anschließend das
+manifestgebundene Engine-Image per OCI-Digest pullen. Der parameterlose Pfad
+bindet das Manifest an seine veröffentlichte Sidecar; ein separat bezogener
+Manifest-SHA bleibt als Recovery-Option verfügbar. Für den Container-Pfad muss die native Release-Generation
 desselben Manifests bereits als verifizierter `current`-Stand aktiv sein; die
 Fassade vergleicht Release-ID, Git-SHA und nativen Manifest-Fingerprint. Ein
 Risk-Layer-Backup umfasst den
@@ -66,8 +70,8 @@ vollständigen nicht regenerierbaren Anwendungszustand, die
 Berater-Definitionen; Release-Artefakte, Konfiguration und Secrets werden
 getrennt aufbewahrt.
 
-`deploy.sh` und `deploy.ps1` sind weiterhin lokale Checkout-Bootstraps und
-Kompatibilitätspfade. Die nachfolgenden langen Aufrufe von
+`scripts/setup.sh` und `scripts/setup.ps1` sind lokale Checkout-Bootstraps. Die
+nachfolgenden langen Aufrufe von
 `risk-layer-ops release ...` und `release-launcher.py` sowie direkte
 `risk-layer-release-tools.pyz deploy-container ...`-Aufrufe dokumentieren die
 Recovery-/Expertenebene hinter `ops`, nicht den alltäglichen Operatorvertrag.
@@ -143,8 +147,8 @@ ist jetzt eine explizite Entscheidung und hängt nicht von der lokalen Umgebung
 ab:
 
 ```bash
-./build-release-artifact.sh 2026.07.13 --ohne-embedding
-./build-release-artifact.sh 2026.07.13 --mit-embedding
+./scripts/build-release-artifact.sh 2026.07.13 --ohne-embedding
+./scripts/build-release-artifact.sh 2026.07.13 --mit-embedding
 ```
 
 `--mit-embedding` snapshotet `BAAI/bge-m3` ausschließlich am Commit
@@ -256,7 +260,7 @@ python3.12 -m venv --copies /tmp/risk-layer-bootstrap
 
 Nach der ersten Aktivierung startet der manifestgebundene stabile
 `release-launcher.py` stets die verifizierte `current`-Runtime. Auch spätere
-Update-Kommandos können damit ohne global installiertes `risk-layerctl`
+Update-Kommandos können damit ohne global installiertes `signal`
 ausgeführt werden. Die Bootstrap-Venv wird danach entfernt.
 
 ### Backupziel einmalig binden
@@ -304,8 +308,8 @@ sudo install -o root -g "$(id -gn)" -m 0640 \
 install -d -m 0700 ~/.config/risk-layer
 install -m 0555 risk-layer-release-tools.pyz \
   /opt/risk-layer/bootstrap/risk-layer-release-tools.pyz
-install -m 0555 risk-layerctl /opt/risk-layer/bootstrap/risk-layerctl
-sudo ln -s /opt/risk-layer/bootstrap/risk-layerctl /usr/local/bin/risk-layerctl
+install -m 0555 signal /opt/risk-layer/bootstrap/signal
+sudo ln -s /opt/risk-layer/bootstrap/signal /usr/local/bin/signal
 install -m 0555 release-launcher.py /opt/risk-layer/bootstrap/release-launcher.py
 install -m 0555 install-release-service.py /opt/risk-layer/bootstrap/install-release-service.py
 install -m 0444 risk-layer-release.service.in \
@@ -431,7 +435,7 @@ New-Item -ItemType Directory -Force -Path $Stable | Out-Null
 $Identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 & icacls.exe $Stable /inheritance:r /grant:r "${Identity}:(OI)(CI)F" | Out-Null
 Copy-Item release-launcher.py, install-service.ps1, restart-risk-layer-task.ps1, `
-  install-backup-task.ps1, risk-layer-release-tools.pyz, risk-layerctl.ps1 `
+  install-backup-task.ps1, risk-layer-release-tools.pyz, signal.ps1 `
   -Destination $Stable
 $ConfigHome = "C:\ProgramData\TaxTronik\RiskLayer\config"
 New-Item -ItemType Directory -Force -Path $ConfigHome | Out-Null
@@ -629,19 +633,17 @@ die tatsächlich betriebenen Releases müssen in Forgejo beziehungsweise einem
 Release-Spiegel erhalten bleiben.
 
 Die folgenden Beispiele verwenden ausschließlich die profilbasierte
-Standardoberfläche. Auf einem checkout-freien Host ist `risk-layerctl` der
+Standardoberfläche. Auf einem checkout-freien Host ist `signal` der
 dünne, geschützte Wrapper auf die zuvor verifizierte
-`risk-layer-release-tools.pyz ops`-Unteroberfläche. `CONFIG` bezeichnet das
-zugriffsbeschränkte Betreiberprofil.
+`risk-layer-release-tools.pyz ops`-Unteroberfläche. Das
+zugriffsbeschränkte Betreiberprofil liegt am kanonischen Systempfad.
 
 Ein Backup wird unter demselben Interprozess-Lock wie Store-Schreibvorgänge
 aufgenommen und nach dem Schreiben verifiziert:
 
 ```bash
-CONFIG=/etc/risk-layer/ops.json
-risk-layerctl --config "$CONFIG" backup
-risk-layerctl --config "$CONFIG" backup-verify \
-  /mnt/offhost/risk-layer-backups/festwissen_YYYYMMDDTHHMMSSZ.zip
+signal backup
+signal backup-verify
 ```
 
 `backup_dir` und die Retention stehen einmalig im Profil. Das Ziel muss ein
@@ -657,8 +659,8 @@ auch alle Archive der letzten 90 Tage. Ohne `--apply` zeigt `backup-prune` nur
 den Plan:
 
 ```bash
-risk-layerctl --config "$CONFIG" backup-prune
-risk-layerctl --config "$CONFIG" backup-prune --apply
+signal backup-prune
+signal backup-prune --apply
 ```
 
 Das Werkzeug selbst konfiguriert weder Netzwerkfreigaben noch Cloudzugänge.
@@ -736,16 +738,16 @@ Produktiver Restore:
 
 ```bash
 # Pflicht: aktuellen Live-Stand vor dem Restore dauerhaft sichern und prüfen.
-risk-layerctl --config "$CONFIG" backup
-risk-layerctl --config "$CONFIG" backup-verify BACKUP.zip
-risk-layerctl --config "$CONFIG" restore --list
-risk-layerctl --config "$CONFIG" restore --file BACKUP.zip \
+signal backup
+signal backup-verify BACKUP.zip
+signal restore
+signal restore --file BACKUP.zip \
   --confirm "RESTORE BACKUP.zip SHA256 HASH_AUS_LIST TO /var/lib/risk-layer/definitionen"
 ```
 
 Der Restore validiert zuerst das gesamte Archiv, baut einen vollständigen
 Staging-Store und prüft ihn semantisch. Bei einem nichtleeren Ziel legt
-`risk-layerctl` vor der Promotion automatisch ein persistentes v2-Backup im
+`signal` vor der Promotion automatisch ein persistentes v2-Backup im
 profilierten Off-host-Ziel an und verifiziert es. Scheitert diese Sicherung,
 beginnt der Restore nicht. Der anschließende Verzeichniswechsel
 verwendet atomare Einzel-Renames und schaltet bei einem Promotionsfehler den
@@ -761,9 +763,9 @@ Quartalsweise Restore-Probe in ein **leeres Testverzeichnis**:
 
 ```bash
 mkdir -m 0700 /tmp/risk-layer-restore-test
-risk-layerctl --config "$TEST_CONFIG" backup-verify BACKUP.zip
-risk-layerctl --config "$TEST_CONFIG" restore --list
-risk-layerctl --config "$TEST_CONFIG" restore --file BACKUP.zip \
+signal --config "$TEST_CONFIG" backup-verify BACKUP.zip
+signal --config "$TEST_CONFIG" restore
+signal --config "$TEST_CONFIG" restore --file BACKUP.zip \
   --confirm "RESTORE BACKUP.zip SHA256 HASH_AUS_LIST TO /tmp/risk-layer-restore-test"
 ```
 

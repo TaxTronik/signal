@@ -4,11 +4,12 @@ param([Parameter(ValueFromRemainingArguments = $true)][string[]]$OperatorArgs)
 
 $ErrorActionPreference = "Stop"
 $operator = Join-Path $PSScriptRoot "risk_layer\operator_cli.py"
+$localProfile = Join-Path $PSScriptRoot "deploy\risk-layer-ops.json"
 if (
     [string]::IsNullOrWhiteSpace($env:RISK_LAYER_OPS_PROFILE) -and
-    (Test-Path -LiteralPath $operator -PathType Leaf)
+    (Test-Path -LiteralPath $localProfile -PathType Leaf)
 ) {
-    $env:RISK_LAYER_OPS_PROFILE = Join-Path $PSScriptRoot "deploy\risk-layer-ops.json"
+    $env:RISK_LAYER_OPS_PROFILE = $localProfile
 }
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $python = if (-not [string]::IsNullOrWhiteSpace($env:RISK_LAYER_OPERATOR_PYTHON)) {

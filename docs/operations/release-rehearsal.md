@@ -57,9 +57,9 @@ die Matrix:
    Schritt 4 entsprechend fortgeführt:
 
    ```bash
-   ./risk-layerctl --config /pfad/rehearsal.json bootstrap \
+   ./signal --config /pfad/rehearsal.json bootstrap \
      /pfad/release-artefakt --manifest-sha256 64_LOWERCASE_HEX
-   ./risk-layerctl --config /pfad/rehearsal.json status
+   ./signal --config /pfad/rehearsal.json status
    ```
 
 6. Berater-Testdaten anlegen, `backup` ausführen und das erzeugte Archiv mit
@@ -68,9 +68,9 @@ die Matrix:
    aktivieren:
 
    ```bash
-   ./risk-layerctl --config /pfad/rehearsal.json update \
+   ./signal --config /pfad/rehearsal.json update \
      /pfad/folge-artefakt --manifest-sha256 64_LOWERCASE_HEX
-   ./risk-layerctl --config /pfad/rehearsal.json status
+   ./signal --config /pfad/rehearsal.json status
    ```
 
 8. `rollback` ausführen und Release-Identität sowie Testdaten erneut prüfen.

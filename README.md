@@ -76,7 +76,7 @@ Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semanti
 breitere Lemmatisierung).
 
 Der produktive Betreiberpfad hat eine Oberfläche. Linux verwendet
-`./risk-layerctl`, Windows `.\risk-layerctl.ps1`; beide lesen dasselbe
+`./signal`, Windows `.\signal.ps1`; beide lesen dasselbe
 Betreiberprofil aus
 [`deploy/risk-layer-ops.example.json`](deploy/risk-layer-ops.example.json)
 (Container/Linux). Native Vorlagen liegen daneben für
@@ -84,11 +84,11 @@ Betreiberprofil aus
 [Windows](deploy/risk-layer-ops.native-windows.example.json):
 
 ```bash
-# Vorher Backupziel samt profilierter .risk-layer-backup-target.json provisionieren.
-./risk-layerctl --config /etc/risk-layer/ops.json doctor --fix
-./risk-layerctl --config /etc/risk-layer/ops.json bootstrap \
-  RELEASE-ARTEFAKT --manifest-sha256 MANIFEST_SHA256
-./risk-layerctl --config /etc/risk-layer/ops.json status
+# Vorher Backupziel samt profilierter .risk-layer-backup-target.json provisionieren
+# und genau ein veröffentlichtes Release unter <release_home>/incoming ablegen.
+./signal doctor --fix
+./signal bootstrap
+./signal status
 ```
 
 Das extern bereitgestellte Backupziel wird durch
@@ -108,8 +108,8 @@ Einstieg steht unter [docs/operations/](docs/operations/README.md), das
 [technische Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) dokumentiert
 die Recovery-/Expertenebene.
 
-`./deploy.sh` und `./deploy.ps1` bleiben lokale Checkout-Bootstraps und
-Kompatibilitätspfade; sie sind keine produktiven In-place-Updater. Der lokale
+`./scripts/setup.sh` und `.\scripts\setup.ps1` sind lokale Checkout-Bootstraps;
+sie sind keine produktiven In-place-Updater. Der lokale
 Setup-Pfad provisioniert die NER-Schicht der Anonymisierung (spaCy +
 `de_core_news_lg`) automatisch mit — sie stärkt das §203-Gate. Opt-out für
 schlanke/Offline-Installationen: `--ohne-ner` bzw. `-OhneNer`; manueller Fallback:
@@ -149,15 +149,15 @@ laufen. Der produktive Standardpfad verwendet den im Betreiberprofil
 konfigurierten release-aware Dienst beziehungsweise Windows-Task; dessen
 einmalige Einrichtung ist im
 [technischen Detail-Runbook](docs/BETRIEB_DEPLOY_UPDATE_BACKUP.md) beschrieben.
-Der Checkout-Kompatibilitätspfad `./deploy.sh --service` muss unter Linux **als
+Der Checkout-Kompatibilitätspfad `./scripts/setup.sh --service` muss unter Linux **als
 Zielbenutzer, ohne `sudo`** laufen; er erzeugt eine systemd-User-Unit. Für Start
 schon vor der Anmeldung kann ein Administrator einmalig
 `sudo loginctl enable-linger BENUTZER` setzen. Die Unit verweigert einen
 versehentlich als `root` gerenderten Start und setzt zusätzlich
 systemd-Sandboxing.
 
-Unter Windows verwendet der Standardpfad `.\risk-layerctl.ps1 bootstrap`.
-Das interne beziehungsweise kompatible `./install-service.ps1` installiert
+Unter Windows verwendet der Standardpfad `.\signal.ps1 bootstrap`.
+Das interne beziehungsweise kompatible `.\deploy\install-service.ps1` installiert
 einen sofort gestarteten, auf `RunLevel Limited` begrenzten Task für den
 aktuellen Benutzer;
 Autostart erfolgt bei dessen Anmeldung und es wird kein Kennwort gespeichert. Der
@@ -165,7 +165,7 @@ Unicode-sichere PowerShell-Wrapper verweigert den Start, wenn `.engine_token`
 fehlt, unlesbar oder kürzer als 32 Zeichen ist. Ein Boot-Dienst aus dem
 benutzerschreibbaren Checkout wird absichtlich nicht angeboten. Migration einer
 älteren Dienst-/SYSTEM-Installation: zuerst aus einer administrativen PowerShell
-`./install-service.ps1 -Remove`, danach als normaler Benutzer den begrenzten Task
+`.\deploy\install-service.ps1 -Remove`, danach als normaler Benutzer den begrenzten Task
 neu installieren.
 
 ### Produktive Releases, Container und Rollback

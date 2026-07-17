@@ -493,7 +493,7 @@ Entropie-Quelle bewusst, eine stille Degradation qpu→csprng gibt es nicht.
 `backend` fehlt/unbekannt, `job_id` fehlt, Job gehört nicht zu diesem Rahmen —
 `bindung_verletzt: true`); `422` (`k` > n eindeutige Items); `503`
 `{ok:false, fehler}` als fehlende Betriebsvoraussetzung: Quanten-Extras nicht
-installiert (`deploy.sh --with-quanten` bzw. `deploy.ps1 -WithQuanten`, jeweils
+installiert (`scripts/setup.sh --with-quanten` bzw. `scripts/setup.ps1 -WithQuanten`, jeweils
 aus dem plattformspezifischen Hash-Lock) bzw. `backend:"qpu"` ohne
 IBM-Credentials (weder `ibm_token` im Request noch Maschinen-Zugang
 `~/.qiskit/qiskit-ibm.json`/`QISKIT_IBM_TOKEN`) — der `fehler`-Text nennt die
@@ -512,7 +512,7 @@ die Fall-/Aufgaben-Stores (`fall.py`/`aufgabe.py`), der optionale FastAPI-Servic
 ### Deployment (✅ manifestiert und rollbackfähig)
 Lokale Builds erfolgen nur mit `docker-compose.dev.yml`. In Produktion verlangt
 `docker-compose.yml` das veröffentlichte Engine-Image per OCI-Digest und mountet
-die durch `risk-layerctl` verifizierte Festwissen-Generation read-only. Nach
+die durch `signal` verifizierte Festwissen-Generation read-only. Nach
 außen bindet der Port standardmäßig nur auf Host-Loopback; andere Container
 sprechen die Engine über den Compose-Service-Namen an. Der authentisierte
 `/v1/health`-Healthcheck macht `docker compose up --wait` zu einem Readiness-Gate.
