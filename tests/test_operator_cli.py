@@ -422,6 +422,34 @@ def test_checkout_setup_provisioniert_service_ohne_benutzerparameter() -> None:
         assert command[-1] == "--service"
 
 
+def test_checkout_configure_ueberspringt_teuren_vollaufbau() -> None:
+    command = O._checkout_configure_command(ROOT)
+
+    if os.name == "nt":
+        assert command[-6:] == [
+            "-SkipDeps", "-SkipModel", "-SkipEngine", "-SkipCorpus",
+            "-OhneNer", "-Service",
+        ]
+    else:
+        assert command[-6:] == [
+            "--skip-deps", "--skip-model", "--skip-engine", "--skip-corpus",
+            "--ohne-ner", "--service",
+        ]
+
+
+def test_checkout_configure_delegiert_an_servicekonfiguration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    calls: list[list[str]] = []
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_configure_command", lambda _root: ["configure"])
+    monkeypatch.setattr(O, "_passthrough", lambda command: calls.append(command) or 0)
+
+    assert O._dispatch_checkout(root, _args("configure")) == 0
+    assert calls == [["configure"]]
+
+
 @pytest.mark.parametrize("operation", ["start", "stop", "restart"])
 def test_checkout_dienstkommandos_werden_zentral_delegiert(
     tmp_path: Path,

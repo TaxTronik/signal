@@ -2661,6 +2661,31 @@ def _checkout_setup_command(root: Path) -> list[str]:
     return [str(bash), str(script), "--service"]
 
 
+def _checkout_configure_command(root: Path) -> list[str]:
+    """Konfiguriert nur den vorhandenen Checkout-Service interaktiv neu."""
+    if os.name == "nt":
+        script = root / "scripts/setup.ps1"
+        _require_control_file(script, "Lokale Windows-Service-Konfiguration")
+        return [
+            str(_windows_powershell()), "-NoLogo", "-NoProfile",
+            "-ExecutionPolicy", "Bypass", "-File", str(script),
+            "-SkipDeps", "-SkipModel", "-SkipEngine", "-SkipCorpus",
+            "-OhneNer", "-Service",
+        ]
+    executable = shutil.which("bash")
+    if executable is None:
+        raise OperatorError("Lokale Service-Konfiguration braucht bash")
+    bash = Path(os.path.abspath(executable))
+    _require_executable_control(bash, "Bash")
+    script = root / "scripts/setup.sh"
+    _require_control_file(script, "Lokale Linux-Service-Konfiguration")
+    return [
+        str(bash), str(script),
+        "--skip-deps", "--skip-model", "--skip-engine", "--skip-corpus",
+        "--ohne-ner", "--service",
+    ]
+
+
 def _checkout_service_installed(root: Path) -> bool:
     if os.name == "nt":
         definition = root / "service-start.ps1"
@@ -2877,7 +2902,7 @@ def _checkout_deployment(root: Path, profile: Profile, args: argparse.Namespace)
         if _checkout_is_bootstrapped(root, profile) and _checkout_service_installed(root):
             raise OperatorError(
                 "Checkout ist bereits eingerichtet; fuer Quellcode-Aenderungen "
-                "./signal update, fuer den Dienst ./signal restart verwenden"
+                "./signal update, fuer Einstellungen ./signal configure verwenden"
             )
         return _passthrough(_checkout_setup_command(root))
     if args.command != "update":
@@ -3013,6 +3038,9 @@ def _dispatch_checkout(root: Path, args: argparse.Namespace) -> int:
         return _checkout_doctor(root, profile, args)
     if args.command in {"start", "stop", "restart"}:
         return _checkout_service_control(root, profile, args.command)
+    if args.command == "configure":
+        _checkout_service_ready(root, profile)
+        return _passthrough(_checkout_configure_command(root))
     if args.command == "backup":
         _ensure_checkout_layout(profile)
         return _cmd_backup(profile, args)
@@ -3111,6 +3139,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.set_defaults(handler=_cmd_doctor)
 
     service_help = {
+        "configure": "vorhandenen lokalen Dienst interaktiv neu konfigurieren",
         "start": "lokalen Engine- und LLM-Dienst starten",
         "stop": "lokalen Engine- und LLM-Dienst stoppen",
         "restart": "lokalen Engine- und LLM-Dienst neu starten",

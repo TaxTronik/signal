@@ -11,6 +11,7 @@ in diesem Dokument:
 
 ```text
 ./signal bootstrap
+./signal configure
 ./signal update
 ./signal start
 ./signal stop
@@ -35,6 +36,9 @@ gemeinsam über `start`, `stop` oder `restart` im passenden Scope gesteuert. Ein
 der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
 beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`
 ist keine Voraussetzung für den Checkout.
+
+`configure` führt ausschließlich die interaktive Laufzeit-/Netzkonfiguration
+und Service-Provisionierung erneut aus; Downloads und Datenaufbau bleiben aus.
 
 Im Checkout ist `bootstrap` der einmalige Vollaufbau. `update` macht einen
 Fast-Forward-Pull, installiert nur das Anwendungs-Wheel neu und startet den

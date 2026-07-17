@@ -15,6 +15,7 @@ Konto `risk-layer`; ein normaler Benutzer provisioniert seine User-Unit:
 
 ```text
 ./signal bootstrap
+./signal configure
 ./signal start
 ./signal stop
 ./signal restart
@@ -33,6 +34,10 @@ systemd nicht erneut.
 profilierten Release-Betrieb. Dieser Checkout-Pfad ist für eine lokale
 Installation gedacht; ein transaktionales Release-Rollback gehört weiterhin
 zum nachfolgend beschriebenen profilierten Produktionspfad.
+
+`configure` öffnet die interaktive Laufzeit- und Netzkonfiguration erneut und
+schreibt die vorhandene Service-Unit neu. Abhängigkeiten, Modelle, Engine und
+Korpus werden dabei übersprungen.
 
 Ein explizites `--config PFAD`, `RISK_LAYER_OPS_PROFILE` oder ein
 checkout-frei veröffentlichter Wrapper aktiviert den manifestgebundenen
@@ -56,6 +61,7 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 
 ```text
 ./signal bootstrap
+./signal configure
 ./signal update
 ./signal start
 ./signal stop
@@ -81,6 +87,7 @@ PowerShell verwendet dieselben Kommandos:
 | Kommando | Zweck |
 |---|---|
 | `bootstrap` | im Checkout einmalige Vollinstallation; profiliert die erste Release-Aktivierung |
+| `configure` | nur im Checkout: Bind-Adresse und vorhandenen Dienst interaktiv neu konfigurieren |
 | `deploy` | nur profiliert: ein bereitgestelltes Release verifizieren und aktivieren |
 | `update` | im Checkout Pull plus Runtime-Wheel und Dienstneustart; profiliert eine transaktionale Release-Aktualisierung |
 | `start` / `stop` / `restart` | im Checkout automatisch die provisionierte systemd-System-/User-Unit beziehungsweise den Windows-Benutzer-Task steuern |
