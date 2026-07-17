@@ -7,6 +7,7 @@
 /deploy/risk-layer-ops.json
 /.signal/
 /definitionen/
+/.definitionen.festwissen.lock
 /service-start.ps1
 /service-start.cmd
 

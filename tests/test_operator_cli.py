@@ -583,6 +583,7 @@ def test_checkout_update_benennt_blockierende_git_eintraege(
     [
         "corpus/norm_manifest.json",
         "corpus/norm_manifest.vorher.json",
+        ".definitionen.festwissen.lock",
         "service-start.ps1",
         "service-start.cmd",
     ],
