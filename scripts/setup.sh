@@ -852,7 +852,7 @@ PY
   [[ "$HEALTH_HOST" != *:* ]] || HEALTH_HOST="[$HEALTH_HOST]"
   "$PY" -P -m risk_layer.ops_cli doctor \
     --url "http://$HEALTH_HOST:$PORT" --token-file "$TOKEN_PATH" \
-    --timeout 300 --require-layer matcher
+    --timeout 60 --require-layer matcher --allow-insecure-http
   ok "Health/Status nach Restart erfolgreich"
   if [[ $SYSTEM_SERVICE -eq 1 ]]; then
     ok "Systemdienst aktiv: systemctl status risk-layer"

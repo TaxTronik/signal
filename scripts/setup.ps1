@@ -528,7 +528,7 @@ if ($Service) {
     if ($healthHost.Contains(":")) { $healthHost = "[$healthHost]" }
     & python -P -m risk_layer.ops_cli doctor `
         --url "http://${healthHost}:$Port" --token-file $tokenPath `
-        --timeout 300 --require-layer matcher
+        --timeout 60 --require-layer matcher --allow-insecure-http
     if ($LASTEXITCODE -ne 0) { throw "Health/Status nach Autostart fehlgeschlagen." }
     Write-Host "`nAutostart eingerichtet - startet bei Benutzeranmeldung. (Foreground-Start uebersprungen.)" -ForegroundColor Green
 }

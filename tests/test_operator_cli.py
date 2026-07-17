@@ -395,6 +395,24 @@ def test_checkout_bootstrap_delegiert_parameterlos_an_lokales_setup(
     assert calls == [["setup-program"]]
 
 
+def test_checkout_bootstrap_wiederholt_keinen_vorhandenen_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    profile = O._checkout_profile(root)
+    monkeypatch.setattr(O, "_ensure_checkout_layout", lambda _profile: [])
+    monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: True)
+    monkeypatch.setattr(O, "_checkout_service_installed", lambda _root: True)
+    monkeypatch.setattr(
+        O,
+        "_checkout_setup_command",
+        lambda _root: pytest.fail("Vorhandener Service darf kein Setup erneut ausloesen"),
+    )
+
+    with pytest.raises(O.OperatorError, match="bereits eingerichtet"):
+        O._checkout_deployment(root, profile, _args("bootstrap"))
+
+
 def test_checkout_setup_provisioniert_service_ohne_benutzerparameter() -> None:
     command = O._checkout_setup_command(ROOT)
 
@@ -451,12 +469,14 @@ def test_checkout_dienstbefehl_nutzt_plattformeigenen_benutzerdienst(
                 "User-Unit",
             ),
         )
-        assert O._checkout_service_command(tmp_path, operation) == [
+        expected = [
             "/usr/bin/systemctl",
             "--user",
-            operation,
-            O.CHECKOUT_SYSTEMD_UNIT,
         ]
+        if operation in {"start", "restart"}:
+            expected.append("--no-block")
+        expected.extend([operation, O.CHECKOUT_SYSTEMD_UNIT])
+        assert O._checkout_service_command(tmp_path, operation) == expected
 
 
 def test_root_steuert_systemweite_unit_ohne_user_scope(
@@ -515,14 +535,23 @@ def test_restore_normalisiert_definitionen_fuer_dienstkonto(
     assert stat.S_IMODE(definition.stat().st_mode) == 0o600
 
 
-def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
+def test_checkout_update_zieht_ff_only_und_startet_nur_dienst_neu(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = _write_checkout_contract(tmp_path)
     profile = O._checkout_profile(root)
     operations: list[object] = []
-    monkeypatch.setattr(O, "_ensure_checkout_layout", lambda _profile: [])
     monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: True)
+    monkeypatch.setattr(
+        O,
+        "_cmd_backup",
+        lambda *_args: pytest.fail("Checkout-Update darf kein implizites Backup starten"),
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_setup_command",
+        lambda _root: pytest.fail("Checkout-Update darf kein Setup starten"),
+    )
     monkeypatch.setattr(
         O,
         "_checkout_git",
@@ -533,23 +562,70 @@ def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
     )
     monkeypatch.setattr(
         O,
-        "_cmd_backup",
-        lambda _profile, _args: operations.append("backup") or 0,
-    )
-    monkeypatch.setattr(O, "_checkout_setup_command", lambda _root: ["setup"])
-    monkeypatch.setattr(
-        O,
-        "_passthrough",
-        lambda command: operations.append(("setup", list(command))) or 0,
+        "_checkout_service_control",
+        lambda _root, _profile, operation: operations.append(("service", operation)) or 0,
     )
 
     assert O._checkout_deployment(root, profile, _args("update")) == 0
     assert operations == [
         ("git", ["status", "--porcelain"]),
-        "backup",
         ("git", ["pull", "--ff-only"]),
-        ("setup", ["setup"]),
+        ("service", "restart"),
     ]
+
+
+def test_checkout_deploy_verweist_auf_getrennte_vertraege(tmp_path: Path) -> None:
+    root = _write_checkout_contract(tmp_path)
+    profile = O._checkout_profile(root)
+
+    with pytest.raises(O.OperatorError, match="Lokales deploy gibt es nicht"):
+        O._checkout_deployment(root, profile, _args("deploy"))
+
+
+def test_checkout_status_erlaubt_persistierte_lokale_http_bridge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    (root / O.CHECKOUT_STATE_DIR).mkdir()
+    (root / O.CHECKOUT_STATE_DIR / O.CHECKOUT_SERVICE_STATE_NAME).write_text(
+        json.dumps(
+            {
+                "schema": O.CHECKOUT_SERVICE_SCHEMA,
+                "host": "172.18.0.1",
+                "port": 8000,
+                "scope": "system",
+            }
+        ),
+        encoding="utf-8",
+    )
+    profile = O._checkout_profile(root)
+    (root / ".venv").mkdir()
+    (root / "corpus").mkdir()
+    (root / "corpus/graph.sqlite").write_bytes(b"graph")
+    profile.token_file.write_text(TOKEN, encoding="ascii")
+    profile.berater_dir.mkdir()
+    profile.backup_dir.mkdir(parents=True)
+    captured: list[str] = []
+    monkeypatch.setattr(
+        O,
+        "_checkout_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "a" * 40, ""),
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_ops_command",
+        lambda _root, arguments: captured.extend(arguments) or ["doctor"],
+    )
+    monkeypatch.setattr(
+        O,
+        "_run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            [], 0, json.dumps({"ok": True}), ""
+        ),
+    )
+
+    assert O._checkout_status(root, profile, _args("status")) == 0
+    assert "--allow-insecure-http" in captured
 
 
 def test_checkout_update_benennt_blockierende_git_eintraege(

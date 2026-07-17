@@ -11,7 +11,6 @@ in diesem Dokument:
 
 ```text
 ./signal bootstrap
-./signal deploy
 ./signal update
 ./signal start
 ./signal stop
@@ -37,7 +36,10 @@ der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
 beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`
 ist keine Voraussetzung für den Checkout.
 
-`bootstrap`, `deploy` und `update` wählen im Normalbetrieb automatisch genau ein
+Im Checkout ist `bootstrap` der einmalige Vollaufbau. `update` macht nur einen
+Fast-Forward-Pull und startet den vorhandenen Dienst neu; `backup` ist ein
+getrennter Befehl. `deploy` wird dort abgewiesen. Im explizit profilierten
+Release-Betrieb wählen `bootstrap`, `deploy` und `update` automatisch genau ein
 Release aus `<release_home>/incoming`. Dort liegen das bindende
 `taxtronik-container-*.json`, seine `.sha256`-Sidecar und im nativen Modus das
 passende extrahierte Bundle. Fehlende, mehrdeutige, verlinkte oder nicht zum

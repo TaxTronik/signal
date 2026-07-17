@@ -2660,6 +2660,14 @@ def _checkout_setup_command(root: Path) -> list[str]:
     return [str(bash), str(script), "--service"]
 
 
+def _checkout_service_installed(root: Path) -> bool:
+    if os.name == "nt":
+        definition = root / "service-start.ps1"
+    else:
+        definition, _scope, _description = _checkout_systemd_scope()
+    return definition.is_file() and not _is_link_like(definition)
+
+
 def _checkout_service_ready(root: Path, profile: Profile) -> None:
     if not _checkout_is_bootstrapped(root, profile):
         raise OperatorError("Dienststeuerung braucht zuerst ./signal bootstrap")
@@ -2732,7 +2740,8 @@ def _checkout_service_command(root: Path, operation: str) -> list[str]:
     _require_executable_control(systemctl, "systemctl")
     unit, scope, description = _checkout_systemd_scope()
     _require_control_file(unit, description)
-    return [str(systemctl), *scope, operation, CHECKOUT_SYSTEMD_UNIT]
+    non_blocking = ["--no-block"] if operation in {"start", "restart"} else []
+    return [str(systemctl), *scope, *non_blocking, operation, CHECKOUT_SYSTEMD_UNIT]
 
 
 def _checkout_service_control(
@@ -2829,30 +2838,41 @@ def _checkout_deployment(root: Path, profile: Profile, args: argparse.Namespace)
             "Der lokale Checkout-Pfad ist parameterlos; explizite Release-Artefakte "
             "brauchen --config PROFIL"
         )
-    _ensure_checkout_layout(profile)
-    if args.command == "update":
-        if not _checkout_is_bootstrapped(root, profile):
-            raise OperatorError("Lokales update braucht zuerst ./signal bootstrap")
-        status = _checkout_git(root, ["status", "--porcelain"], capture=True)
-        if status.returncode != 0:
-            raise OperatorError("Git-Arbeitsbaum konnte vor dem Update nicht geprueft werden")
-        if status.stdout.strip():
-            entries = [line[:512] for line in status.stdout.splitlines() if line][:20]
-            remaining = len(status.stdout.splitlines()) - len(entries)
-            details = "\n".join(f"  {line}" for line in entries)
-            if remaining > 0:
-                details += f"\n  ... und {remaining} weitere"
+    if args.command == "deploy":
+        raise OperatorError(
+            "Lokales deploy gibt es nicht: ./signal bootstrap installiert einmalig; "
+            "./signal update zieht spaetere Git-Aenderungen. Deploy ist fuer "
+            "profilierte Release-Artefakte bestimmt"
+        )
+    if args.command == "bootstrap":
+        _ensure_checkout_layout(profile)
+        if _checkout_is_bootstrapped(root, profile) and _checkout_service_installed(root):
             raise OperatorError(
-                "Lokales update braucht einen sauberen Git-Arbeitsbaum. "
-                f"Blockierende Eintraege:\n{details}"
+                "Checkout ist bereits eingerichtet; fuer Quellcode-Aenderungen "
+                "./signal update, fuer den Dienst ./signal restart verwenden"
             )
-        backup_result = _cmd_backup(profile, args)
-        if backup_result != 0:
-            return backup_result
-        pulled = _checkout_git(root, ["pull", "--ff-only"])
-        if pulled.returncode != 0:
-            return int(pulled.returncode)
-    return _passthrough(_checkout_setup_command(root))
+        return _passthrough(_checkout_setup_command(root))
+    if args.command != "update":
+        raise OperatorError(f"Unbekannter lokaler Deployment-Befehl: {args.command}")
+    if not _checkout_is_bootstrapped(root, profile):
+        raise OperatorError("Lokales update braucht zuerst ./signal bootstrap")
+    status = _checkout_git(root, ["status", "--porcelain"], capture=True)
+    if status.returncode != 0:
+        raise OperatorError("Git-Arbeitsbaum konnte vor dem Update nicht geprueft werden")
+    if status.stdout.strip():
+        entries = [line[:512] for line in status.stdout.splitlines() if line][:20]
+        remaining = len(status.stdout.splitlines()) - len(entries)
+        details = "\n".join(f"  {line}" for line in entries)
+        if remaining > 0:
+            details += f"\n  ... und {remaining} weitere"
+        raise OperatorError(
+            "Lokales update braucht einen sauberen Git-Arbeitsbaum. "
+            f"Blockierende Eintraege:\n{details}"
+        )
+    pulled = _checkout_git(root, ["pull", "--ff-only"])
+    if pulled.returncode != 0:
+        return int(pulled.returncode)
+    return _checkout_service_control(root, profile, "restart")
 
 
 def _checkout_status(root: Path, profile: Profile, args: argparse.Namespace) -> int:
@@ -2869,23 +2889,19 @@ def _checkout_status(root: Path, profile: Profile, args: argparse.Namespace) -> 
     if args.offline or not all(checks.values()):
         health = {"ok": None, "skipped": "offline" if args.offline else "bootstrap incomplete"}
     else:
+        doctor_arguments = [
+            "doctor", "--url", profile.health_url,
+            "--token-file", str(profile.token_file),
+            "--timeout", str(args.timeout),
+            "--require-layer", "matcher", "--json",
+        ]
+        if urlsplit(profile.health_url).scheme == "http":
+            # Der Checkout-State stammt aus dem lokalen Service-Installer. Eine
+            # konkrete Docker-Bridge-Adresse ist daher ein bewusst lokales Ziel.
+            doctor_arguments.append("--allow-insecure-http")
         health = _decode_delegate(
             _run(
-                _checkout_ops_command(
-                    root,
-                    [
-                        "doctor",
-                        "--url",
-                        profile.health_url,
-                        "--token-file",
-                        str(profile.token_file),
-                        "--timeout",
-                        str(args.timeout),
-                        "--require-layer",
-                        "matcher",
-                        "--json",
-                    ],
-                ),
+                _checkout_ops_command(root, doctor_arguments),
                 capture=True,
             )
         )

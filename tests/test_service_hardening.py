@@ -126,6 +126,7 @@ def test_systemd_unit_verweigert_root_und_begrenzt_rechte() -> None:
         "ProtectKernelModules=true",
         "ProtectControlGroups=true",
         "RestrictSUIDSGID=true",
+        "TimeoutStopSec=15s",
         "UMask=0077",
     ):
         assert directive in unit
@@ -146,6 +147,7 @@ def test_root_bootstrap_installiert_gehaerteten_unprivilegierten_systemdienst() 
     assert 'ReadWritePaths="@BERATER_DIR@"' in unit
     assert "StateDirectory=risk-layer" in unit
     assert "CacheDirectory=risk-layer" in unit
+    assert "TimeoutStopSec=15s" in unit
     assert "WantedBy=multi-user.target" in unit
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
     assert 'SERVICE_USER="risk-layer"' in script

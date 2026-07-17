@@ -23,10 +23,13 @@ Konto `risk-layer`; ein normaler Benutzer provisioniert seine User-Unit:
 ./signal update
 ```
 
-`update` verweigert einen schmutzigen Git-Arbeitsbaum, erstellt zuerst ein
-verifiziertes lokales Backup, zieht danach ausschließlich per `git pull
---ff-only` und führt das idempotente Setup erneut aus. Die lokalen Sicherungen
-liegen unter `.signal/backups`. Dieser Checkout-Pfad ist für eine lokale
+Im Checkout ist `bootstrap` die einmalige Vollinstallation. `update` verweigert
+einen schmutzigen Git-Arbeitsbaum, zieht ausschließlich per `git pull --ff-only`
+und startet danach nur den vorhandenen Dienst neu. Es installiert keine
+Abhängigkeiten, baut keinen Korpus und provisioniert systemd nicht erneut.
+`backup` bleibt davon getrennt und legt lokale Sicherungen unter
+`.signal/backups` an. `deploy` ist im Checkout nicht verfügbar; es gehört zum
+profilierten Release-Betrieb. Dieser Checkout-Pfad ist für eine lokale
 Installation gedacht; ein transaktionales Release-Rollback gehört weiterhin
 zum nachfolgend beschriebenen profilierten Produktionspfad.
 
@@ -52,7 +55,6 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 
 ```text
 ./signal bootstrap
-./signal deploy
 ./signal update
 ./signal start
 ./signal stop
@@ -77,9 +79,9 @@ PowerShell verwendet dieselben Kommandos:
 
 | Kommando | Zweck |
 |---|---|
-| `bootstrap` | erste Aktivierung; wird bei vorhandenem Deployment-State verweigert |
-| `deploy` | ein lokal bereitgestelltes Release verifizieren und aktivieren |
-| `update` | bei vorhandenem State ein Folgerelease mit Pflichtbackup und konfigurierter Nachprüfung aktivieren |
+| `bootstrap` | im Checkout einmalige Vollinstallation; profiliert die erste Release-Aktivierung |
+| `deploy` | nur profiliert: ein bereitgestelltes Release verifizieren und aktivieren |
+| `update` | im Checkout nur `git pull --ff-only` plus Dienstneustart; profiliert eine transaktionale Release-Aktualisierung |
 | `start` / `stop` / `restart` | im Checkout automatisch die provisionierte systemd-System-/User-Unit beziehungsweise den Windows-Benutzer-Task steuern |
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |

@@ -21,6 +21,7 @@ Environment="HF_HOME=/var/cache/risk-layer/huggingface"
 ExecStart="@PYTHON@" -P -m risk_layer.web --host "@HOST@" --port "@PORT@" --graph corpus/graph.sqlite --llm-autostart
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=15s
 UMask=0077
 StateDirectory=risk-layer
 StateDirectoryMode=0750

@@ -27,6 +27,7 @@ Environment="RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@"
 ExecStart="@PYTHON@" -P -m risk_layer.web --host "@HOST@" --port "@PORT@" --graph corpus/graph.sqlite --llm-autostart
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=15s
 UMask=0077
 NoNewPrivileges=true
 CapabilityBoundingSet=
