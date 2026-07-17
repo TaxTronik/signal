@@ -26,6 +26,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -2799,6 +2800,33 @@ def _checkout_ops_command(root: Path, arguments: Sequence[str]) -> list[str]:
     return [str(_checkout_python(root)), "-I", "-m", "risk_layer.ops_cli", *arguments]
 
 
+def _checkout_install_runtime(root: Path) -> int:
+    """Baut/installiert nur den Checkout-Code, ohne Bootstrap-Artefakte anzufassen."""
+    python = _checkout_python(root)
+    with tempfile.TemporaryDirectory(prefix="signal-update-") as temporary:
+        wheel_dir = Path(temporary)
+        built = _passthrough(
+            [
+                str(python), "-m", "pip", "wheel",
+                "--no-build-isolation", "--no-deps",
+                "--wheel-dir", str(wheel_dir), str(root),
+            ]
+        )
+        if built != 0:
+            return built
+        wheels = list(wheel_dir.glob("risk_layer-*.whl"))
+        if len(wheels) != 1:
+            raise OperatorError("Checkout-Update hat nicht genau ein Runtime-Wheel gebaut")
+        wheel = wheels[0]
+        _require_control_file(wheel, "Gebautes Checkout-Runtime-Wheel")
+        return _passthrough(
+            [
+                str(python), "-m", "pip", "install", "--no-index", "--no-deps",
+                "--force-reinstall", str(wheel),
+            ]
+        )
+
+
 def _operator_ops_command(
     profile: Profile,
     args: argparse.Namespace,
@@ -2872,6 +2900,9 @@ def _checkout_deployment(root: Path, profile: Profile, args: argparse.Namespace)
     pulled = _checkout_git(root, ["pull", "--ff-only"])
     if pulled.returncode != 0:
         return int(pulled.returncode)
+    installed = _checkout_install_runtime(root)
+    if installed != 0:
+        return installed
     return _checkout_service_control(root, profile, "restart")
 
 

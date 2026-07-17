@@ -736,6 +736,8 @@ if [[ $SERVICE -eq 1 ]]; then
   schritt "systemd-Dienst einrichten (--llm-autostart)"
   PYBIN="$(python_abs)"
   BERATER_DIR="$(pwd)/definitionen"
+  KATALOG_PATH="$(pwd)/catalog/begriffe.yaml"
+  GRAPH_PATH="$(pwd)/corpus/graph.sqlite"
   if [[ $SYSTEM_SERVICE -eq 1 ]]; then
     UNIT_SRC="deploy/risk-layer-system.service.in"
     UNIT_DIR="/etc/systemd/system"
@@ -765,7 +767,8 @@ if [[ $SERVICE -eq 1 ]]; then
   # maskiert systemd-Quoted-Strings und verweigert Steuerzeichen fail-closed.
   RENDER="$("$PY" - "$UNIT_SRC" "$(pwd)" "$ENV_FILE" \
       "${RISK_LAYER_EMB_DEVICE:-cuda}" "$PYBIN" "$BIND_HOST" "$PORT" \
-      "$SERVICE_USER" "$SERVICE_GROUP" "$BERATER_DIR" <<'PY'
+      "$SERVICE_USER" "$SERVICE_GROUP" "$BERATER_DIR" "$KATALOG_PATH" \
+      "$GRAPH_PATH" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -791,6 +794,8 @@ def systemd_escape(name: str, value: str) -> str:
     service_user,
     service_group,
     berater_dir,
+    katalog,
+    graph,
 ) = sys.argv[1:]
 rendered = Path(template_path).read_text(encoding="utf-8")
 values = {
@@ -803,6 +808,8 @@ values = {
     "SERVICE_USER": service_user,
     "SERVICE_GROUP": service_group,
     "BERATER_DIR": berater_dir,
+    "KATALOG": katalog,
+    "GRAPH": graph,
 }
 for key, value in values.items():
     rendered = rendered.replace(f"@{key}@", systemd_escape(key, value))

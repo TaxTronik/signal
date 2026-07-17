@@ -7,6 +7,7 @@ muss als KatalogFehler mit Begriffs-Kontext scheitern (/NF50/).
 
 import pytest
 
+from risk_layer import catalog as C
 from risk_layer.catalog import Katalog, KatalogFehler, lade_katalog
 from risk_layer.models import Katalogeintrag
 
@@ -15,6 +16,23 @@ def _schreibe(tmp_path, body: str):
     p = tmp_path / "begriffe.yaml"
     p.write_text(body, encoding="utf-8")
     return p
+
+
+def test_installiertes_wheel_findet_katalog_im_checkout_cwd(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(C, "DEFAULT_KATALOG", tmp_path / "site-packages/catalog/begriffe.yaml")
+    checkout = tmp_path / "checkout"
+    katalog = checkout / "catalog/begriffe.yaml"
+    katalog.parent.mkdir(parents=True)
+    katalog.write_text(
+        "version: 'checkout'\nbegriffe:\n"
+        "  - id: test\n    begriff_kanonisch: Test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(checkout)
+
+    assert C.lade_katalog().version == "checkout"
 
 
 def test_ausloeser_gruppen_als_strings_wird_abgelehnt(tmp_path):

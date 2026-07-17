@@ -18,7 +18,7 @@ Environment="RISK_LAYER_EMB_DEVICE=@EMB_DEVICE@"
 Environment="HOME=/var/lib/risk-layer"
 Environment="XDG_CACHE_HOME=/var/cache/risk-layer"
 Environment="HF_HOME=/var/cache/risk-layer/huggingface"
-ExecStart="@PYTHON@" -P -m risk_layer.web --host "@HOST@" --port "@PORT@" --graph corpus/graph.sqlite --llm-autostart
+ExecStart="@PYTHON@" -P -m risk_layer.web --host "@HOST@" --port "@PORT@" --katalog "@KATALOG@" --berater "@BERATER_DIR@" --graph "@GRAPH@" --llm-autostart
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15s

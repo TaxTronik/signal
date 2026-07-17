@@ -91,9 +91,9 @@ und sofort mit Engine und LLM gestartet:
 ```
 
 Dabei ist `bootstrap` ausschließlich der vollständige Erstaufbau. Ein späteres
-`update` führt nur `git pull --ff-only` aus und startet den bereits
-provisionierten Dienst neu; Setup, Korpusbau und Service-Installation werden
-nicht wiederholt. Backups werden bewusst separat mit `./signal backup`
+`update` führt `git pull --ff-only` aus, installiert daraus nur das kleine
+Anwendungs-Wheel neu und startet den bereits provisionierten Dienst; Modelle,
+Korpusbau und Service-Installation werden nicht wiederholt. Backups werden bewusst separat mit `./signal backup`
 erstellt. `deploy` existiert im Checkout nicht und bleibt dem profilierten,
 manifestgebundenen Release-Betrieb vorbehalten.
 

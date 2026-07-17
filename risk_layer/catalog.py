@@ -20,6 +20,14 @@ from .models import (Definitionsquelle, GovernanceTyp, GUELTIGE_SCHADEN,
 DEFAULT_KATALOG = Path(__file__).resolve().parent.parent / "catalog" / "begriffe.yaml"
 
 
+def _standard_katalog() -> Path:
+    """Findet Checkout-Daten auch bei einem nicht-editierbar installierten Wheel."""
+    if DEFAULT_KATALOG.is_file():
+        return DEFAULT_KATALOG
+    checkout = Path.cwd() / "catalog" / "begriffe.yaml"
+    return checkout if checkout.is_file() else DEFAULT_KATALOG
+
+
 class KatalogFehler(ValueError):
     """Strukturfehler im Begriffskatalog (Pflege-/Validierungsfehler)."""
 
@@ -184,7 +192,7 @@ def lade_katalog(pfad: str | Path | None = None) -> Katalog:
     Raises:
         KatalogFehler: bei strukturellen Fehlern oder doppelten IDs.
     """
-    pfad = Path(pfad) if pfad is not None else DEFAULT_KATALOG
+    pfad = Path(pfad) if pfad is not None else _standard_katalog()
     if not pfad.exists():
         raise KatalogFehler(f"Katalogdatei nicht gefunden: {pfad}")
 

@@ -150,6 +150,9 @@ def test_root_bootstrap_installiert_gehaerteten_unprivilegierten_systemdienst() 
     assert "TimeoutStopSec=15s" in unit
     assert "WantedBy=multi-user.target" in unit
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
+    assert '--katalog "@KATALOG@"' in unit
+    assert '--berater "@BERATER_DIR@"' in unit
+    assert '--graph "@GRAPH@"' in unit
     assert 'SERVICE_USER="risk-layer"' in script
     assert "useradd --system" in script
     assert 'UNIT_DIR="/etc/systemd/system"' in script
@@ -170,6 +173,8 @@ def test_systemd_renderer_maskiert_pfade_und_specifier() -> None:
     assert "WorkingDirectory=@WORKDIR@" in unit
     assert "EnvironmentFile=@ENVFILE@" in unit
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
+    assert '"KATALOG": katalog' in script
+    assert '"GRAPH": graph' in script
 
 
 def test_signal_bootstrap_installiert_service_und_ersetzt_vordergrund_hinweis() -> None:
@@ -197,6 +202,8 @@ def test_native_dienste_importieren_nicht_aus_dem_checkout() -> None:
 
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in unit
     assert 'ExecStart="@PYTHON@" -P -m risk_layer.web' in system_unit
+    assert '--katalog "@KATALOG@"' in unit
+    assert '--katalog "@KATALOG@"' in system_unit
     assert '& $python -P -m risk_layer.web' in windows
 
 

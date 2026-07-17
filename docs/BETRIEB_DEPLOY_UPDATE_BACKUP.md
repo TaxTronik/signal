@@ -36,8 +36,9 @@ der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
 beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`
 ist keine Voraussetzung für den Checkout.
 
-Im Checkout ist `bootstrap` der einmalige Vollaufbau. `update` macht nur einen
-Fast-Forward-Pull und startet den vorhandenen Dienst neu; `backup` ist ein
+Im Checkout ist `bootstrap` der einmalige Vollaufbau. `update` macht einen
+Fast-Forward-Pull, installiert nur das Anwendungs-Wheel neu und startet den
+vorhandenen Dienst; `backup` ist ein
 getrennter Befehl. `deploy` wird dort abgewiesen. Im explizit profilierten
 Release-Betrieb wählen `bootstrap`, `deploy` und `update` automatisch genau ein
 Release aus `<release_home>/incoming`. Dort liegen das bindende

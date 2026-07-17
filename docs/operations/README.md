@@ -24,9 +24,10 @@ Konto `risk-layer`; ein normaler Benutzer provisioniert seine User-Unit:
 ```
 
 Im Checkout ist `bootstrap` die einmalige Vollinstallation. `update` verweigert
-einen schmutzigen Git-Arbeitsbaum, zieht ausschließlich per `git pull --ff-only`
-und startet danach nur den vorhandenen Dienst neu. Es installiert keine
-Abhängigkeiten, baut keinen Korpus und provisioniert systemd nicht erneut.
+einen schmutzigen Git-Arbeitsbaum, zieht ausschließlich per `git pull --ff-only`,
+installiert das lokale Anwendungs-Wheel neu und startet danach den vorhandenen
+Dienst. Es aktualisiert keine Modelle, baut keinen Korpus und provisioniert
+systemd nicht erneut.
 `backup` bleibt davon getrennt und legt lokale Sicherungen unter
 `.signal/backups` an. `deploy` ist im Checkout nicht verfügbar; es gehört zum
 profilierten Release-Betrieb. Dieser Checkout-Pfad ist für eine lokale
@@ -81,7 +82,7 @@ PowerShell verwendet dieselben Kommandos:
 |---|---|
 | `bootstrap` | im Checkout einmalige Vollinstallation; profiliert die erste Release-Aktivierung |
 | `deploy` | nur profiliert: ein bereitgestelltes Release verifizieren und aktivieren |
-| `update` | im Checkout nur `git pull --ff-only` plus Dienstneustart; profiliert eine transaktionale Release-Aktualisierung |
+| `update` | im Checkout Pull plus Runtime-Wheel und Dienstneustart; profiliert eine transaktionale Release-Aktualisierung |
 | `start` / `stop` / `restart` | im Checkout automatisch die provisionierte systemd-System-/User-Unit beziehungsweise den Windows-Benutzer-Task steuern |
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |

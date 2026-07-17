@@ -565,13 +565,46 @@ def test_checkout_update_zieht_ff_only_und_startet_nur_dienst_neu(
         "_checkout_service_control",
         lambda _root, _profile, operation: operations.append(("service", operation)) or 0,
     )
+    monkeypatch.setattr(
+        O,
+        "_checkout_install_runtime",
+        lambda _root: operations.append("runtime") or 0,
+    )
 
     assert O._checkout_deployment(root, profile, _args("update")) == 0
     assert operations == [
         ("git", ["status", "--porcelain"]),
         ("git", ["pull", "--ff-only"]),
+        "runtime",
         ("service", "restart"),
     ]
+
+
+def test_checkout_update_baut_und_installiert_nur_runtime_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    python = tmp_path / ("python.exe" if os.name == "nt" else "python")
+    python.write_bytes(b"python")
+    commands: list[list[str]] = []
+    monkeypatch.setattr(O, "_checkout_python", lambda _root: python)
+    monkeypatch.setattr(O, "_require_control_file", lambda *_args: None)
+
+    def passthrough(command: list[str]) -> int:
+        commands.append(command)
+        if "wheel" in command:
+            wheel_dir = Path(command[command.index("--wheel-dir") + 1])
+            (wheel_dir / "risk_layer-0.1.0-py3-none-any.whl").write_bytes(b"wheel")
+        return 0
+
+    monkeypatch.setattr(O, "_passthrough", passthrough)
+
+    assert O._checkout_install_runtime(tmp_path) == 0
+    assert "wheel" in commands[0]
+    assert "--no-build-isolation" in commands[0]
+    assert "--no-deps" in commands[0]
+    assert "install" in commands[1]
+    assert "--force-reinstall" in commands[1]
+    assert "--no-index" in commands[1]
 
 
 def test_checkout_deploy_verweist_auf_getrennte_vertraege(tmp_path: Path) -> None:
