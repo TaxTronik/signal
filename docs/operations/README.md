@@ -4,8 +4,33 @@ Diese Seiten beschreiben den normalen Betreiberpfad für native Installationen
 und den Produktions-Compose-Stack. Die einheitliche Oberfläche ist unter Linux
 `./signal`, unter Windows `.\signal.ps1`.
 
-Die Arbeitskopien im Repo-Root sind Komfort-Wrapper für einen Checkout und für
-sich allein kein Vertrauensanker. Ihre veröffentlichten Kopien, die Profile und
+## Checkout: ohne Vorbereitung
+
+Im Repository ist kein `/etc`-Profil nötig. Der Wrapper erkennt den Checkout
+und `bootstrap` legt `.signal/`, `definitionen/`, das lokale Backupziel samt
+Sentinel und `.engine_token` selbst an. Anschließend läuft das vorhandene
+plattformgerechte Setup:
+
+```text
+./signal bootstrap
+./signal status
+./signal backup
+./signal update
+```
+
+`update` verweigert einen schmutzigen Git-Arbeitsbaum, erstellt zuerst ein
+verifiziertes lokales Backup, zieht danach ausschließlich per `git pull
+--ff-only` und führt das idempotente Setup erneut aus. Die lokalen Sicherungen
+liegen unter `.signal/backups`. Dieser Checkout-Pfad ist für eine lokale
+Installation gedacht; ein transaktionales Release-Rollback gehört weiterhin
+zum nachfolgend beschriebenen profilierten Produktionspfad.
+
+Ein explizites `--config PFAD`, `RISK_LAYER_OPS_PROFILE` oder ein
+checkout-frei veröffentlichter Wrapper aktiviert den manifestgebundenen
+Release-Vertrag.
+
+Die Arbeitskopien im Repo-Root stellen den lokalen Zero-Config-Pfad bereit und
+sind für sich allein kein Release-Vertrauensanker. Ihre veröffentlichten Kopien, die Profile und
 Scheduler gehören jedoch zum gehashten Bootstrap-Block des bindenden
 Release-Manifests. Auf einem checkout-freien Produktions- oder Recovery-Host
 wird dieselbe Oberfläche durch diese verifizierte Wrapper-/Zipapp-Kombination
@@ -82,12 +107,12 @@ und
 [`deploy/risk-layer-ops.native-windows.example.json`](../../deploy/risk-layer-ops.native-windows.example.json).
 Die passende Datei wird an einen zugriffsbeschränkten Ort kopiert und dort mit
 absoluten Release-, Daten-, Backup- und Dienstpfaden vervollständigt. Für Automation und
-Produktionsbetrieb liegt das Profil am kanonischen Pfad, sodass kein Parameter
-nötig ist. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`, danach der kanonische
-Produktionspfad `/etc/risk-layer/ops.json` beziehungsweise unter Windows
-`C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Nur der Checkout-Wrapper
-setzt bei tatsächlich vorhandener Datei stattdessen seinen absoluten
-`deploy/risk-layer-ops.json`-Kompatibilitätspfad.
+den profilierten Produktionsbetrieb liegt das Profil am kanonischen Pfad, sodass
+kein Parameter nötig ist. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`, danach
+der kanonische Produktionspfad `/etc/risk-layer/ops.json` beziehungsweise unter Windows
+`C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Eine tatsächlich
+vorhandene `deploy/risk-layer-ops.json` aktiviert auch im Checkout bewusst
+diesen profilierten Pfad; ohne sie gilt der lokale Zero-Config-Vertrag.
 
 `python` ist der stabile Betriebssystem-Interpreter für Standardbibliothek-
 Zipapp und Release-Launcher. `bootstrap_python` ist davon getrennt: Nur die

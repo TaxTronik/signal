@@ -6,10 +6,15 @@ $ErrorActionPreference = "Stop"
 $operator = Join-Path $PSScriptRoot "risk_layer\operator_cli.py"
 $localProfile = Join-Path $PSScriptRoot "deploy\risk-layer-ops.json"
 if (
-    [string]::IsNullOrWhiteSpace($env:RISK_LAYER_OPS_PROFILE) -and
-    (Test-Path -LiteralPath $localProfile -PathType Leaf)
+    [string]::IsNullOrWhiteSpace($env:RISK_LAYER_OPS_PROFILE)
 ) {
-    $env:RISK_LAYER_OPS_PROFILE = $localProfile
+    if (Test-Path -LiteralPath $localProfile -PathType Leaf) {
+        $env:RISK_LAYER_OPS_PROFILE = $localProfile
+    } elseif (Test-Path -LiteralPath $operator -PathType Leaf) {
+        $env:RISK_LAYER_CHECKOUT_ROOT = $PSScriptRoot
+    } else {
+        Remove-Item Env:RISK_LAYER_CHECKOUT_ROOT -ErrorAction SilentlyContinue
+    }
 }
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 $python = if (-not [string]::IsNullOrWhiteSpace($env:RISK_LAYER_OPERATOR_PYTHON)) {

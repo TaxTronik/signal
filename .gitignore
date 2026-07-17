@@ -5,6 +5,8 @@
 .risk-layer-ops.json
 .risk-layer-backup-target.json
 /deploy/risk-layer-ops.json
+/.signal/
+/definitionen/
 
 # Python
 __pycache__/

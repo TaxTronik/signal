@@ -75,29 +75,38 @@ Build-Schritt. Optionaler Ausbau (lazy): `sentence-transformers` (BGE-M3-Semanti
 `llama-cpp`/`llama-server` (Schicht 2 LLM), `spacy` (NER-Anonymisierung +
 breitere Lemmatisierung).
 
-Der produktive Betreiberpfad hat eine Oberfläche. Linux verwendet
-`./signal`, Windows `.\signal.ps1`; beide lesen dasselbe
-Betreiberprofil aus
+Der Checkout hat eine Zero-Config-Oberfläche. Linux verwendet `./signal`,
+Windows `.\signal.ps1`. Der erste Aufruf legt `.signal/`, `definitionen/`,
+Backupziel samt Sentinel und `.engine_token` lokal an und führt danach das
+plattformgerechte Setup aus:
+
+```bash
+./signal bootstrap
+./signal status
+./signal backup
+./signal update
+```
+
+Ein explizites `--config` beziehungsweise ein checkout-frei installierter
+Wrapper schaltet auf den manifestgebundenen Produktionspfad. Dessen Vorlagen
+liegen unter
 [`deploy/risk-layer-ops.example.json`](deploy/risk-layer-ops.example.json)
 (Container/Linux). Native Vorlagen liegen daneben für
 [Linux](deploy/risk-layer-ops.native-linux.example.json) und
 [Windows](deploy/risk-layer-ops.native-windows.example.json):
 
-```bash
-# Vorher Backupziel samt profilierter .risk-layer-backup-target.json provisionieren
-# und genau ein veröffentlichtes Release unter <release_home>/incoming ablegen.
-./signal doctor --fix
-./signal bootstrap
-./signal status
-```
+Im profilierten Release-Betrieb werden Backupziel und
+`.risk-layer-backup-target.json` extern provisioniert und genau ein
+veröffentlichtes Release unter `<release_home>/incoming` abgelegt. Diese
+Produktionsanforderungen blockieren den lokalen Checkout-Bootstrap nicht.
 
 Das extern bereitgestellte Backupziel wird durch
 `.risk-layer-backup-target.json` an die `backup_target_id` des Profils gebunden;
 `doctor --fix` erzeugt weder Ziel noch Sentinel. So wird ein fehlender oder
 falscher Mount vor Backup, Restore-Vorher-Sicherung und Retention abgelehnt.
 
-Die Arbeitskopien im Repo-Root sind Komfort-Wrapper für einen vorhandenen
-Checkout, nicht selbst der Release-Vertrauensanker. Im veröffentlichten Paket
+Die Arbeitskopien im Repo-Root sind die lokale Operatoroberfläche, nicht selbst
+der Release-Vertrauensanker. Im veröffentlichten Paket
 werden Wrapper, Profile, Scheduler und Zipapp gemeinsam im bindenden Manifest
 gehasht. Checkout-frei wird dieselbe Oberfläche zum Beispiel so aufgerufen:
 `python3.12 -I risk-layer-release-tools.pyz ops --config PFAD status`, oder über

@@ -11,8 +11,14 @@ fi
 ROOT="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 OPERATOR="$ROOT/risk_layer/operator_cli.py"
 LOCAL_PROFILE="$ROOT/deploy/risk-layer-ops.json"
-if [[ -z "${RISK_LAYER_OPS_PROFILE:-}" && -f "$LOCAL_PROFILE" ]]; then
-  export RISK_LAYER_OPS_PROFILE="$ROOT/deploy/risk-layer-ops.json"
+if [[ -z "${RISK_LAYER_OPS_PROFILE:-}" ]]; then
+  if [[ -f "$LOCAL_PROFILE" ]]; then
+    export RISK_LAYER_OPS_PROFILE="$LOCAL_PROFILE"
+  elif [[ -f "$OPERATOR" ]]; then
+    export RISK_LAYER_CHECKOUT_ROOT="$ROOT"
+  else
+    unset RISK_LAYER_CHECKOUT_ROOT
+  fi
 fi
 if [[ -n "${RISK_LAYER_OPERATOR_PYTHON:-}" ]]; then
   PYTHON="$RISK_LAYER_OPERATOR_PYTHON"

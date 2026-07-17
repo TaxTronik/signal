@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Einheitliche, additive Operator-Fassade fuer Risk-Layer-Instanzen.
+"""Einheitliche Operator-Fassade fuer Checkout und Release-Instanzen.
 
-Die Fassade besitzt absichtlich keine eigene Deploy-, Update-, Backup- oder
-Restore-Transaktion. Sie validiert ein nicht geheimes Instanzprofil und
-delegiert als argv ohne Shell an die bestehenden, gehaerteten Werkzeuge.
+Ein Checkout besitzt einen lokalen Zero-Config-Pfad. Explizit profilierte
+Release-Instanzen behalten die manifestgebundenen, gehaerteten Transaktionen.
+Alle Ausfuehrungen delegieren als argv ohne Shell an bestehende Werkzeuge.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import sys
@@ -110,6 +111,9 @@ RELEASE_INBOX_NAME = "incoming"
 CONTAINER_MANIFEST_PATTERN = "taxtronik-container-*.json"
 NATIVE_MANIFEST_NAME = "release.json"
 MAX_CHECKSUM_BYTES = 512
+CHECKOUT_ROOT_ENV = "RISK_LAYER_CHECKOUT_ROOT"
+CHECKOUT_STATE_DIR = ".signal"
+CHECKOUT_BACKUP_TARGET_PREFIX = "checkout-"
 MINIMUM_PYTHON = (3, 11, 4)
 INTERPRETER_CHECK_TIMEOUT = 10.0
 WINDOWS_POWERSHELL_TIMEOUT = 15.0
@@ -1834,7 +1838,9 @@ def _create_secure_directory(path: Path) -> list[Path]:
     return created
 
 
-def _create_private_file(path: Path, payload: bytes) -> bool:
+def _create_private_file(
+    path: Path, payload: bytes, *, private_parent: bool = True
+) -> bool:
     if path.exists() or _is_link_like(path):
         return False
     new_directories = _create_secure_directory(path.parent)
@@ -1843,7 +1849,10 @@ def _create_private_file(path: Path, payload: bytes) -> bool:
             _harden_windows_directory_acl(directory)
         else:
             os.chmod(directory, 0o700)
-    _require_private_directory(path.parent, "Private Datei")
+    if private_parent:
+        _require_private_directory(path.parent, "Private Datei")
+    else:
+        _require_control_directory(path.parent, "Lokale Steuerdatei")
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     flags |= getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -2151,13 +2160,12 @@ def _cmd_doctor(profile: Profile, args: argparse.Namespace) -> int:
 
 
 def _cmd_backup(profile: Profile, args: argparse.Namespace) -> int:
-    del args
     _require_managed_directory(profile.berater_dir, "Berater-Verzeichnis")
     _require_managed_directory(profile.backup_dir, "Backup-Verzeichnis")
     _require_backup_target(profile)
     identity = _current_identity(profile, "Backup")
     return _passthrough(
-        _ops_command(profile, _backup_arguments(profile, identity))
+        _operator_ops_command(profile, args, _backup_arguments(profile, identity))
     )
 
 
@@ -2172,7 +2180,7 @@ def _cmd_backup_verify(profile: Profile, args: argparse.Namespace) -> int:
         archive = Path(os.path.abspath(args.file))
     _require_file(archive, "Backup-Archiv")
     return _passthrough(
-        _ops_command(profile, ["backup", "verify", str(archive)])
+        _operator_ops_command(profile, args, ["backup", "verify", str(archive)])
     )
 
 
@@ -2196,7 +2204,7 @@ def _cmd_backup_prune(profile: Profile, args: argparse.Namespace) -> int:
     ]
     if args.apply:
         command.append("--apply")
-    return _passthrough(_ops_command(profile, command))
+    return _passthrough(_operator_ops_command(profile, args, command))
 
 
 def _backup_entries(profile: Profile) -> list[dict[str, Any]]:
@@ -2318,8 +2326,9 @@ def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
     _require_backup_target(profile)
     identity = _current_identity(profile, "Restore-Vorher-Sicherung")
     return _passthrough(
-        _ops_command(
+        _operator_ops_command(
             profile,
+            args,
             [
                 "backup",
                 "restore",
@@ -2338,6 +2347,381 @@ def _cmd_restore(profile: Profile, args: argparse.Namespace) -> int:
             ],
         )
     )
+
+
+def _explicit_profile_requested(arguments: Sequence[str]) -> bool:
+    return any(
+        value in {"--config", "--profile"}
+        or value.startswith("--config=")
+        or value.startswith("--profile=")
+        for value in arguments
+    )
+
+
+def _checkout_root(arguments: Sequence[str]) -> Path | None:
+    raw = os.environ.get(CHECKOUT_ROOT_ENV, "").strip()
+    if (
+        not raw
+        or os.environ.get("RISK_LAYER_OPS_PROFILE", "").strip()
+        or _explicit_profile_requested(arguments)
+    ):
+        return None
+    root = Path(os.path.abspath(raw))
+    _require_control_directory(root, "Lokaler Checkout")
+    for relative, description in (
+        ("pyproject.toml", "Checkout-Projektvertrag"),
+        ("risk_layer/operator_cli.py", "Checkout-Operator"),
+    ):
+        _require_control_file(root / relative, description)
+    setup = root / ("scripts/setup.ps1" if os.name == "nt" else "scripts/setup.sh")
+    _require_control_file(setup, "Checkout-Setup")
+    return root
+
+
+def _checkout_target_id(root: Path) -> str:
+    canonical = os.path.normcase(os.path.abspath(root)).encode(
+        "utf-8", errors="surrogatepass"
+    )
+    return CHECKOUT_BACKUP_TARGET_PREFIX + hashlib.sha256(canonical).hexdigest()[:32]
+
+
+def _checkout_profile(root: Path) -> Profile:
+    state_root = root / CHECKOUT_STATE_DIR
+    return Profile(
+        source=state_root / "checkout.json",
+        mode="native",
+        python=Path(os.path.abspath(sys.executable)),
+        bootstrap_python=Path(os.path.abspath(sys.executable)),
+        docker_bin=None,
+        release_home=state_root / "runtime",
+        state_dir=None,
+        berater_dir=root / "definitionen",
+        backup_dir=state_root / "backups",
+        backup_target_id=_checkout_target_id(root),
+        launcher=root / "deploy/release-launcher.py",
+        release_tools=None,
+        compose_file=None,
+        secrets_env=None,
+        token_file=root / ".engine_token",
+        health_url="http://127.0.0.1:8000",
+        status_url="http://127.0.0.1:8000/v1/status",
+        activation_command=None,
+        required_layers=("matcher",),
+        keep_last=30,
+        keep_days=90,
+    )
+
+
+def _secure_checkout_directory(path: Path) -> list[str]:
+    if path.exists() or _is_link_like(path):
+        _require_managed_directory(path, "Vorhandenes Checkout-Verzeichnis")
+    created = _create_secure_directory(path)
+    for directory in created:
+        if os.name == "nt":
+            _harden_windows_directory_acl(directory)
+        else:
+            os.chmod(directory, 0o700)
+    if os.name == "nt":
+        _harden_windows_directory_acl(path)
+    else:
+        os.chmod(path, 0o700)
+    _require_private_directory(path, "Lokales Checkout-Verzeichnis")
+    return [str(item) for item in created]
+
+
+def _require_checkout_token(path: Path) -> str:
+    _require_control_file(path, "Lokales Engine-Token")
+    payload = _read_regular(path, 4096, "Lokales Engine-Token")
+    try:
+        token = payload.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise OperatorError("Lokales Engine-Token ist nicht gueltiges UTF-8") from exc
+    if len(token.encode("utf-8")) < 32 or any(character.isspace() for character in token):
+        raise OperatorError("Lokales Engine-Token muss mindestens 32 Bytes ohne Whitespace enthalten")
+    return str(path)
+
+
+def _checkout_token(path: Path) -> bool:
+    if path.exists() or _is_link_like(path):
+        _require_control_file(path, "Vorhandenes lokales Engine-Token")
+    created = _create_private_file(
+        path,
+        f"{secrets.token_urlsafe(48)}\n".encode("utf-8"),
+        private_parent=False,
+    )
+    if os.name == "nt":
+        _harden_windows_acl(path)
+    else:
+        os.chmod(path, 0o600)
+    _require_checkout_token(path)
+    return created
+
+
+def _ensure_checkout_layout(profile: Profile) -> list[str]:
+    created: list[str] = []
+    for directory in (
+        profile.release_home,
+        profile.release_home / RELEASE_INBOX_NAME,
+        profile.berater_dir,
+        profile.backup_dir,
+    ):
+        created.extend(_secure_checkout_directory(directory))
+    sentinel = profile.backup_dir / BACKUP_TARGET_FILENAME
+    if _create_private_file(
+        sentinel,
+        (
+            json.dumps(
+                {
+                    "schema": BACKUP_TARGET_SCHEMA,
+                    "target_id": profile.backup_target_id,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("utf-8"),
+    ):
+        created.append(str(sentinel))
+    if _checkout_token(profile.token_file):
+        created.append(str(profile.token_file))
+    _require_backup_target(profile)
+    return created
+
+
+def _checkout_setup_command(root: Path) -> list[str]:
+    if os.name == "nt":
+        script = root / "scripts/setup.ps1"
+        _require_control_file(script, "Lokales Windows-Setup")
+        return [
+            str(_windows_powershell()),
+            "-NoLogo",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+        ]
+    executable = shutil.which("bash")
+    if executable is None:
+        raise OperatorError("Lokaler Bootstrap braucht bash")
+    bash = Path(os.path.abspath(executable))
+    _require_executable_control(bash, "Bash")
+    script = root / "scripts/setup.sh"
+    _require_control_file(script, "Lokales Linux-Setup")
+    return [str(bash), str(script)]
+
+
+def _checkout_python(root: Path) -> Path:
+    python = Path(os.path.abspath(sys.executable))
+    venv = Path(os.path.abspath(root / ".venv"))
+    try:
+        inside_venv = os.path.commonpath((str(python), str(venv))) == str(venv)
+    except ValueError:
+        inside_venv = False
+    if not inside_venv:
+        raise OperatorError(
+            "Lokale Betriebsbefehle brauchen zuerst ./signal bootstrap und den "
+            "Interpreter aus .venv"
+        )
+    _require_control_directory(python.parent, "Checkout-Venv")
+    if not _is_link_like(python):
+        _require_executable_control(python, "Checkout-Python")
+        return python
+    if os.name == "nt":
+        raise OperatorError("Checkout-Python darf unter Windows kein Reparse-Point sein")
+    info = os.lstat(python)
+    geteuid = getattr(os, "geteuid", None)
+    current_uid = geteuid() if callable(geteuid) else info.st_uid
+    if info.st_uid not in {0, current_uid}:
+        raise OperatorError("Checkout-Python-Symlink gehoert einem anderen Benutzer")
+    target = Path(os.path.realpath(python))
+    _require_executable_control(target, "Ziel des Checkout-Python-Symlinks")
+    if not os.access(python, os.X_OK):
+        raise OperatorError("Checkout-Python ist nicht ausfuehrbar")
+    return python
+
+
+def _checkout_ops_command(root: Path, arguments: Sequence[str]) -> list[str]:
+    return [str(_checkout_python(root)), "-I", "-m", "risk_layer.ops_cli", *arguments]
+
+
+def _operator_ops_command(
+    profile: Profile,
+    args: argparse.Namespace,
+    arguments: Sequence[str],
+) -> list[str]:
+    checkout = getattr(args, "checkout_root", None)
+    if isinstance(checkout, Path):
+        return _checkout_ops_command(checkout, arguments)
+    return _ops_command(profile, arguments)
+
+
+def _checkout_git(root: Path, arguments: Sequence[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    executable = shutil.which("git")
+    if executable is None:
+        raise OperatorError("Lokales Update braucht Git")
+    git = Path(os.path.abspath(executable))
+    _require_executable_control(git, "Git")
+    return _run([str(git), "-C", str(root), *arguments], capture=capture)
+
+
+def _checkout_is_bootstrapped(root: Path, profile: Profile) -> bool:
+    return (
+        profile.token_file.is_file()
+        and (root / ".venv").is_dir()
+        and (root / "corpus/graph.sqlite").is_file()
+    )
+
+
+def _checkout_deployment(root: Path, profile: Profile, args: argparse.Namespace) -> int:
+    if (
+        args.artifact is not None
+        or args.manifest_sha256 is not None
+        or args.trust_local_manifest
+        or args.dry_run
+    ):
+        raise OperatorError(
+            "Der lokale Checkout-Pfad ist parameterlos; explizite Release-Artefakte "
+            "brauchen --config PROFIL"
+        )
+    _ensure_checkout_layout(profile)
+    if args.command == "update":
+        if not _checkout_is_bootstrapped(root, profile):
+            raise OperatorError("Lokales update braucht zuerst ./signal bootstrap")
+        status = _checkout_git(root, ["status", "--porcelain"], capture=True)
+        if status.returncode != 0:
+            raise OperatorError("Git-Arbeitsbaum konnte vor dem Update nicht geprueft werden")
+        if status.stdout.strip():
+            raise OperatorError("Lokales update braucht einen sauberen Git-Arbeitsbaum")
+        backup_result = _cmd_backup(profile, args)
+        if backup_result != 0:
+            return backup_result
+        pulled = _checkout_git(root, ["pull", "--ff-only"])
+        if pulled.returncode != 0:
+            return int(pulled.returncode)
+    return _passthrough(_checkout_setup_command(root))
+
+
+def _checkout_status(root: Path, profile: Profile, args: argparse.Namespace) -> int:
+    checks = {
+        "venv": (root / ".venv").is_dir(),
+        "token": profile.token_file.is_file(),
+        "graph": (root / "corpus/graph.sqlite").is_file(),
+        "berater": profile.berater_dir.is_dir(),
+        "backup": profile.backup_dir.is_dir(),
+    }
+    revision = _checkout_git(root, ["rev-parse", "HEAD"], capture=True)
+    git_sha = revision.stdout.strip() if revision.returncode == 0 else None
+    health: dict[str, Any]
+    if args.offline or not all(checks.values()):
+        health = {"ok": None, "skipped": "offline" if args.offline else "bootstrap incomplete"}
+    else:
+        health = _decode_delegate(
+            _run(
+                _checkout_ops_command(
+                    root,
+                    [
+                        "doctor",
+                        "--url",
+                        profile.health_url,
+                        "--token-file",
+                        str(profile.token_file),
+                        "--timeout",
+                        str(args.timeout),
+                        "--require-layer",
+                        "matcher",
+                        "--json",
+                    ],
+                ),
+                capture=True,
+            )
+        )
+    ok = all(checks.values()) and (args.offline or _delegate_contract_ok(health))
+    print(
+        json.dumps(
+            {
+                "ok": ok,
+                "mode": "checkout",
+                "root": str(root),
+                "git_sha": git_sha,
+                "checks": checks,
+                "health": health,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+    )
+    return 0 if ok else 1
+
+
+def _checkout_doctor(root: Path, profile: Profile, args: argparse.Namespace) -> int:
+    created = _ensure_checkout_layout(profile) if args.fix else []
+    checks: list[dict[str, Any]] = []
+
+    def check(name: str, operation: Callable[[], str | None]) -> None:
+        try:
+            detail = operation()
+        except (OperatorError, OSError) as exc:
+            checks.append({"name": name, "ok": False, "detail": str(exc)})
+        else:
+            item: dict[str, Any] = {"name": name, "ok": True}
+            if detail is not None:
+                item["detail"] = detail
+            checks.append(item)
+
+    check("checkout", lambda: _require_control_directory(root, "Lokaler Checkout"))
+    check("python", lambda: _interpreter_contract(profile.python, "Checkout-Python"))
+    check("setup", lambda: _require_control_file(root / ("scripts/setup.ps1" if os.name == "nt" else "scripts/setup.sh"), "Checkout-Setup"))
+    check("runtime", lambda: _require_private_directory(profile.release_home, "Lokale Runtime"))
+    check("berater", lambda: _require_private_directory(profile.berater_dir, "Lokale Definitionen"))
+    check("backup", lambda: _require_private_directory(profile.backup_dir, "Lokales Backup"))
+    check("backup_target", lambda: str(_require_backup_target(profile)))
+    check("token", lambda: _require_checkout_token(profile.token_file))
+    check("graph", lambda: _require_control_file(root / "corpus/graph.sqlite", "Lokaler Normgraph"))
+    ok = all(item["ok"] for item in checks)
+    print(
+        json.dumps(
+            {
+                "ok": ok,
+                "mode": "checkout",
+                "root": str(root),
+                "created": created,
+                "checks": checks,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+    )
+    return 0 if ok else 1
+
+
+def _dispatch_checkout(root: Path, args: argparse.Namespace) -> int:
+    profile = _checkout_profile(root)
+    args.checkout_root = root
+    if args.command in {"bootstrap", "deploy", "update"}:
+        return _checkout_deployment(root, profile, args)
+    if args.command == "status":
+        return _checkout_status(root, profile, args)
+    if args.command == "doctor":
+        return _checkout_doctor(root, profile, args)
+    if args.command == "backup":
+        _ensure_checkout_layout(profile)
+        return _cmd_backup(profile, args)
+    if args.command == "backup-verify":
+        return _cmd_backup_verify(profile, args)
+    if args.command == "backup-prune":
+        return _cmd_backup_prune(profile, args)
+    if args.command == "restore":
+        return _cmd_restore(profile, args)
+    if args.command == "rollback":
+        raise OperatorError(
+            "Ein lokaler Git-Checkout besitzt kein transaktionales Release-Rollback; "
+            "dafuer signal mit einem expliziten Release-Profil verwenden"
+        )
+    raise OperatorError(f"Unbekanntes lokales Kommando: {args.command}")
 
 
 def _add_deployment_arguments(parser: argparse.ArgumentParser) -> None:
@@ -2371,13 +2755,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="signal",
         description=(
-            "TaxTronik-nahe Operator-Fassade; delegiert an bestehende transaktionale Werkzeuge."
+            "Zero-Config im Checkout; profilierte, transaktionale Releases im Betrieb."
         ),
         epilog=(
-            "Ohne ARTIFAKT wird genau ein gehashtes Release aus "
-            "<release_home>/incoming gewaehlt. Explizite Artefakte brauchen "
-            "--manifest-sha256; nur native Releases duerfen bewusst "
-            "--trust-local-manifest verwenden."
+            "Im Checkout erzeugt bootstrap alle lokalen Pfade selbst. Mit einem "
+            "expliziten Profil wird ohne ARTIFAKT genau ein gehashtes Release aus "
+            "<release_home>/incoming gewaehlt."
         ),
     )
     parser.add_argument(
@@ -2449,14 +2832,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     if args.command is None:
         parser.print_help()
         return 0
     try:
         if hasattr(args, "timeout"):
             args.timeout = _positive_timeout(args.timeout, "--timeout")
+        checkout = _checkout_root(arguments)
+        if checkout is not None:
+            return _dispatch_checkout(checkout, args)
         profile = load_profile(args.config)
         return int(args.handler(profile, args))
     except OperatorError as exc:

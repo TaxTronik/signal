@@ -190,6 +190,19 @@ def _args(*values: str) -> object:
     return O.build_parser().parse_args(list(values))
 
 
+def _write_checkout_contract(tmp_path: Path) -> Path:
+    root = tmp_path / "checkout"
+    (root / "risk_layer").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='test'\n", encoding="utf-8")
+    (root / "risk_layer" / "operator_cli.py").write_text("# operator\n", encoding="utf-8")
+    setup = root / "scripts" / ("setup.ps1" if os.name == "nt" else "setup.sh")
+    setup.write_text("# setup\n", encoding="utf-8")
+    if os.name != "nt":
+        setup.chmod(0o700)
+    return root
+
+
 def _write_release_inbox(
     document: dict[str, object],
     *,
@@ -246,6 +259,158 @@ def test_aufruf_ohne_kommando_zeigt_hilfe_ohne_profilzugriff(
 ) -> None:
     assert O.main([]) == 0
     assert "signal" in capsys.readouterr().out
+
+
+def test_checkout_bootstrap_ist_zero_config_und_laesst_etc_profil_aus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    monkeypatch.setenv(O.CHECKOUT_ROOT_ENV, str(root))
+    monkeypatch.delenv("RISK_LAYER_OPS_PROFILE", raising=False)
+    calls: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        O,
+        "_dispatch_checkout",
+        lambda checkout, args: calls.append((checkout, args.command)) or 0,
+    )
+    monkeypatch.setattr(
+        O,
+        "load_profile",
+        lambda _path: pytest.fail("Zero-Config-Checkout darf kein /etc-Profil laden"),
+    )
+
+    assert O.main(["bootstrap"]) == 0
+    assert calls == [(root, "bootstrap")]
+
+
+def test_checkout_bootstrap_erzeugt_layout_und_fuehrt_setup_aus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    monkeypatch.setenv(O.CHECKOUT_ROOT_ENV, str(root))
+    monkeypatch.delenv("RISK_LAYER_OPS_PROFILE", raising=False)
+    monkeypatch.setattr(
+        O,
+        "load_profile",
+        lambda _path: pytest.fail("Zero-Config-Checkout darf kein /etc-Profil laden"),
+    )
+
+    assert O.main(["bootstrap"]) == 0
+
+    profile = O._checkout_profile(root)
+    assert profile.release_home.is_dir()
+    assert profile.berater_dir.is_dir()
+    assert profile.backup_dir.is_dir()
+    assert profile.token_file.is_file()
+    assert O._require_backup_target(profile).is_file()
+
+
+def test_explizites_profil_schaltet_checkout_automatik_ab(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    monkeypatch.setenv(O.CHECKOUT_ROOT_ENV, str(root))
+
+    assert O._checkout_root(["--config", str(tmp_path / "ops.json"), "status"]) is None
+
+
+def test_checkout_layout_erzeugt_lokale_pfade_token_und_sentinel(tmp_path: Path) -> None:
+    profile = O._checkout_profile(tmp_path)
+
+    created = O._ensure_checkout_layout(profile)
+
+    assert profile.release_home.is_dir()
+    assert (profile.release_home / O.RELEASE_INBOX_NAME).is_dir()
+    assert profile.berater_dir.is_dir()
+    assert profile.backup_dir.is_dir()
+    assert profile.token_file.is_file()
+    assert O._require_backup_target(profile).is_file()
+    assert str(profile.token_file) in created
+
+
+def test_checkout_bootstrap_delegiert_parameterlos_an_lokales_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    profile = O._checkout_profile(root)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(O, "_ensure_checkout_layout", lambda _profile: [])
+    monkeypatch.setattr(
+        O,
+        "_checkout_setup_command",
+        lambda _root: ["setup-program"],
+    )
+    monkeypatch.setattr(
+        O,
+        "_passthrough",
+        lambda command: calls.append(list(command)) or 0,
+    )
+
+    assert O._checkout_deployment(root, profile, _args("bootstrap")) == 0
+    assert calls == [["setup-program"]]
+
+
+def test_checkout_update_sichert_zieht_ff_only_und_setzt_neu_auf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _write_checkout_contract(tmp_path)
+    profile = O._checkout_profile(root)
+    operations: list[object] = []
+    monkeypatch.setattr(O, "_ensure_checkout_layout", lambda _profile: [])
+    monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: True)
+    monkeypatch.setattr(
+        O,
+        "_checkout_git",
+        lambda _root, arguments, **kwargs: (
+            operations.append(("git", list(arguments)))
+            or subprocess.CompletedProcess(arguments, 0, "", "")
+        ),
+    )
+    monkeypatch.setattr(
+        O,
+        "_cmd_backup",
+        lambda _profile, _args: operations.append("backup") or 0,
+    )
+    monkeypatch.setattr(O, "_checkout_setup_command", lambda _root: ["setup"])
+    monkeypatch.setattr(
+        O,
+        "_passthrough",
+        lambda command: operations.append(("setup", list(command))) or 0,
+    )
+
+    assert O._checkout_deployment(root, profile, _args("update")) == 0
+    assert operations == [
+        ("git", ["status", "--porcelain"]),
+        "backup",
+        ("git", ["pull", "--ff-only"]),
+        ("setup", ["setup"]),
+    ]
+
+
+def test_checkout_ops_nutzt_lokalen_venv_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    profile = O._checkout_profile(root)
+    args = _args("backup")
+    args.checkout_root = root
+    monkeypatch.setattr(
+        O,
+        "_checkout_ops_command",
+        lambda checkout, arguments: [str(checkout), *arguments],
+    )
+    monkeypatch.setattr(
+        O,
+        "_ops_command",
+        lambda *_args: pytest.fail("Checkout darf keinen profilierten Interpreter nutzen"),
+    )
+
+    assert O._operator_ops_command(profile, args, ["backup"]) == [
+        str(root),
+        "backup",
+    ]
 
 
 def test_profil_ist_strikt_nicht_mehrdeutig_und_container_hat_keine_bootstrap_venv(
@@ -1375,6 +1540,10 @@ def test_wrapper_sind_duenn_isoliert_und_paritaetisch() -> None:
     assert "@OperatorArgs" in powershell
     assert "deploy/risk-layer-ops.json" in bash
     assert "deploy\\risk-layer-ops.json" in powershell
+    assert "RISK_LAYER_CHECKOUT_ROOT" in bash
+    assert "RISK_LAYER_CHECKOUT_ROOT" in powershell
+    assert 'elif [[ -f "$OPERATOR" ]]' in bash
+    assert "elseif (Test-Path -LiteralPath $operator -PathType Leaf)" in powershell
     assert '$ROOT/.venv/bin/python' in bash
     assert "python3.12" in bash
     assert "python3" in bash

@@ -22,6 +22,13 @@ in diesem Dokument:
 ./signal rollback
 ```
 
+Im Repository bedeutet diese Form Zero-Config: `bootstrap` erzeugt lokale
+Runtime-, Definitions-, Backup- und Secret-Pfade unter dem Checkout und startet
+das vorhandene Setup. Ein explizites `--config`, `RISK_LAYER_OPS_PROFILE` oder
+der checkout-frei veröffentlichte Wrapper aktiviert stattdessen den nachfolgend
+beschriebenen manifestgebundenen Release-Vertrag. `/etc/risk-layer/ops.json`
+ist keine Voraussetzung für den Checkout.
+
 `bootstrap`, `deploy` und `update` wählen im Normalbetrieb automatisch genau ein
 Release aus `<release_home>/incoming`. Dort liegen das bindende
 `taxtronik-container-*.json`, seine `.sha256`-Sidecar und im nativen Modus das
@@ -36,12 +43,12 @@ existieren für
 [Container/Linux](../deploy/risk-layer-ops.example.json),
 [Native/Linux](../deploy/risk-layer-ops.native-linux.example.json) und
 [Native/Windows](../deploy/risk-layer-ops.native-windows.example.json).
-Das Profil liegt im Normalbetrieb am kanonischen Pfad, daher braucht auch
+Im profilierten Release-Betrieb liegt das Profil am kanonischen Pfad, daher braucht auch
 Automation keinen Parameter. Ohne Angabe gilt zuerst `RISK_LAYER_OPS_PROFILE`,
 danach `/etc/risk-layer/ops.json` beziehungsweise
-unter Windows `C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Nur der
-Checkout-Wrapper setzt bei tatsächlich vorhandener Datei seinen absoluten
-`deploy/risk-layer-ops.json`-Kompatibilitätspfad.
+unter Windows `C:/ProgramData/TaxTronik/RiskLayer/config/ops.json`. Im Checkout
+aktiviert nur eine tatsächlich vorhandene `deploy/risk-layer-ops.json` diesen
+Pfad; andernfalls bleibt der lokale Zero-Config-Modus aktiv.
 
 `./signal` und `.\signal.ps1` im Repo-Root sind als bloße
 Arbeitskopien kein Vertrauensanker. Die veröffentlichten Kopien werden zusammen
