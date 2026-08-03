@@ -450,6 +450,41 @@ def test_checkout_configure_delegiert_an_servicekonfiguration(
     assert calls == [["configure"]]
 
 
+def test_checkout_bench_laeuft_gedrosselt_im_checkout_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    calls: list[tuple[list[str], Path | None]] = []
+    monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: True)
+    monkeypatch.setattr(O, "_checkout_python", lambda _root: Path("/venv/bin/python"))
+    monkeypatch.setattr(
+        O, "_passthrough",
+        lambda command, cwd=None: calls.append((list(command), cwd)) or 0,
+    )
+
+    assert O._dispatch_checkout(root, _args("bench")) == 0
+    ((command, cwd),) = calls
+    # -P + installierte risk_layer.cli (nicht Checkout-Code), im Checkout-Root
+    # (models/ und .signal/llm_bench.json sind Checkout-relativ).
+    assert command[1:] == ["-P", "-m", "risk_layer.cli", "modell", "bench"]
+    assert cwd == root
+
+
+def test_checkout_bench_verlangt_bootstrap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    monkeypatch.setattr(O, "_checkout_is_bootstrapped", lambda *_args: False)
+
+    with pytest.raises(O.OperatorError, match="bootstrap"):
+        O._dispatch_checkout(root, _args("bench"))
+
+
+def test_profiliertes_bench_wird_abgelehnt() -> None:
+    with pytest.raises(O.OperatorError, match="lokalen Checkout"):
+        O._cmd_profiled_bench(None, _args("bench"))
+
+
 @pytest.mark.parametrize("operation", ["start", "stop", "restart"])
 def test_checkout_dienstkommandos_werden_zentral_delegiert(
     tmp_path: Path,

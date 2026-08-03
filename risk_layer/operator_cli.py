@@ -910,6 +910,7 @@ def _run(
     capture: bool = False,
     timeout: float | None = None,
     extra_environment: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if not command or any(not isinstance(item, str) or not item or "\x00" in item for item in command):
         raise OperatorError("Interner Delegate-Befehl ist ungueltig")
@@ -927,6 +928,7 @@ def _run(
             text=True,
             env=environment,
             timeout=timeout,
+            cwd=str(cwd) if cwd is not None else None,
         )
     except subprocess.TimeoutExpired as exc:
         raise OperatorError(f"Delegate hat das Zeitlimit ueberschritten: {command[0]}") from exc
@@ -1080,8 +1082,8 @@ def _harden_windows_directory_acl(path: Path, *, private_owner: bool = True) -> 
     )
 
 
-def _passthrough(command: Sequence[str]) -> int:
-    return int(_run(command).returncode)
+def _passthrough(command: Sequence[str], *, cwd: Path | None = None) -> int:
+    return int(_run(command, cwd=cwd).returncode)
 
 
 def _interpreter_contract(path: Path, description: str) -> str:
@@ -2791,6 +2793,14 @@ def _cmd_profiled_service_control(profile: Profile, args: argparse.Namespace) ->
     )
 
 
+def _cmd_profiled_bench(profile: Profile, args: argparse.Namespace) -> int:
+    del profile, args
+    raise OperatorError(
+        "signal bench misst den lokalen Checkout; profilierte Instanzen setzen "
+        "den Schicht-2-Timeout ueber ihre Umgebung (RISK_LAYER_LLM_TIMEOUT)"
+    )
+
+
 def _checkout_python(root: Path) -> Path:
     python = Path(os.path.abspath(sys.executable))
     venv = Path(os.path.abspath(root / ".venv"))
@@ -3041,6 +3051,19 @@ def _dispatch_checkout(root: Path, args: argparse.Namespace) -> int:
     if args.command == "configure":
         _checkout_service_ready(root, profile)
         return _passthrough(_checkout_configure_command(root))
+    if args.command == "bench":
+        # Kein _checkout_service_ready: der Benchmark braucht Modell + Engine
+        # (Bootstrap), aber keinen installierten Service. cwd=root, weil
+        # models/ und .signal/llm_bench.json Checkout-relativ liegen; -P wie
+        # beim Service-Wrapper (importiert das installierte Wheel, nicht den
+        # Checkout-Code).
+        if not _checkout_is_bootstrapped(root, profile):
+            raise OperatorError("LLM-Benchmark braucht zuerst ./signal bootstrap")
+        python = _checkout_python(root)
+        return _passthrough(
+            [str(python), "-P", "-m", "risk_layer.cli", "modell", "bench"],
+            cwd=root,
+        )
     if args.command == "backup":
         _ensure_checkout_layout(profile)
         return _cmd_backup(profile, args)
@@ -3147,6 +3170,18 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in service_help.items():
         service = sub.add_parser(name, help=help_text, description=help_text)
         service.set_defaults(handler=_cmd_profiled_service_control)
+
+    bench = sub.add_parser(
+        "bench",
+        help="LLM-Durchsatz gedrosselt messen und Schicht-2-Timeout kalibrieren",
+        description=(
+            "Misst gedrosselt (halbe Threads, niedrige Prioritaet) die reale "
+            "LLM-Geschwindigkeit dieser Maschine und persistiert den empfohlenen "
+            "Schicht-2-Timeout nach .signal/llm_bench.json. Aufloesung zur "
+            "Laufzeit: Env RISK_LAYER_LLM_TIMEOUT > Kalibrierung > Default 300 s."
+        ),
+    )
+    bench.set_defaults(handler=_cmd_profiled_bench)
 
     backup = sub.add_parser("backup", help="manifestiertes Festwissen-Backup anlegen")
     backup.set_defaults(handler=_cmd_backup)

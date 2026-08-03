@@ -254,7 +254,7 @@ function Maybe-PromptLlmBench {
     $bereit = PyOk "from risk_layer import modell as M; import sys; sys.exit(0 if (M.finde_llama_server() and M.modell_pfad($mref)) else 1)"
     if (-not $bereit) { return }
     if (-not (Test-Interactive)) {
-        Info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: risk-layer modell bench)."
+        Info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: ./signal bench)."
         return
     }
     Schritt "LLM-Benchmark (optional)"
@@ -263,7 +263,7 @@ function Maybe-PromptLlmBench {
     Info "Empfohlen auf CPUs und langsamen GPUs; Dauer: einige Minuten, dort auch laenger."
     $antwort = Read-Host "LLM-Benchmark jetzt ausfuehren? [j/N]"
     if ($antwort.Trim().ToLowerInvariant() -notin @("j", "ja", "y", "yes")) {
-        Info "Uebersprungen - jederzeit nachholbar: risk-layer modell bench"
+        Info "Uebersprungen - jederzeit nachholbar: ./signal bench"
         return
     }
     $benchCmd = @("modell", "bench"); if ($Modell) { $benchCmd += @("--modell", $Modell) }

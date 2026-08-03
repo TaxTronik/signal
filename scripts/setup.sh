@@ -258,7 +258,7 @@ maybe_prompt_llm_bench() {
   # Ohne Modell + Engine gibt es nichts zu messen (z. B. Erst-Setup mit --skip-model).
   py_ok "from risk_layer import modell as M; import sys; sys.exit(0 if (M.finde_llama_server() and M.modell_pfad($mref)) else 1)" || return 0
   if ! can_prompt; then
-    info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: risk-layer modell bench)."
+    info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: ./signal bench)."
     return 0
   fi
   schritt "LLM-Benchmark (optional)"
@@ -274,7 +274,7 @@ maybe_prompt_llm_bench() {
       info "Benchmark fehlgeschlagen - Timeout bleibt beim Default bzw. Env-Wert."
     fi
   else
-    info "Uebersprungen - jederzeit nachholbar: risk-layer modell bench"
+    info "Uebersprungen - jederzeit nachholbar: ./signal bench"
   fi
 }
 

@@ -272,7 +272,8 @@ Prozess-Priorität unter normal — die Maschine bleibt bedienbar) die reale
 Prompt- und Generierungs-Geschwindigkeit und persistiert einen daraus
 berechneten Timeout (Worst-Case-Budget × Sicherheitsfaktor, nie unter `300`)
 nach `.signal/llm_bench.json`. Das Setup (`setup.sh`/`setup.ps1`, auch via
-`./signal configure`) bietet den Lauf interaktiv an. Läuft bereits ein
+`./signal configure`) bietet den Lauf interaktiv an; im verwalteten
+Checkout-Betrieb jederzeit nachholbar per `./signal bench`. Läuft bereits ein
 llama-server, wird gegen diesen gemessen (kein zweites Modell im RAM);
 schafft die Hardware nicht einmal den Messlauf, empfiehlt der Benchmark
 explizit, `mitLLM` deaktiviert zu lassen.
