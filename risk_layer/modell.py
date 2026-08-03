@@ -31,7 +31,7 @@ import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import BinaryIO, Callable
+from typing import Any, BinaryIO, Callable
 
 from .llama_cpp_manifest import (
     ENGINE_ASSETS,
@@ -703,6 +703,7 @@ class LlamaServerManager:
         self, model_path: str | Path, *, binary: str | None = None,
         host: str = "127.0.0.1", port: int = 8080, n_ctx: int = 8192,
         n_gpu_layers: int = -1, extra: tuple[str, ...] = (),
+        niedrige_prioritaet: bool = False,
     ):
         self.model_path = str(model_path)
         self.binary = finde_llama_server(binary)
@@ -711,6 +712,9 @@ class LlamaServerManager:
         self.n_ctx = n_ctx
         self.n_gpu_layers = n_gpu_layers
         self.extra = extra
+        # Für gedrosselte Läufe (llm_bench): der Server soll die Maschine
+        # nicht lahmlegen — OS-Priorität unter normal statt harter CPU-Limits.
+        self.niedrige_prioritaet = niedrige_prioritaet
         self._proc: subprocess.Popen | None = None
         self._log_datei: BinaryIO | None = None  # offenes Handle der Server-Logdatei
         self.log_pfad: str | None = None       # für Diagnose-Hinweise sichtbar
@@ -770,10 +774,17 @@ class LlamaServerManager:
         log_datei = os.fdopen(fd, "wb")
         self._log_datei = log_datei
         _log.info("llama-server-Log: %s", self.log_pfad)
+        popen_kwargs: dict[str, Any] = {}
+        if self.niedrige_prioritaet:
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS
+            else:
+                popen_kwargs["preexec_fn"] = lambda: os.nice(10)
         try:
             self._proc = subprocess.Popen(
                 self.kommando(),
                 stdout=log_datei, stderr=subprocess.STDOUT,
+                **popen_kwargs,
             )
         except Exception:
             log_datei.close()           # Handle nicht verwaisen lassen

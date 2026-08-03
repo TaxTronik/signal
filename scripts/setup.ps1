@@ -243,6 +243,38 @@ function Client-BaseUrl {
     return "http://${clientHost}:$Port"
 }
 
+function Maybe-PromptLlmBench {
+    # Optionaler, GEDROSSELTER Durchsatz-Benchmark: kalibriert den Schicht-2-
+    # Timeout (Aufloesung: Env RISK_LAYER_LLM_TIMEOUT > .signal/llm_bench.json
+    # > Default) auf die reale Hardware. Auf billigen CPUs/GPUs reisst der
+    # feste Default sonst jede valide, nur langsame Antwort ab. Bewusst NICHT
+    # hinter den -Skip*-Gates, damit './signal configure' ihn erreicht.
+    if ($Modell) { $mref = "M.MODELLE['$Modell']" } else { $mref = "M.MODELLE[M.DEFAULT_MODELL]" }
+    # Ohne Modell + Engine gibt es nichts zu messen (z. B. Erst-Setup mit -SkipModel).
+    $bereit = PyOk "from risk_layer import modell as M; import sys; sys.exit(0 if (M.finde_llama_server() and M.modell_pfad($mref)) else 1)"
+    if (-not $bereit) { return }
+    if (-not (Test-Interactive)) {
+        Info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: risk-layer modell bench)."
+        return
+    }
+    Schritt "LLM-Benchmark (optional)"
+    Info "Misst gedrosselt (halbe Threads, niedrige Prioritaet) die reale LLM-Geschwindigkeit"
+    Info "dieser Maschine und kalibriert daraus den Schicht-2-Timeout (.signal/llm_bench.json)."
+    Info "Empfohlen auf CPUs und langsamen GPUs; Dauer: einige Minuten, dort auch laenger."
+    $antwort = Read-Host "LLM-Benchmark jetzt ausfuehren? [j/N]"
+    if ($antwort.Trim().ToLowerInvariant() -notin @("j", "ja", "y", "yes")) {
+        Info "Uebersprungen - jederzeit nachholbar: risk-layer modell bench"
+        return
+    }
+    $benchCmd = @("modell", "bench"); if ($Modell) { $benchCmd += @("--modell", $Modell) }
+    & python -m risk_layer.cli @benchCmd
+    if ($LASTEXITCODE -eq 0) {
+        OkMsg "Timeout kalibriert (.signal/llm_bench.json; Env RISK_LAYER_LLM_TIMEOUT hat Vorrang)"
+    } else {
+        Info "Benchmark fehlgeschlagen - Timeout bleibt beim Default bzw. Env-Wert."
+    }
+}
+
 $script:DockerNativeUrl = ""
 function Maybe-PromptDockerNativeAccess {
     if ($PSBoundParameters.ContainsKey("BindHost")) { return }
@@ -481,6 +513,7 @@ if ($nerModell) {
     Info 'NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt'
 }
 
+Maybe-PromptLlmBench
 Maybe-PromptDockerNativeAccess
 $baseUrl = Client-BaseUrl
 $serviceStateDir = Join-Path $RepoRoot ".signal"

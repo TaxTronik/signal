@@ -247,6 +247,37 @@ choose_quanten_extras() {
   fi
 }
 
+maybe_prompt_llm_bench() {
+  # Optionaler, GEDROSSELTER Durchsatz-Benchmark: kalibriert den Schicht-2-
+  # Timeout (RISK_LAYER_LLM_TIMEOUT-Aufloesung: Env > .signal/llm_bench.json
+  # > Default) auf die reale Hardware. Auf billigen CPUs/GPUs reisst der
+  # feste Default sonst jede valide, nur langsame Antwort ab. Bewusst
+  # AUSSERHALB der --skip-*-Gates, damit './signal configure' ihn erreicht.
+  local mref
+  if [[ -n "$MODELL" ]]; then mref="M.MODELLE['$MODELL']"; else mref="M.MODELLE[M.DEFAULT_MODELL]"; fi
+  # Ohne Modell + Engine gibt es nichts zu messen (z. B. Erst-Setup mit --skip-model).
+  py_ok "from risk_layer import modell as M; import sys; sys.exit(0 if (M.finde_llama_server() and M.modell_pfad($mref)) else 1)" || return 0
+  if ! can_prompt; then
+    info "Nicht interaktiv: LLM-Benchmark uebersprungen (nachholen: risk-layer modell bench)."
+    return 0
+  fi
+  schritt "LLM-Benchmark (optional)"
+  info "Misst gedrosselt (halbe Threads, niedrige Prioritaet) die reale LLM-Geschwindigkeit"
+  info "dieser Maschine und kalibriert daraus den Schicht-2-Timeout (.signal/llm_bench.json)."
+  info "Empfohlen auf CPUs und langsamen GPUs; Dauer: einige Minuten, dort auch laenger."
+  if ask_yes_no "LLM-Benchmark jetzt ausfuehren?" "n"; then
+    local bench_cmd=(modell bench)
+    [[ -n "$MODELL" ]] && bench_cmd+=(--modell "$MODELL")
+    if cli "${bench_cmd[@]}"; then
+      ok "Timeout kalibriert (.signal/llm_bench.json; Env RISK_LAYER_LLM_TIMEOUT hat Vorrang)"
+    else
+      info "Benchmark fehlgeschlagen - Timeout bleibt beim Default bzw. Env-Wert."
+    fi
+  else
+    info "Uebersprungen - jederzeit nachholbar: risk-layer modell bench"
+  fi
+}
+
 client_base_url() {
   local host="$BIND_HOST"
   case "$host" in
@@ -646,6 +677,7 @@ else
   info "NER inaktiv (Modell fehlt) - Anonymisierung regex-only; nachholen: pip install --require-hashes --only-binary=:all: -r requirements-ner-lock.txt"
 fi
 
+maybe_prompt_llm_bench
 maybe_prompt_docker_native_bind
 BASE_URL="$(client_base_url)"
 maybe_prompt_systemd

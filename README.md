@@ -261,7 +261,21 @@ außerhalb von Loopback ist HTTPS Pflicht, SSRF-/DNS-Rebinding-Schutz),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
 `RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER),
 `RISK_LAYER_RERANK_SCHWELLE` (Abstention-Schwelle des Rerankers, Default `0.10`),
-`RISK_LAYER_LLM_TIMEOUT` (Timeout der Schicht-2-Generierung in Sekunden, Default `300`).
+`RISK_LAYER_LLM_TIMEOUT` (Timeout der Schicht-2-Generierung in Sekunden;
+Auflösung: Env-Variable > Benchmark-Kalibrierung `.signal/llm_bench.json` >
+Default `300`).
+
+**Timeout-Kalibrierung (`risk-layer modell bench`):** Auf langsamer Hardware
+(CPU, schwache GPU) reißt der feste Timeout-Default sonst jede valide, nur
+späte Schicht-2-Antwort ab. `modell bench` misst gedrosselt (halbe Threads,
+Prozess-Priorität unter normal — die Maschine bleibt bedienbar) die reale
+Prompt- und Generierungs-Geschwindigkeit und persistiert einen daraus
+berechneten Timeout (Worst-Case-Budget × Sicherheitsfaktor, nie unter `300`)
+nach `.signal/llm_bench.json`. Das Setup (`setup.sh`/`setup.ps1`, auch via
+`./signal configure`) bietet den Lauf interaktiv an. Läuft bereits ein
+llama-server, wird gegen diesen gemessen (kein zweites Modell im RAM);
+schafft die Hardware nicht einmal den Messlauf, empfiehlt der Benchmark
+explizit, `mitLLM` deaktiviert zu lassen.
 
 ---
 

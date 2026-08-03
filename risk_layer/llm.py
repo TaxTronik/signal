@@ -23,25 +23,52 @@ import re
 import threading
 import urllib.error
 import urllib.request
-from pathlib import PureWindowsPath
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from .schicht2 import KANDIDATEN_JSON_SCHEMA, SYSTEMPROMPT
 
 _log = logging.getLogger("risk_layer.llm")
 
+# Kalibrierungs-Datei des gedrosselten LLM-Benchmarks ("risk-layer modell
+# bench", llm_bench.py). Relativ zum Arbeitsverzeichnis wie alle Checkout-
+# Zustände (.signal/service.json): Service-Unit und Windows-Wrapper setzen
+# das Arbeitsverzeichnis auf den Checkout.
+BENCH_DATEI = Path(".signal/llm_bench.json")
+BENCH_SCHEMA = "risk-layer-llm-bench/v1"
+
+
+def _kalibrierter_timeout() -> float | None:
+    """Vom Benchmark empfohlener Timeout — ``None``, wenn keine (valide)
+    Kalibrierung vorliegt. Fail-open auf den Default: eine kaputte oder
+    fremde Datei darf die Schicht nie verschärfen oder crashen."""
+    try:
+        roh = json.loads(BENCH_DATEI.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(roh, dict) or roh.get("schema") != BENCH_SCHEMA:
+        return None
+    wert = roh.get("empfohlener_timeout_s")
+    if isinstance(wert, (int, float)) and not isinstance(wert, bool) and wert > 0:
+        return float(wert)
+    return None
+
 
 def _env_timeout(default: float = 300.0) -> float:
     """Schicht-2-Generierung kann bei großem Text / langsamer GPU minutenlang
     dauern. Default großzügig (sonst werden valide, nur späte Antworten
-    verworfen); per ``RISK_LAYER_LLM_TIMEOUT`` (Sekunden) durch das Host-System
-    tunebar."""
+    verworfen). Auflösung: ``RISK_LAYER_LLM_TIMEOUT`` (Sekunden, Host-System)
+    > Benchmark-Kalibrierung (``.signal/llm_bench.json``, "modell bench")
+    > Default."""
     roh = os.environ.get("RISK_LAYER_LLM_TIMEOUT")
     if roh:
         try:
             return float(roh)
         except ValueError:
             _log.warning("RISK_LAYER_LLM_TIMEOUT=%r ungültig — nutze %.0fs", roh, default)
+    kalibriert = _kalibrierter_timeout()
+    if kalibriert is not None:
+        return kalibriert
     return default
 
 
@@ -430,7 +457,9 @@ class LlamaServerProvider:
             # gehen verloren. NICHT still – sonst unsichtbar (Diagnose-Falle).
             _log.warning(
                 "Schicht-2 LLM-Timeout nach %.0fs (%s) — Kandidaten verworfen. "
-                "RISK_LAYER_LLM_TIMEOUT erhöhen oder schnelleres Backend/Modell nutzen.",
+                "'risk-layer modell bench' kalibriert den Timeout auf diese "
+                "Hardware; alternativ RISK_LAYER_LLM_TIMEOUT erhöhen oder "
+                "schnelleres Backend/Modell nutzen.",
                 self.timeout, self.base_url)
             return []
         except (urllib.error.URLError, ConnectionError, OSError) as exc:

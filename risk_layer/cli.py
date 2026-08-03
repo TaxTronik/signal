@@ -400,6 +400,40 @@ def _cmd_modell(args: argparse.Namespace) -> int:
                   else "ABWEICHUNG: mindestens ein Artefakt weicht ab oder fehlt.")
         return 0 if alle_ok else 1
 
+    if args.aktion == "bench":
+        # Gedrosselter Durchsatz-Benchmark → kalibriert RISK_LAYER_LLM_TIMEOUT
+        # (Details/Formel: risk_layer/llm_bench.py). Läuft bereits ein Server
+        # unter --llm-url, wird gegen diesen gemessen; sonst startet der
+        # Benchmark einen eigenen, gedrosselten llama-server und stoppt ihn.
+        import json as _json
+        from . import llm_bench
+        melde = None if args.json else (lambda s: print(f"  {s}"))
+        try:
+            ergebnis = llm_bench.bench(
+                base_url=args.llm_url or "http://127.0.0.1:8080",
+                modell_key=args.modell, binary=args.llm_bin, melde=melde)
+        except Exception as exc:  # noqa: BLE001 – Bedienfehler sauber melden
+            print(f"Benchmark-Fehler: {exc}", file=sys.stderr)
+            return 1
+        pfad = llm_bench.speichere(ergebnis)
+        if args.json:
+            print(_json.dumps(ergebnis, ensure_ascii=False, sort_keys=True))
+            return 0 if ergebnis.get("empfohlener_timeout_s") else 1
+        messung = ergebnis.get("messung")
+        if messung:
+            print(f"  Prompt-Verarbeitung: {messung['pp_tok_s']:.1f} tok/s"
+                  f"   Generierung: {messung['tg_tok_s']:.1f} tok/s"
+                  f"   (Quelle: {messung['quelle']})")
+        timeout_s = ergebnis.get("empfohlener_timeout_s")
+        if timeout_s:
+            print(f"  Empfohlener Schicht-2-Timeout: {timeout_s:.0f} s"
+                  f" — kalibriert in {pfad}")
+            print("  (Eine gesetzte Env-Variable RISK_LAYER_LLM_TIMEOUT hat"
+                  " weiterhin Vorrang.)")
+            return 0
+        print(ergebnis.get("hinweis", "Messung fehlgeschlagen."), file=sys.stderr)
+        return 1
+
     modell_info = M.MODELLE.get(args.modell or M.DEFAULT_MODELL)
     if modell_info is None:
         print(f"unbekanntes Modell: {args.modell}", file=sys.stderr)
@@ -908,7 +942,8 @@ def build_parser() -> argparse.ArgumentParser:
     ra.set_defaults(func=_cmd_radar)
 
     m = sub.add_parser("modell", help="LLM-Modell (GGUF) verwalten und llama-server starten")
-    m.add_argument("aktion", choices=["list", "download", "engine", "status", "start", "verify"])
+    m.add_argument("aktion", choices=["list", "download", "engine", "status", "start",
+                                      "verify", "bench"])
     m.add_argument("--modell", help=f"Modell-Key (Default: {M.DEFAULT_MODELL})")
     m.add_argument("--llm-bin", help="Pfad zum llama-server-Binary")
     m.add_argument("--llm-url", help="llama-server URL (Default http://127.0.0.1:8080)")
@@ -917,7 +952,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="GPU-Backend fuer 'engine' (auto: NVIDIA->cuda, AMD->rocm, sonst Vulkan/CPU)")
     m.add_argument("--dir", help="Modell-Verzeichnis für 'verify' (Default: models/)")
     m.add_argument("--json", action="store_true",
-                   help="'verify': maschinenlesbares Ergebnis auf stdout statt Tabelle")
+                   help="'verify'/'bench': maschinenlesbares Ergebnis auf stdout statt Tabelle")
     m.set_defaults(func=_cmd_modell)
 
     fw = sub.add_parser(
