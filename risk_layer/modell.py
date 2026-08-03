@@ -776,7 +776,9 @@ class LlamaServerManager:
         _log.info("llama-server-Log: %s", self.log_pfad)
         popen_kwargs: dict[str, Any] = {}
         if self.niedrige_prioritaet:
-            if os.name == "nt":
+            # sys.platform statt os.name: mypy (laeuft auf Linux) kennt die
+            # Windows-Konstante nur in einem sys.platform-Narrowing-Block.
+            if sys.platform == "win32":
                 popen_kwargs["creationflags"] = subprocess.BELOW_NORMAL_PRIORITY_CLASS
             else:
                 popen_kwargs["preexec_fn"] = lambda: os.nice(10)

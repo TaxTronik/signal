@@ -415,7 +415,7 @@ def _cmd_modell(args: argparse.Namespace) -> int:
         except Exception as exc:  # noqa: BLE001 – Bedienfehler sauber melden
             print(f"Benchmark-Fehler: {exc}", file=sys.stderr)
             return 1
-        pfad = llm_bench.speichere(ergebnis)
+        bench_pfad = llm_bench.speichere(ergebnis)
         if args.json:
             print(_json.dumps(ergebnis, ensure_ascii=False, sort_keys=True))
             return 0 if ergebnis.get("empfohlener_timeout_s") else 1
@@ -427,7 +427,7 @@ def _cmd_modell(args: argparse.Namespace) -> int:
         timeout_s = ergebnis.get("empfohlener_timeout_s")
         if timeout_s:
             print(f"  Empfohlener Schicht-2-Timeout: {timeout_s:.0f} s"
-                  f" — kalibriert in {pfad}")
+                  f" — kalibriert in {bench_pfad}")
             print("  (Eine gesetzte Env-Variable RISK_LAYER_LLM_TIMEOUT hat"
                   " weiterhin Vorrang.)")
             return 0
