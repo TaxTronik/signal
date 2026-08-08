@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import stat
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -698,7 +699,9 @@ def test_checkout_git_nutzt_unter_windows_sicheren_bin_fallback(
 
     monkeypatch.setattr(O.shutil, "which", lambda _name: str(cmd_git))
     monkeypatch.setattr(O, "_require_executable_control", require)
-    monkeypatch.setattr(O.os, "name", "nt")
+    # Nur die Modulbindung ersetzen: ein globales os.name="nt" bringt pathlib
+    # auf einem Linux-Runner dazu, WindowsPath zu instanziieren.
+    monkeypatch.setattr(O, "os", SimpleNamespace(name="nt", path=os.path))
 
     assert O._checkout_git_executable() == bin_git
     assert checked == [cmd_git, bin_git]

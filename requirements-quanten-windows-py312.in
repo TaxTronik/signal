@@ -3,3 +3,4 @@
 qiskit==2.5.0
 qiskit-aer==0.17.2
 qiskit-ibm-runtime==0.47.0
+cryptography==50.0.0

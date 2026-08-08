@@ -169,6 +169,7 @@ jobs:
 
       - name: Vollständige Tests + Branch-Coverage
         run: |
+          umask 022
           python -m compileall -q risk_layer tests tools
           python -m coverage run -m pytest -q
           python -m coverage report

@@ -238,7 +238,8 @@ def test_windows_release_task_startet_verifiziertes_current() -> None:
     assert "-- service run" in installer
     assert "ToBase64String" in installer and "FromBase64String" in installer
     assert "Start-ScheduledTask" in restart
-    assert "Stop-ScheduledTask" in restart
+    assert 'Join-Path $PSScriptRoot "stop-risk-layer-task.ps1"' in restart
+    assert "& $stopScript -TaskName $TaskName" in restart
     assert "RunLevel Highest" not in restart
 
 

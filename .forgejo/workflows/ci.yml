@@ -91,6 +91,7 @@ jobs:
       # aus tests/fixtures/ (kein corpus/graph.sqlite, kein corpus/embedding/ nötig).
       - name: Run tests + Branch-Coverage-Gate
         run: |
+          umask 022
           python -m coverage run -m pytest -q
           python -m coverage report
 
