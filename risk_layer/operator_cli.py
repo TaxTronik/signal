@@ -2726,9 +2726,14 @@ def _checkout_service_command(root: Path, operation: str) -> list[str]:
         wrapper = root / "service-start.ps1"
         _require_control_file(wrapper, "Windows-Autostart-Wrapper")
         powershell = _windows_powershell()
-        if operation == "restart":
-            script = root / "deploy/restart-risk-layer-task.ps1"
-            _require_control_file(script, "Windows-Neustart-Hook")
+        if operation in {"stop", "restart"}:
+            script_name = (
+                "restart-risk-layer-task.ps1"
+                if operation == "restart"
+                else "stop-risk-layer-task.ps1"
+            )
+            script = root / "deploy" / script_name
+            _require_control_file(script, "Windows-Dienststeuerungs-Hook")
             return [
                 str(powershell),
                 "-NoLogo",
@@ -2741,12 +2746,8 @@ def _checkout_service_command(root: Path, operation: str) -> list[str]:
                 "-TaskName",
                 CHECKOUT_WINDOWS_TASK,
             ]
-        verb = "Start-ScheduledTask" if operation == "start" else "Stop-ScheduledTask"
-        guard = (
-            "$task.State -ne 'Running'"
-            if operation == "start"
-            else "$task.State -eq 'Running'"
-        )
+        verb = "Start-ScheduledTask"
+        guard = "$task.State -ne 'Running'"
         command = (
             "$ErrorActionPreference='Stop';"
             f"$task=Get-ScheduledTask -TaskName '{CHECKOUT_WINDOWS_TASK}' "
@@ -2873,12 +2874,36 @@ def _operator_ops_command(
     return _ops_command(profile, arguments)
 
 
-def _checkout_git(root: Path, arguments: Sequence[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+def _checkout_git_executable() -> Path:
     executable = shutil.which("git")
     if executable is None:
         raise OperatorError("Lokales Update braucht Git")
-    git = Path(os.path.abspath(executable))
-    _require_executable_control(git, "Git")
+
+    candidates = [Path(os.path.abspath(executable))]
+    if os.name == "nt":
+        # Git for Windows liefert cmd/git.exe regulaer als Hardlink auf seinen
+        # Multiplexer aus. Die sibling bin/git.exe gehoert zum selben
+        # Installationsbaum, ist aber eine einzelne regulaere Datei und kann
+        # deshalb die strikte Kontrollpruefung erfuellen.
+        cmd_git = candidates[0]
+        sibling = cmd_git.parent.parent / "bin" / "git.exe"
+        if sibling != cmd_git:
+            candidates.append(sibling)
+
+    errors: list[OperatorError] = []
+    for git in candidates:
+        try:
+            _require_executable_control(git, "Git")
+        except OperatorError as exc:
+            errors.append(exc)
+            continue
+        return git
+
+    raise errors[-1]
+
+
+def _checkout_git(root: Path, arguments: Sequence[str], *, capture: bool = False) -> subprocess.CompletedProcess[str]:
+    git = _checkout_git_executable()
     return _run([str(git), "-C", str(root), *arguments], capture=capture)
 
 

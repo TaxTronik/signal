@@ -515,11 +515,11 @@ def test_checkout_dienstbefehl_nutzt_plattformeigenen_benutzerdienst(
         monkeypatch.setattr(O, "_windows_powershell", lambda: powershell)
         command = O._checkout_service_command(tmp_path, operation)
         assert command[0] == str(powershell)
-        if operation == "restart":
-            assert "restart-risk-layer-task.ps1" in " ".join(command)
+        if operation in {"stop", "restart"}:
+            assert f"{operation}-risk-layer-task.ps1" in " ".join(command)
+            assert command[-2:] == ["-TaskName", O.CHECKOUT_WINDOWS_TASK]
         else:
-            expected = "Start-ScheduledTask" if operation == "start" else "Stop-ScheduledTask"
-            assert expected in command[-1]
+            assert "Start-ScheduledTask" in command[-1]
     else:
         monkeypatch.setattr(O.shutil, "which", lambda _name: "/usr/bin/systemctl")
         monkeypatch.setattr(O, "_require_executable_control", lambda *_args: None)
@@ -676,6 +676,32 @@ def test_checkout_deploy_verweist_auf_getrennte_vertraege(tmp_path: Path) -> Non
 
     with pytest.raises(O.OperatorError, match="Lokales deploy gibt es nicht"):
         O._checkout_deployment(root, profile, _args("deploy"))
+
+
+def test_checkout_git_nutzt_unter_windows_sicheren_bin_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install = tmp_path / "Git"
+    cmd_git = install / "cmd" / "git.exe"
+    bin_git = install / "bin" / "git.exe"
+    cmd_git.parent.mkdir(parents=True)
+    bin_git.parent.mkdir(parents=True)
+    cmd_git.write_bytes(b"multiplexer")
+    bin_git.write_bytes(b"git")
+
+    checked: list[Path] = []
+
+    def require(path: Path, _description: str) -> None:
+        checked.append(path)
+        if path == cmd_git:
+            raise O.OperatorError("Git darf keine Hardlinks besitzen")
+
+    monkeypatch.setattr(O.shutil, "which", lambda _name: str(cmd_git))
+    monkeypatch.setattr(O, "_require_executable_control", require)
+    monkeypatch.setattr(O.os, "name", "nt")
+
+    assert O._checkout_git_executable() == bin_git
+    assert checked == [cmd_git, bin_git]
 
 
 def test_checkout_status_erlaubt_persistierte_lokale_http_bridge(
