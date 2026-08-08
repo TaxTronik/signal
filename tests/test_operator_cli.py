@@ -200,6 +200,7 @@ def _write_checkout_contract(tmp_path: Path) -> Path:
     setup = root / "scripts" / ("setup.ps1" if os.name == "nt" else "setup.sh")
     setup.write_text("# setup\n", encoding="utf-8")
     if os.name != "nt":
+        setup.parent.chmod(0o700)
         setup.chmod(0o700)
     return root
 
@@ -414,8 +415,10 @@ def test_checkout_bootstrap_wiederholt_keinen_vorhandenen_service(
         O._checkout_deployment(root, profile, _args("bootstrap"))
 
 
-def test_checkout_setup_provisioniert_service_ohne_benutzerparameter() -> None:
-    command = O._checkout_setup_command(ROOT)
+def test_checkout_setup_provisioniert_service_ohne_benutzerparameter(
+    tmp_path: Path,
+) -> None:
+    command = O._checkout_setup_command(_write_checkout_contract(tmp_path))
 
     if os.name == "nt":
         assert command[-1] == "-Service"
@@ -423,8 +426,10 @@ def test_checkout_setup_provisioniert_service_ohne_benutzerparameter() -> None:
         assert command[-1] == "--service"
 
 
-def test_checkout_configure_ueberspringt_teuren_vollaufbau() -> None:
-    command = O._checkout_configure_command(ROOT)
+def test_checkout_configure_ueberspringt_teuren_vollaufbau(
+    tmp_path: Path,
+) -> None:
+    command = O._checkout_configure_command(_write_checkout_contract(tmp_path))
 
     if os.name == "nt":
         assert command[-6:] == [
