@@ -40,7 +40,9 @@ from .models import GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN
 # Antwort geändert.
 # 1.3.2: Sicherheits-Hardening – strikte Bool-/String-Schemas, Ressourcenlimits
 # und fail-closed Prüfung manipulierter bzw. nur teilweise belegter Nachweise.
-V1_VERSION = "1.3.2"
+# 1.4.0: additive, getrennt operator-authentisierte Embedding-Status-, Refresh-
+# und Schedule-Routen. Analyse-/Suchvertraege bleiben unveraendert.
+V1_VERSION = "1.4.0"
 
 _MAX_FESTWISSEN_BEGRIFF = 512
 _MAX_FESTWISSEN_TEXT = 100_000
@@ -375,23 +377,69 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
         return 400, {"error": "Feld 'k' muss eine Ganzzahl sein"}
     k = k_roh
     k = max(1, min(k, 50))
-    if app.embedding is None or app.embedding_encoder is None:
+    embedding, embedding_encoder = app.embedding_snapshot()
+    if embedding is None or embedding_encoder is None:
         return 200, {"treffer": [], "grund": "kein Embedding-Index",
                      "engineVersion": V1_VERSION}
-    hits = app.embedding.suche(text, app.embedding_encoder, k=k, min_sim=0.0)
+    hits = embedding.suche(text, embedding_encoder, k=k, min_sim=0.0)
     return 200, {"treffer": hits, "engineVersion": V1_VERSION}
+
+
+def _embedding_status(app) -> tuple[int, dict[str, Any]]:
+    """GET /v1/embedding/status – Live-Index, Job und globaler Zeitplan."""
+    return 200, {
+        "ok": True,
+        "engineVersion": V1_VERSION,
+        **app.embedding_operator_status(),
+    }
+
+
+def _embedding_refresh(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/embedding/refresh – asynchron und pro Prozess single-flight."""
+    force = payload.get("force", False)
+    if not isinstance(force, bool):
+        return 400, {"error": "Feld 'force' muss ein Boolean sein"}
+    from .embedding_operator import EmbeddingOperatorUnavailable
+    try:
+        job = app.embedding_refresh(force=force)
+    except EmbeddingOperatorUnavailable as exc:
+        return 503, {"error": str(exc)}
+    return 202, {"ok": True, "engineVersion": V1_VERSION, **job}
+
+
+def _embedding_schedule(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/embedding/schedule – globaler Check-Rhythmus (1..365 Tage)."""
+    enabled = payload.get("enabled")
+    interval_days = payload.get("interval_days")
+    if not isinstance(enabled, bool):
+        return 400, {"error": "Feld 'enabled' muss ein Boolean sein"}
+    if (isinstance(interval_days, bool) or not isinstance(interval_days, int)
+            or not 1 <= interval_days <= 365):
+        return 400, {"error": "Feld 'interval_days' muss eine Ganzzahl 1..365 sein"}
+    from .embedding_operator import EmbeddingOperatorUnavailable
+    try:
+        schedule = app.embedding_schedule(
+            enabled=enabled, interval_days=interval_days
+        )
+    except EmbeddingOperatorUnavailable as exc:
+        return 503, {"error": str(exc)}
+    return 200, {
+        "ok": True,
+        "engineVersion": V1_VERSION,
+        "schedule": schedule,
+    }
 
 
 def _status(app) -> tuple[int, dict[str, Any]]:
     """GET /v1/status – Engine-Zustand (Degradations-Transparenz, seit 1.2.0).
 
-    Welche Schichten KONNTEN beim Start geladen werden (Trigger/Graph/
+    Welche Schichten sind im konsistenten Runtime-Snapshot geladen (Trigger/Graph/
     Embedding/Reranker/NER), inkl. Degradations-GRUND und deterministischer
     Fingerprints – die Engine degradiert bewusst an vielen Stellen, und für
     die Haftungsakte des Hosts muss dieser Zustand abfragbar sein, nicht nur
     im Betreiber-Log stehen. Bewusst KEINE Live-Prüfung (das LLM bleibt lazy;
     Erreichbarkeit liefert GET /v1/llm/status) und KEINE Zeitstempel.
-    Derselbe Block hängt als ``engine_status`` an jeder /v1/analyse-Antwort
+    Derselbe Snapshot hängt als ``engine_status`` an jeder /v1/analyse-Antwort
     (dort zusätzlich mit den effektiven Lauf-``optionen``).
     """
     return 200, {
@@ -656,9 +704,11 @@ def _llm_stop(app) -> tuple[int, dict[str, Any]]:
 # Bekannte Routen je Methode – für 405 (Methode falsch) statt 404 (Pfad unbekannt).
 _GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/radar", "/v1/katalog",
                         "/v1/normgraph/aufloesen", "/v1/normgraph/suche",
-                        "/v1/katalog/kuratierung", "/v1/llm/status"})
+                        "/v1/katalog/kuratierung", "/v1/llm/status",
+                        "/v1/embedding/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
                          "/v1/katalog/review", "/v1/embedding/suche",
+                         "/v1/embedding/refresh", "/v1/embedding/schedule",
                          "/v1/los/ziehen", "/v1/los/abholen", "/v1/los/pruefen",
                          "/v1/llm/start", "/v1/llm/stop"})
 
@@ -679,9 +729,11 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return 200, {"ok": True, "engineVersion": V1_VERSION,
                          "katalogVersion": app.katalog.version,
                          "graph": app.graph is not None,
-                         "embedding": app.embedding is not None}
+                         "embedding": app.embedding_snapshot()[0] is not None}
         if pfad == "/v1/status":
             return _status(app)
+        if pfad == "/v1/embedding/status":
+            return _embedding_status(app)
         if pfad == "/v1/radar":
             return _radar(app)
         if pfad == "/v1/katalog":
@@ -705,6 +757,10 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _katalog_review(app, payload)
         if pfad == "/v1/embedding/suche":
             return _embedding_suche(app, payload)
+        if pfad == "/v1/embedding/refresh":
+            return _embedding_refresh(app, payload)
+        if pfad == "/v1/embedding/schedule":
+            return _embedding_schedule(app, payload)
         if pfad == "/v1/los/ziehen":
             return _los_ziehen(app, payload)
         if pfad == "/v1/los/abholen":

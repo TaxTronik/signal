@@ -412,6 +412,35 @@ $token = (Get-Content -LiteralPath $tokenPath -Raw).Trim()
 Info "Token gespeichert: $tokenPath (nicht angezeigt)"
 Info "Bewusst anzeigen: Get-Content -LiteralPath .engine_token -Raw"
 
+# Separate Vertrauensgrenze fuer mutierende Embedding-Operatoraufrufe.
+$operatorTokenPath = Join-Path $RepoRoot ".operator_token"
+if (Test-Path -LiteralPath $operatorTokenPath) {
+    $operatorTokenItem = Get-Item -LiteralPath $operatorTokenPath -Force
+    if ($operatorTokenItem.PSIsContainer -or (($operatorTokenItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+        throw ".operator_token muss eine regulaere Datei sein und darf kein Link sein."
+    }
+    Set-EngineTokenAcl -Path $operatorTokenPath
+}
+if ((-not (Test-Path -LiteralPath $operatorTokenPath)) -or $RotateToken) {
+    $operatorToken = & python -c "import secrets; print(secrets.token_hex(32))"
+    $operatorExitCode = $LASTEXITCODE
+    $operatorToken = ([string]$operatorToken).Trim()
+    if ($operatorExitCode -ne 0 -or $operatorToken -notmatch "^[0-9a-f]{64}$") {
+        throw "Operator-Token konnte nicht sicher erzeugt werden."
+    }
+    Write-EngineTokenAtomically -Path $operatorTokenPath -Value $operatorToken
+    OkMsg "neues separates Operator-Token erzeugt (.operator_token, restriktive ACL)"
+} else { OkMsg ".operator_token vorhanden (wiederverwendet)" }
+Set-EngineTokenAcl -Path $operatorTokenPath
+$operatorToken = (Get-Content -LiteralPath $operatorTokenPath -Raw).Trim()
+if ($operatorToken -eq $token) {
+    throw "Operator-Token muss vom Bearer-Token verschieden sein; -RotateToken ausfuehren."
+}
+$env:RISK_LAYER_OPERATOR_TOKEN = $operatorToken
+$env:RISK_LAYER_EMBEDDING_DIR = Join-Path $RepoRoot ".signal\embedding"
+[void][System.IO.Directory]::CreateDirectory($env:RISK_LAYER_EMBEDDING_DIR)
+Info "Operator-Token gespeichert: $operatorTokenPath (nicht angezeigt)"
+
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if (-not $SkipModel) {
     Schritt "LLM-Modell (GGUF) herunterladen"
@@ -533,22 +562,26 @@ Write-Host "`nDeploy abgeschlossen." -ForegroundColor Green
 Write-Host "Kanzleikonsole .env (Host-Prozess, nicht Docker):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=$baseUrl"
 Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
+Write-Output "# RISK_LAYER_OPERATOR_TOKEN aus .operator_token uebernehmen (nicht angezeigt)"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 Write-Host "Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):" -ForegroundColor Yellow
 Write-Output "RISK_LAYER_URL=http://risk-layer:8000"
 Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
+Write-Output "# RISK_LAYER_OPERATOR_TOKEN aus .operator_token uebernehmen (nicht angezeigt)"
 Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
 Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 if ($script:DockerNativeUrl) {
     Write-Host "Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):" -ForegroundColor Yellow
     Write-Output "RISK_LAYER_URL=$script:DockerNativeUrl"
     Write-Output "# RISK_LAYER_TOKEN aus .engine_token uebernehmen (nicht angezeigt)"
+    Write-Output "# RISK_LAYER_OPERATOR_TOKEN aus .operator_token uebernehmen (nicht angezeigt)"
     Write-Output "RISK_LAYER_HEALTH_PATH=/v1/health"
     Write-Output "RISK_LAYER_ANALYSE_PATH=/v1/analyse"
 }
 Write-Host "Token bei Bedarf bewusst anzeigen:" -ForegroundColor Yellow
 Write-Host "  Get-Content -LiteralPath .engine_token -Raw"
+Write-Host "  Get-Content -LiteralPath .operator_token -Raw"
 Write-Host "Alltagsbetrieb (Engine + LLM als Benutzer-Task):" -ForegroundColor Yellow
 Write-Host "  .\signal.ps1 start | .\signal.ps1 stop | .\signal.ps1 restart | .\signal.ps1 status"
 

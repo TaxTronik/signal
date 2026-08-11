@@ -1,5 +1,6 @@
 # Secrets – NIE einchecken
 .engine_token
+.operator_token
 .env
 .env.local
 .risk-layer-ops.json
@@ -95,6 +96,12 @@ Thumbs.db
 
 # Embedding-Index (regenerierbar via "risk-layer embedding build")
 corpus/embedding/
+/corpus/.embedding.festwissen.lock
+/corpus/.embedding.restore-journal.json
+/corpus/..embedding.restore-journal.json.*.tmp
+/corpus/.embedding.restore-*/
+/corpus/.embedding.vor-restore-*/
+/corpus/.embedding.failed-*/
 
 # IDE/Tooling-Ausgaben
 .VSCodeCounter/

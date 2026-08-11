@@ -162,13 +162,14 @@ schließen); Token-Werte erscheinen nie im Log.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.3.2`
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.4.0`
 (additiv zu `1.1.0` = `POST /v1/katalog/review`; `1.2.0` ergänzt
 `GET /v1/status` + den `engine_status`-Block in `/v1/analyse` sowie — parallel
 entwickelt — `GET /v1/radar`; `1.3.0` ergänzt `POST /v1/los/{ziehen,abholen,pruefen}`
 (Quantenlos, beweisbar blinde Stichprobe);
-`1.3.1` den optionalen IBM-Token und `1.3.2` strikte Eingabeschemas,
-Ressourcenlimits sowie die fail-closed Nachweisprüfung).
+`1.3.1` den optionalen IBM-Token, `1.3.2` strikte Eingabeschemas,
+Ressourcenlimits sowie die fail-closed Nachweisprüfung und `1.4.0` den
+abgesicherten Embedding-Operatorvertrag).
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
@@ -180,8 +181,10 @@ Die Engine **degradiert
 bewusst** an vielen Stellen (Trigger-Index nicht gebaut, Embedding-Index
 fehlt/veraltet, Encoder/Reranker nicht ladbar, NER ohne Modell, LLM aus) —
 bisher stand das nur im Betreiber-Log. `engine_status` macht den Zustand
-abfragbar: **einmalig beim Start erhoben**, danach unveränderlich; **keine**
-Live-Prüfung (LLM-Erreichbarkeit liefert weiterhin `GET /v1/llm/status`),
+abfragbar: beim Start erhoben und je Request konsistent gesnapshotet; nur eine
+vollständig verifizierte Embedding-Generation aktualisiert ihren Teil atomar.
+Es gibt **keine**
+Live-Prüfung des LLM (Erreichbarkeit liefert weiterhin `GET /v1/llm/status`),
 **keine** Zeitstempel/Zufallswerte (Fingerprints sind deterministisch).
 `festwissen_status` ist dagegen eine additive Live-Sicht: `review_quarantaene`
 nennt die Anzahl noch zu prüfender Upgrade-Fälle und `review_migrationen[]`
@@ -201,7 +204,8 @@ durchlaufen; es gibt keine automatische Freigabe.
       "trigger":  { "aktiv": true,  "grund": null },  // grund z. B. "kein Trigger-Index gebaut"
       "graph":    { "aktiv": true,  "fingerprint": "3f9c…" },   // sha256 des Korpus-Inhalts
       "embedding": { "aktiv": true, "encoder": "bge-m3",
-                     "index_fingerprint": "3f9c…",    // Graph-Stand zum Index-Build
+                     "index_fingerprint": "3f9c…",    // textbasierter Graph-Stand
+                     "index_input_fingerprint": "8a1e…", // Graph/Katalog/Builder/Encoder
                      "index_aktuell": true,           // false = veraltet/nicht prüfbar; null = kein Index
                      "grund": null },                 // z. B. "Embedding-Encoder nicht ladbar: …"
       "reranker": { "aktiv": false,
@@ -390,6 +394,48 @@ Operator-Aktion `graph build`); korruptes Vorher-Manifest → `500` — beide al
 ### `POST /v1/embedding/suche`
 Body: `{text, k?: int}` → `{treffer: [ {norm_id, zitat, titel, sim} ]}` (je Norm
 nur ein Treffer, dedupliziert). Leer, wenn kein Embedding-Index gebaut.
+
+### `GET /v1/embedding/status` (seit `1.4.0`)
+
+Braucht nur den normalen Bearer-Token und liefert den globalen Livezustand:
+
+```json
+{
+  "ok": true,
+  "engineVersion": "1.4.0",
+  "index": {"active": true, "current": true, "fingerprint": "…", "input_fingerprint": "…", "encoder": "bge-m3", "revision": "…"},
+  "job": {"state": "succeeded", "id": "…", "requested": "…", "started": "…", "completed": "…", "last_success": "…", "error": null},
+  "schedule": {"enabled": true, "interval_days": 7, "last_check_at": "…", "next_run_at": "…"},
+  "refresh_available": true,
+  "unavailable_reason": null
+}
+```
+
+`index.current` ist `null`, wenn kein Index existiert, sonst ein Boolean.
+`index.input_fingerprint` bindet zusätzlich zum textbasierten Graph-Fingerprint
+Normtitel, Gesetz und Paragraph sowie Katalog, Builder und Encoderrevision an
+den konkreten Vektorstand.
+Zeitstempel sind UTC-ISO-8601 oder `null`. Jobzustände sind
+`idle|queued|running|succeeded|failed|skipped`.
+
+### `POST /v1/embedding/refresh` und `/v1/embedding/schedule` (seit `1.4.0`)
+
+Beide Routen brauchen zusätzlich
+`x-risk-layer-operator-token: $RISK_LAYER_OPERATOR_TOKEN`; der normale Bearer
+allein reicht ausdrücklich nicht. Das Operator-Secret muss vom aktuellen und
+vom Vorgänger-Bearer verschieden sein. Refresh `{force?:boolean}` antwortet
+asynchron mit HTTP 202 und `{ok, engineVersion, job_id, state}`. Gleichzeitige
+Aufrufe teilen dieselbe Job-ID. Schedule
+`{enabled:boolean, interval_days:int}` akzeptiert 1 bis 365 Tage und liefert
+den gespeicherten Plan. Mutierende Clients dürfen diese POSTs ohne expliziten
+Idempotenzvertrag nicht automatisch wiederholen. Das Overlay hält nach einem
+Erfolg höchstens die aktuelle und die unmittelbar vorige Generation.
+
+`RISK_LAYER_EMBEDDING_DIR` ist eine harte **Ein-Instanz-Grenze**: genau ein
+Engine-Prozess darf ein Overlay besitzen. Mehrere Replikas dürfen weder dasselbe
+Verzeichnis noch dasselbe Named Volume teilen; sie brauchen getrennte Overlays
+und damit getrennte Operatorzustände. Die gelieferten Compose-Profile setzen die
+Engine deshalb explizit auf eine Replika.
 
 ### `GET /v1/llm/status`
 → `{url, verfuegbar: bool, queue, modell_geladen, binary_vorhanden, von_uns_gestartet}`.

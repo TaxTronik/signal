@@ -263,12 +263,16 @@ die Lücke datenseitig:
 
 ## 10. Schnittstellen ✅
 
-- **Maschinen-API** (`/v1/*`, `web.py` + `api_v1.py`, Engine-Version `1.2.0`):
+- **Maschinen-API** (`/v1/*`, `web.py` + `api_v1.py`, Engine-Version `1.4.0`):
   der **einzige** Server-Zugang —
-  stabil, **zustandslos**, Bearer-Auth, zum Einbetten in ein Host-System (TaxTronik).
+  stabil, bezüglich Mandantendaten **zustandslos**, Bearer-Auth, zum Einbetten
+  in ein Host-System (TaxTronik). Nur der globale Embedding-Operator persistiert
+  Job-/Planstate und regenerierbare Indexgenerationen.
   `health` · `status` · `analyse` · `katalog` · `katalog/definiere` ·
   `katalog/review` · `radar` · `normgraph/{aufloesen,suche}` ·
-  `embedding/suche` · `llm/status` · `llm/start`. Stabile Zeichen-Offsets + `text_hash`,
+  `embedding/{suche,status,refresh,schedule}` · `llm/status` · `llm/start`.
+  Die mutierenden Embedding-Routen brauchen zusätzlich ein separates
+  Operator-Secret. Stabile Zeichen-Offsets + `text_hash`,
   deterministische schnelle Phase (`mitLLM:false`). **LLM-Steuerung:** `POST /v1/llm/start`
   (idempotent) + `GET /v1/llm/status` mit **Queue** (Slot-/Auslastungszustand des
   llama-server). Ein Nicht-Loopback-Bind erfordert `RISK_LAYER_TOKEN`.

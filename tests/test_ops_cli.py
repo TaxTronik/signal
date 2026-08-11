@@ -498,6 +498,72 @@ def test_doctor_prueft_release_und_sollschichten(monkeypatch):
     assert result["ok"] is True
 
 
+def test_doctor_bestaetigt_aktuellen_embedding_input_fingerprint(monkeypatch):
+    fingerprint = "d" * 64
+    antworten = {
+        "/v1/health": {"ok": True},
+        "/v1/status": {
+            "ok": True,
+            "engine_status": {"schichten": {"matcher": {"aktiv": True}}},
+        },
+        "/v1/embedding/status": {
+            "ok": True,
+            "index": {
+                "current": True,
+                "input_fingerprint": fingerprint,
+            },
+        },
+    }
+    monkeypatch.setattr(
+        O, "_hole_json", lambda basis, pfad, token, timeout: antworten[pfad]
+    )
+
+    result = O._doctor(
+        url="http://127.0.0.1:8000",
+        token_datei=None,
+        timeout=1,
+        erwartet_embedding_fingerprint=fingerprint,
+        schichten=["matcher"],
+    )
+
+    assert result["embedding"]["index"]["input_fingerprint"] == fingerprint
+
+
+@pytest.mark.parametrize(
+    ("current", "actual", "message"),
+    [
+        (False, "e" * 64, "nicht aktuell"),
+        (True, "f" * 64, "Falscher aktiver Embedding-Fingerprint"),
+    ],
+)
+def test_doctor_lehnt_unbestaetigten_embedding_input_ab(
+    monkeypatch, current, actual, message
+):
+    antworten = {
+        "/v1/health": {"ok": True},
+        "/v1/status": {
+            "ok": True,
+            "engine_status": {"schichten": {"matcher": {"aktiv": True}}},
+        },
+        "/v1/embedding/status": {
+            "ok": True,
+            "index": {"current": current, "input_fingerprint": actual},
+        },
+    }
+    monkeypatch.setattr(
+        O, "_hole_json", lambda basis, pfad, token, timeout: antworten[pfad]
+    )
+
+    with pytest.raises(O.OpsFehler, match=message):
+        O._doctor(
+            url="http://127.0.0.1:8000",
+            token_datei=None,
+            timeout=0.01,
+            erwartet_embedding_fingerprint="e" * 64,
+            schichten=["matcher"],
+        )
+
+
 def test_doctor_blockt_abweichenden_manifest_hash(monkeypatch):
     antworten = {
         "/v1/health": {"ok": True},

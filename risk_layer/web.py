@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import hmac
 import ipaddress
 import json
 import logging
 import os
 import re
+import signal
 import sys
 import threading
 from datetime import date, datetime
@@ -54,6 +56,11 @@ _REQUEST_BACKLOG = 64
 _RELEASE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _GIT_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _sigterm_als_graceful_stop(_signum: int, _frame: Any) -> None:
+    """Fuehrt Docker-/systemd-SIGTERM durch denselben finally-Pfad wie Strg+C."""
+    raise KeyboardInterrupt
 
 
 def _release_identitaet() -> dict[str, str | None]:
@@ -180,10 +187,12 @@ class Anwendung:
         self.graph_pfad = Path(graph_pfad) if graph_pfad else DEFAULT_DB
         self.graph = graph_oeffnen(self.graph_pfad)
         self.trigger = index_oeffnen()
+        self._embedding_runtime_lock = threading.RLock()
         # Semantischer Embedding-Index (Schicht 1.7) – nur wenn vorab gebaut.
         # Encoder lazy, kein Startup-Download.
         from .embedding import (encoder_oeffnen as _enc_open,
                                 encoder_revision_fuer_name as _emb_revision,
+                                embedding_graph_fingerprint_berechnen as _emb_graph_fp,
                                 index_oeffnen as _emb_open,
                                 pruefe_aktualitaet as _emb_aktuell)
         self.embedding = _emb_open()
@@ -199,6 +208,15 @@ class Anwendung:
             try:
                 graph_fp = self.graph.fingerprint()
                 self.graph.fingerprint = lambda _fp=graph_fp: _fp  # type: ignore[method-assign,misc]
+                # Auch Titel/Gesetz/Paragraph sind Embedding-Buildinputs. Der
+                # Graph ist in diesem Prozess unveraenderlich; daher darf der
+                # zusaetzliche Vollscan fuer alle spaeteren Statusabfragen
+                # ebenso eingefroren werden.
+                setattr(
+                    self.graph,
+                    "_embedding_graph_fingerprint_memo",
+                    _emb_graph_fp(self.graph),
+                )
             except Exception:  # noqa: BLE001 – Status nie Show-Stopper; bewusst
                 pass           # KEIN Log: pruefe_aktualitaet meldet den Fall gleich selbst.
         # Staleness-Check EINMALIG beim Start (nie pro Request): warnt laut im
@@ -207,11 +225,13 @@ class Anwendung:
         # wird für den Engine-Status abgegriffen (index_aktuell; None = kein
         # Index geladen, also nichts zu prüfen).
         index_aktuell: bool | None = (
-            _emb_aktuell(self.embedding, self.graph) if self.embedding is not None else None)
+            _emb_aktuell(self.embedding, self.graph, self.katalog)
+            if self.embedding is not None else None)
         # Index-Metadaten VOR dem Encoder-Versuch sichern: schlägt der Encoder
         # fehl, wird self.embedding auf None degradiert – der Status soll aber
         # weiter belegen, WELCHER Index benutzt worden wäre.
         emb_index_fp = getattr(self.embedding, "graph_fingerprint", None)
+        emb_input_fp = getattr(self.embedding, "input_fingerprint", None)
         emb_encoder_name = getattr(self.embedding, "encoder_name", None)
         emb_index_revision = getattr(self.embedding, "encoder_revision", None)
         emb_erwartete_revision = _emb_revision(emb_encoder_name)
@@ -264,8 +284,10 @@ class Anwendung:
         self._llm_lock = threading.Lock()  # serialisiert llm_start/llm_stop (Concurrency)
         self._berater_lock = threading.Lock()  # serialisiert define-on-the-fly-Writes
         # --- Engine-Status: Degradations-Transparenz für die Host-Audit-Chain ---
-        # EINMALIG beim Start erhoben, danach UNVERÄNDERLICH (die geladenen
-        # Ressourcen ändern sich zur Laufzeit nicht). Antwortet auf die
+        # Beim Start erhoben; eine vollständig verifizierte Embedding-Generation
+        # darf den Embedding-Teil spaeter unter demselben Runtime-Lock atomar
+        # ersetzen. Jeder Request archiviert genau seinen konsistenten Snapshot.
+        # Antwortet auf die
         # Haftungsakte-Frage „mit welchem Engine-Zustand wurde diese Analyse
         # erstellt?" – bisher stand das nur im Betreiber-Log. Bewusst KEINE
         # Zeitstempel/Zufallswerte (Fingerprints sind deterministisch): der
@@ -294,6 +316,7 @@ class Anwendung:
                     "index_revision": emb_index_revision,
                     "revision_aktuell": emb_revision_aktuell,
                     "index_fingerprint": emb_index_fp,
+                    "index_input_fingerprint": emb_input_fp,
                     "index_aktuell": index_aktuell,
                     # Betriebspunkt der Schicht 1.7 (additiv, s. pipeline.py):
                     # RRF-Fusion läuft NUR mit Reranker UND Trigger-Index (ohne
@@ -318,15 +341,101 @@ class Anwendung:
                         "url": _llm_url_anzeige(self.llm_url)},
             },
         }
+        self._embedding_runtime = (self.embedding, self.embedding_encoder)
+
+        # Schreibbares, regenerierbares Overlay getrennt vom manifestierten,
+        # read-only Graph/Katalog/Modell. Ohne Operator-Token wird weder ein
+        # Scheduler gestartet noch State erzeugt; ein vorhandener atomarer
+        # Generationszeiger darf trotzdem als letzter aktiver Index laden.
+        from .embedding_operator import EmbeddingOperator
+        operator_token = os.environ.get("RISK_LAYER_OPERATOR_TOKEN", "")
+        operator_dir = os.environ.get(
+            "RISK_LAYER_EMBEDDING_DIR", str(Path(".signal") / "embedding")
+        )
+        self.embedding_operator = EmbeddingOperator(
+            graph_path=self.graph_pfad,
+            katalog=self.katalog,
+            state_dir=operator_dir,
+            configured=_operator_token_configured(
+                operator_token,
+                os.environ.get("RISK_LAYER_TOKEN", ""),
+                os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", ""),
+            ),
+            device=_emb_dev,
+            snapshot=self.embedding_snapshot,
+            activate=self._activate_embedding,
+        )
+        self.embedding_operator.bind_status_graph(self.graph)
 
     def engine_status(self) -> dict[str, Any]:
-        """Beim Start erhobener Engine-Zustand (Degradations-Transparenz).
+        """Konsistenter Engine-Zustand (Degradations-Transparenz).
 
         Liefert eine KOPIE (deepcopy): Aufrufer reichern den Block an (z. B.
         mischt ``analyse`` die Lauf-Optionen dazu) – der eingefrorene
-        Startup-Status darf dadurch nie mutiert werden.
+        interne Runtime-Status darf dadurch nie mutiert werden.
         """
-        return copy.deepcopy(self._engine_status)
+        with self._embedding_runtime_lock:
+            return copy.deepcopy(self._engine_status)
+
+    def embedding_snapshot(self) -> tuple[Any, Any]:
+        """Atomarer Laufzeit-Snapshot fuer Suche und Analyse."""
+        with self._embedding_runtime_lock:
+            return self._embedding_runtime
+
+    def _activate_embedding(self, index: Any, encoder: Any) -> None:
+        """Aktiviert eine vollstaendig verifizierte Generation in-memory."""
+        from .embedding import (encoder_revision_fuer_name as _revision,
+                                pruefe_aktualitaet as _aktuell)
+
+        laufzeit_revision = getattr(encoder, "revision", None)
+        index_revision = getattr(index, "encoder_revision", None)
+        erwartete_revision = _revision(getattr(index, "encoder_name", None))
+        aktuell = _aktuell(index, self.graph, self.katalog)
+        with self._embedding_runtime_lock:
+            # Ein Tupel ist der atomare Umschaltpunkt. Bestehende Requests
+            # halten ihre lokalen Referenzen und laufen konsistent zu Ende.
+            self._embedding_runtime = (index, encoder)
+            self.embedding = index
+            self.embedding_encoder = encoder
+            status = self._engine_status["schichten"]["embedding"]
+            status.update({
+                "aktiv": True,
+                "encoder": getattr(index, "encoder_name", None),
+                "revision": laufzeit_revision,
+                "index_revision": index_revision,
+                "revision_aktuell": (
+                    None if erwartete_revision is None
+                    else index_revision == erwartete_revision
+                ),
+                "index_fingerprint": getattr(index, "graph_fingerprint", None),
+                "index_input_fingerprint": getattr(
+                    index, "input_fingerprint", None
+                ),
+                "index_aktuell": aktuell,
+                "grund": None,
+            })
+
+    def embedding_operator_status(self) -> dict[str, Any]:
+        return self.embedding_operator.status()
+
+    def embedding_refresh(self, *, force: bool) -> dict[str, str]:
+        return self.embedding_operator.trigger(force=force)
+
+    def embedding_schedule(self, *, enabled: bool,
+                           interval_days: int) -> dict[str, Any]:
+        return self.embedding_operator.set_schedule(
+            enabled=enabled, interval_days=interval_days
+        )
+
+    def start_background_services(self) -> None:
+        self.embedding_operator.start()
+
+    def close(self) -> None:
+        # Unterhalb der systemd-Grenze TimeoutStopSec=15s bleiben. Ein noch
+        # rechnender Build ist crash-sicher isoliert und wird beim Neustart als
+        # unterbrochen erkannt; der Prozess darf deshalb nach dem Join-Limit enden.
+        self.embedding_operator.close(timeout=8.0)
+        self.llm_stop()
 
     def norm_suche(self, q: str, limit: int = 8) -> dict[str, Any]:
         """Norm-Auswahl: erst Zitat parsen + im Graph bestätigen, sonst Titel-Suche."""
@@ -389,6 +498,9 @@ class Anwendung:
         # Lauf-Optionen gebündelt über AnalyseOptionen (Single Source of Truth der
         # Defaults in pipeline.py); Ressourcen-Objekte bleiben Einzel-Parameter.
         # Trigger-Detektor + Streit-Verstärker sind in /v1 immer aktiv.
+        with self._embedding_runtime_lock:
+            embedding, embedding_encoder = self._embedding_runtime
+            engine_status = copy.deepcopy(self._engine_status)
         report = self.pipeline.run(
             text,
             optionen=AnalyseOptionen(unknown=unknown, nutzer=nutzer,
@@ -397,8 +509,8 @@ class Anwendung:
                                      lemma=lemma),
             berater=store, graph=self.graph,
             provider=self._provider(schicht2, llm_url), trigger=self.trigger,
-            embedding=self.embedding,
-            embedding_encoder=self.embedding_encoder,
+            embedding=embedding,
+            embedding_encoder=embedding_encoder,
             reranker=self.reranker)
         res = antwort_json(report, text)
         # Degradations-Nachweis JE Analyse (Haftungsakte): der Startup-Status
@@ -407,7 +519,7 @@ class Anwendung:
         # archivierte Ergebnis selbsterklärend (INTEGRATION_TAXTRONIK.md §4).
         # Additiv und ohne Zeitstempel/Zufall – Determinismus-Vertrag bleibt.
         res["engine_status"] = {
-            **self.engine_status(),
+            **engine_status,
             "optionen": {"unknown": unknown, "berater": berater,
                          "abweichung": abweichung, "mit_llm": schicht2},
         }
@@ -846,6 +958,29 @@ def antwort_json(report: RunReport, text: str) -> dict[str, Any]:
 # Pre-Auth-Read mehr; der Cap deckelt zusätzlich authentifizierte Clients.
 _MAX_BODY = 8 * 1024 * 1024
 _MIN_TOKEN_BYTES = 32  # mindestens 256 Bit bei zufällig erzeugtem Byte-/Hex-Secret
+_EMBEDDING_OPERATOR_POSTS = frozenset({
+    "/v1/embedding/refresh", "/v1/embedding/schedule",
+})
+
+
+def _secret_gleich(a: str, b: str) -> bool:
+    return hmac.compare_digest(
+        hashlib.sha256(a.encode("utf-8")).digest(),
+        hashlib.sha256(b.encode("utf-8")).digest(),
+    )
+
+
+def _operator_token_configured(operator: str, bearer: str, vorgaenger: str) -> bool:
+    """Nur ein ausreichend langes und von beiden Bearern getrenntes Secret."""
+    if not operator or len(operator.encode("utf-8")) < _MIN_TOKEN_BYTES:
+        return False
+    if not bearer or len(bearer.encode("utf-8")) < _MIN_TOKEN_BYTES:
+        return False
+    if bearer and _secret_gleich(operator, bearer):
+        return False
+    if vorgaenger and _secret_gleich(operator, vorgaenger):
+        return False
+    return True
 
 
 class _RequestFehler(Exception):
@@ -864,6 +999,10 @@ def make_handler(app: Anwendung):
     # kontrollierten Neustart mit beiden Werten.
     erwartet_token = os.environ.get("RISK_LAYER_TOKEN", "")
     vorgaenger_token = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+    operator_token = os.environ.get("RISK_LAYER_OPERATOR_TOKEN", "")
+    operator_configured = _operator_token_configured(
+        operator_token, erwartet_token, vorgaenger_token
+    )
 
     class Handler(BaseHTTPRequestHandler):
         server_version = f"RiskLayer/{__version__}"
@@ -917,6 +1056,27 @@ def make_handler(app: Anwendung):
             _log.warning("401 unauthorized: %s %s von %s", self.command,
                          urlparse(self.path).path, self.client_address[0])
             self._json(401, {"error": "unauthorized"})
+
+        def _operator_auth_ok(self) -> bool:
+            """Zweite, konstant-zeitige Vertrauensgrenze fuer mutierende Builds."""
+            if not operator_configured:
+                return False
+            werte = self.headers.get_all("x-risk-layer-operator-token", [])
+            # SHA-256 vereinheitlicht die Laenge vor compare_digest. So bleibt
+            # auch ein fehlender oder sehr kurzer Header ohne Laengen-Orakel.
+            return _secret_gleich(werte[0] if len(werte) == 1 else "", operator_token)
+
+        def _operator_verweigert(self) -> None:
+            _log.warning(
+                "Operatorzugriff verweigert: %s %s von %s",
+                self.command,
+                urlparse(self.path).path,
+                self.client_address[0],
+            )
+            if not operator_configured:
+                self._json(503, {"error": "embedding operator unavailable"})
+            else:
+                self._json(403, {"error": "operator unauthorized"})
 
         def _read_json(self) -> dict[str, Any]:
             # Chunked wird vom stdlib-Handler nicht dekodiert – ohne harte
@@ -1092,6 +1252,9 @@ def make_handler(app: Anwendung):
                 if not self._auth_ok():
                     self._401()
                     return
+                if pfad in _EMBEDDING_OPERATOR_POSTS and not self._operator_auth_ok():
+                    self._operator_verweigert()
+                    return
                 if not self._herkunft_ok():
                     self._403_herkunft()
                     return
@@ -1122,13 +1285,31 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
     (systemd/NSSM) und deploy-Skripte einen Fehlstart als Fehler sehen."""
     token = os.environ.get("RISK_LAYER_TOKEN", "")
     vorgaenger_token = os.environ.get("RISK_LAYER_TOKEN_VORGAENGER", "")
+    operator_token = os.environ.get("RISK_LAYER_OPERATOR_TOKEN", "")
     for name, wert in (("RISK_LAYER_TOKEN", token),
-                       ("RISK_LAYER_TOKEN_VORGAENGER", vorgaenger_token)):
+                       ("RISK_LAYER_TOKEN_VORGAENGER", vorgaenger_token),
+                       ("RISK_LAYER_OPERATOR_TOKEN", operator_token)):
         if wert and len(wert.encode("utf-8")) < _MIN_TOKEN_BYTES:
             print(f"{name} ist zu kurz (mindestens {_MIN_TOKEN_BYTES} UTF-8-Bytes). "
                   "Erzeuge ein zufälliges Secret, z. B. mit 'openssl rand -hex 32'.",
                   file=sys.stderr)
             return 2
+
+    if operator_token and not token:
+        print(
+            "RISK_LAYER_OPERATOR_TOKEN erfordert einen gesetzten "
+            "RISK_LAYER_TOKEN; beide Vertrauensgrenzen sind Pflicht.",
+            file=sys.stderr,
+        )
+        return 2
+    if operator_token and not _operator_token_configured(
+            operator_token, token, vorgaenger_token):
+        print(
+            "RISK_LAYER_OPERATOR_TOKEN muss von RISK_LAYER_TOKEN und "
+            "RISK_LAYER_TOKEN_VORGAENGER verschieden sein.",
+            file=sys.stderr,
+        )
+        return 2
 
     # Netz-Bind ohne Token verweigern (§ 203 StGB): die /v1-Engine ist auth-pflichtig,
     # sobald sie das Loopback verlässt. Ohne Token nur lokal (Entwicklung).
@@ -1183,36 +1364,54 @@ def serve(*, host: str = "127.0.0.1", port: int = 8000, katalog: str | None = No
     try:
         httpd = _Server((host, port), make_handler(app))
     except OSError as exc:
+        app.close()
         print(f"Port {port} ist belegt – läuft die Engine schon? ({exc})", file=sys.stderr)
         return 2
 
-    # Erst NACH erfolgreichem HTTP-Bind starten. Sonst bliebe bei belegtem Port
-    # ein von uns gestarteter llama-server ohne verwaltenden Webprozess zurück.
-    if llm_autostart:                 # Schicht 2 mit hochfahren – ein-Befehl-Start.
-        r = app.llm_start()           # idempotent + nicht-blockierend
-        print("  LLM-Autostart: " + (
-            f"startet {r.get('modell')}" if r.get("startet") else
-            r.get("hinweis") or r.get("fehler") or "?"), file=sys.stderr)
-
-    gstat = app.graph.stats() if app.graph else None
-    auth = "Bearer-Token (gesetzt)" if token else "KEIN Token (nur Loopback)"
-    print(f"Risk-Layer /v1-Engine läuft auf http://{host}:{port}/v1/")
-    print(f"  Katalog v{app.katalog.version} · {len(app.katalog)} Begriffe · Auth: {auth}")
-    print(f"  Normgraph: {('%d Knoten' % gstat['knoten']) if gstat else 'nicht gebaut (nur Schicht 1)'} · "
-          f"Embedding: {'geladen' if app.embedding else 'nicht gebaut'}")
-    llm_host = urlparse(llm_url).hostname or ""
-    if _ist_loopback(llm_host):
-        print("  (Strg+C zum Beenden – es verlässt nichts diese Maschine.)")
-    else:
-        print("  (Strg+C zum Beenden – ACHTUNG: Analyse-Text kann zum konfigurierten "
-              "externen LLM-Ziel gesendet werden.)")
-    sys.stdout.flush()
+    previous_sigterm: Any = None
+    sigterm_installed = False
     try:
+        # Docker und systemd stoppen mit SIGTERM. Der Default-Handler wuerde
+        # Python sofort beenden und den finally-Block (Scheduler-/Job-Join) nicht
+        # ausfuehren. Nur der Main-Thread darf Signalhandler installieren; eine
+        # eingebettete Test-/Bibliotheksnutzung in einem Nebenthread laeuft ohne.
+        try:
+            previous_sigterm = signal.getsignal(signal.SIGTERM)
+            signal.signal(signal.SIGTERM, _sigterm_als_graceful_stop)
+            sigterm_installed = True
+        except ValueError:
+            pass
+
+        app.start_background_services()
+
+        # Erst NACH erfolgreichem HTTP-Bind starten. Sonst bliebe bei belegtem Port
+        # ein von uns gestarteter llama-server ohne verwaltenden Webprozess zurück.
+        if llm_autostart:                 # Schicht 2 mit hochfahren – ein-Befehl-Start.
+            r = app.llm_start()           # idempotent + nicht-blockierend
+            print("  LLM-Autostart: " + (
+                f"startet {r.get('modell')}" if r.get("startet") else
+                r.get("hinweis") or r.get("fehler") or "?"), file=sys.stderr)
+
+        gstat = app.graph.stats() if app.graph else None
+        auth = "Bearer-Token (gesetzt)" if token else "KEIN Token (nur Loopback)"
+        print(f"Risk-Layer /v1-Engine läuft auf http://{host}:{port}/v1/")
+        print(f"  Katalog v{app.katalog.version} · {len(app.katalog)} Begriffe · Auth: {auth}")
+        print(f"  Normgraph: {('%d Knoten' % gstat['knoten']) if gstat else 'nicht gebaut (nur Schicht 1)'} · "
+              f"Embedding: {'geladen' if app.embedding else 'nicht gebaut'}")
+        llm_host = urlparse(llm_url).hostname or ""
+        if _ist_loopback(llm_host):
+            print("  (Strg+C zum Beenden – es verlässt nichts diese Maschine.)")
+        else:
+            print("  (Strg+C zum Beenden – ACHTUNG: Analyse-Text kann zum konfigurierten "
+                  "externen LLM-Ziel gesendet werden.)")
+        sys.stdout.flush()
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nbeendet.")
     finally:
-        app.llm_stop()        # einen von UNS gestarteten llama-server mit beenden
+        if sigterm_installed:
+            signal.signal(signal.SIGTERM, previous_sigterm)
+        app.close()           # Scheduler/Build + eigenen llama-server sauber beenden
         httpd.server_close()
     return 0
 

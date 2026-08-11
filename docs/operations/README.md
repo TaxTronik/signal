@@ -19,6 +19,7 @@ Konto `risk-layer`; ein normaler Benutzer provisioniert seine User-Unit:
 ./signal start
 ./signal stop
 ./signal restart
+./signal embedding-refresh
 ./signal status
 ./signal backup
 ./signal update
@@ -66,6 +67,7 @@ die nachfolgenden kurzen Kommandos unverändert bleiben.
 ./signal start
 ./signal stop
 ./signal restart
+./signal embedding-refresh
 ./signal status
 ./signal doctor
 ./signal backup
@@ -81,6 +83,7 @@ PowerShell verwendet dieselben Kommandos:
 .\signal.ps1 start
 .\signal.ps1 stop
 .\signal.ps1 restart
+.\signal.ps1 embedding-refresh
 .\signal.ps1 status
 ```
 
@@ -91,6 +94,7 @@ PowerShell verwendet dieselben Kommandos:
 | `deploy` | nur profiliert: ein bereitgestelltes Release verifizieren und aktivieren |
 | `update` | im Checkout Pull plus Runtime-Wheel und Dienstneustart; profiliert eine transaktionale Release-Aktualisierung |
 | `start` / `stop` / `restart` | im Checkout automatisch die provisionierte systemd-System-/User-Unit beziehungsweise den Windows-Benutzer-Task steuern |
+| `embedding-refresh` | nur im Checkout: BGE-M3-Index neu bauen und den verwalteten Dienst zur Aktivierung neu starten |
 | `status` | Deployment-Modus, `current`/`previous` und Laufzeitstatus anzeigen |
 | `doctor [--fix]` | Konfiguration und Voraussetzungen prüfen; mit `--fix` nur sichere lokale Korrekturen anwenden |
 | `backup` | den vollständigen nicht regenerierbaren Anwendungszustand sichern |

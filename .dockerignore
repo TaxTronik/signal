@@ -7,6 +7,9 @@
 
 # Secrets — NIE in den Build-Kontext (§ 203 StGB / Auth-Token)
 .engine_token
+.operator_token
+.risk-layer-ops.json
+.signal/
 .env
 .env.local
 

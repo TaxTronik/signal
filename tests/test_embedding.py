@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from risk_layer.catalog import lade_katalog
-from risk_layer.embedding import (HF_MODELL_REVISIONEN, BgeM3Encoder,
+from risk_layer.embedding import (EMBEDDING_BUILDER_VERSION,
+                                  HF_MODELL_REVISIONEN, BgeM3Encoder,
                                   EmbeddingIndex, GraniteR2Encoder, HashEncoder,
                                   JinaV5Encoder, Qwen3Encoder, encoder_oeffnen,
                                   pruefe_aktualitaet)
@@ -204,11 +205,17 @@ def test_build_brennt_graph_fingerprint_ein_und_meta_roundtrip(tmp_path):
     g = _graph(tmp_path)
     idx = EmbeddingIndex.build(g, HashEncoder(dim=64))
     assert idx.graph_fingerprint == g.fingerprint()        # beim Build abgegriffen
+    assert idx.embedding_graph_fingerprint is not None
+    assert idx.input_fingerprint is not None
+    assert idx.builder_version == EMBEDDING_BUILDER_VERSION
     idx.save(tmp_path / "emb")
     wieder = EmbeddingIndex.load(tmp_path / "emb")
     # Roundtrip build → save → load: der Fingerprint überlebt die Persistenz.
     assert wieder is not None
     assert wieder.graph_fingerprint == g.fingerprint()
+    assert wieder.embedding_graph_fingerprint == idx.embedding_graph_fingerprint
+    assert wieder.input_fingerprint == idx.input_fingerprint
+    assert wieder.builder_version == EMBEDDING_BUILDER_VERSION
 
 
 def test_build_persistiert_encoder_revision(tmp_path):
@@ -230,6 +237,36 @@ def test_build_persistiert_encoder_revision(tmp_path):
     assert wieder.encoder_revision == FakeEncoder.revision
 
 
+def test_build_persistiert_katalogstand_und_erkennt_paraphrasen_drift(tmp_path):
+    from risk_layer.catalog import Katalog
+    from risk_layer.models import Katalogeintrag
+
+    katalog = Katalog("2026.1", [Katalogeintrag(
+        id="kasse",
+        begriff_kanonisch="Kasse",
+        norm_anker=("§ 146 AO",),
+        paraphrasen=("Bareinnahmen fehlen.",),
+    )])
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g, HashEncoder(dim=64), katalog=katalog)
+    idx.save(tmp_path / "emb-katalog")
+    wieder = EmbeddingIndex.load(tmp_path / "emb-katalog")
+    assert wieder is not None
+    assert wieder.catalog_version == "2026.1"
+    assert wieder.catalog_fingerprint == idx.catalog_fingerprint
+    assert pruefe_aktualitaet(wieder, g, katalog) is True
+
+    geaendert = Katalog("2026.1", [Katalogeintrag(
+        id="kasse",
+        begriff_kanonisch="Kasse",
+        norm_anker=("§ 146 AO",),
+        paraphrasen=("Auch Kartenzahlungen fehlen.",),
+    )])
+    assert pruefe_aktualitaet(wieder, g, geaendert) is False
+    neu = EmbeddingIndex.build(g, HashEncoder(dim=64), katalog=geaendert)
+    assert neu.input_fingerprint != wieder.input_fingerprint
+
+
 def test_load_alt_index_ohne_fingerprint_tolerant(tmp_path):
     # Alt-Index simulieren: meta.json OHNE das Feld (vor der Einführung gebaut).
     g = _graph(tmp_path)
@@ -237,12 +274,40 @@ def test_load_alt_index_ohne_fingerprint_tolerant(tmp_path):
     mp = tmp_path / "emb" / "meta.json"
     meta = json.loads(mp.read_text(encoding="utf-8"))
     del meta["graph_fingerprint"]
+    del meta["embedding_graph_fingerprint"]
+    del meta["input_fingerprint"]
     del meta["encoder_revision"]
+    del meta["catalog_version"]
+    del meta["catalog_fingerprint"]
+    del meta["builder_version"]
     mp.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
     alt = EmbeddingIndex.load(tmp_path / "emb")
     assert alt is not None                                 # lädt weiter (tolerant)
     assert alt.graph_fingerprint is None                   # … nur ohne Fingerprint
+    assert alt.embedding_graph_fingerprint is None
+    assert alt.input_fingerprint is None
     assert alt.encoder_revision is None                    # … und ohne Modell-SHA
+    assert alt.catalog_version is None                     # … sowie Katalogstand
+    assert alt.catalog_fingerprint is None
+    assert alt.builder_version is None
+
+
+def test_fehlende_builder_version_markiert_sonst_passenden_index_veraltet(
+    tmp_path, caplog
+):
+    g = _graph(tmp_path)
+    ziel = tmp_path / "emb-builder-alt"
+    EmbeddingIndex.build(g, HashEncoder(dim=64)).save(ziel)
+    meta_pfad = ziel / "meta.json"
+    meta = json.loads(meta_pfad.read_text(encoding="utf-8"))
+    del meta["builder_version"]
+    meta_pfad.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    alt = EmbeddingIndex.load(ziel)
+    assert alt is not None
+
+    with caplog.at_level(logging.WARNING, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(alt, g) is False
+    assert "Builder-Version" in caplog.text
 
 
 def test_pruefe_aktualitaet_match_still_und_true(tmp_path, caplog):
@@ -252,6 +317,52 @@ def test_pruefe_aktualitaet_match_still_und_true(tmp_path, caplog):
         assert pruefe_aktualitaet(idx, g) is True
     # Nachgewiesene Übereinstimmung ⇒ KEIN Log-Lärm.
     assert not caplog.records
+
+
+def test_pruefe_aktualitaet_erkennt_reine_titelaenderung(tmp_path, caplog):
+    g = _graph(tmp_path)
+    idx = EmbeddingIndex.build(g, HashEncoder(dim=64))
+    text_fingerprint = g.fingerprint()
+    g.con.execute(
+        "UPDATE knoten SET titel = ? WHERE id = ?",
+        ("Neue fachliche Ueberschrift", "norm:AO:146"),
+    )
+    g.con.commit()
+
+    # Der allgemeine Graphvertrag ist bewusst textbasiert; der neue
+    # Embedding-Vertrag muss die Titelabweichung trotzdem erkennen.
+    assert g.fingerprint() == text_fingerprint
+    with caplog.at_level(logging.WARNING, logger="risk_layer.embedding"):
+        assert pruefe_aktualitaet(idx, g) is False
+    assert "Titel" in caplog.text
+
+
+def test_fehlender_embedding_graph_fingerprint_ist_nicht_aktuell(tmp_path):
+    g = _graph(tmp_path)
+    ziel = tmp_path / "emb-ohne-graph-input"
+    EmbeddingIndex.build(g, HashEncoder(dim=64)).save(ziel)
+    meta_pfad = ziel / "meta.json"
+    meta = json.loads(meta_pfad.read_text(encoding="utf-8"))
+    del meta["embedding_graph_fingerprint"]
+    meta_pfad.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    alt = EmbeddingIndex.load(ziel)
+    assert alt is not None
+    assert pruefe_aktualitaet(alt, g) is False
+
+
+def test_fehlender_composite_input_fingerprint_ist_nicht_aktuell(tmp_path):
+    g = _graph(tmp_path)
+    ziel = tmp_path / "emb-ohne-composite-input"
+    EmbeddingIndex.build(g, HashEncoder(dim=64)).save(ziel)
+    meta_pfad = ziel / "meta.json"
+    meta = json.loads(meta_pfad.read_text(encoding="utf-8"))
+    del meta["input_fingerprint"]
+    meta_pfad.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+
+    alt = EmbeddingIndex.load(ziel)
+    assert alt is not None
+    assert pruefe_aktualitaet(alt, g) is False
 
 
 def test_pruefe_aktualitaet_mismatch_warnt_mit_abhilfe(tmp_path, caplog):

@@ -4,6 +4,7 @@
 #
 # Start:
 #   RISK_LAYER_TOKEN=<dev-secret-mit-mindestens-32-Bytes> \
+#   RISK_LAYER_OPERATOR_TOKEN=<separates-dev-secret-mit-mindestens-32-Bytes> \
 #     docker compose -f docker-compose.dev.yml up -d --build --wait
 # Optional mit NVIDIA-LLM: zusätzlich `--profile llm`.
 # =============================================================================
@@ -21,7 +22,9 @@ services:
     environment:
       RISK_LAYER_TOKEN: "${RISK_LAYER_TOKEN:?RISK_LAYER_TOKEN setzen}"
       RISK_LAYER_TOKEN_VORGAENGER: "${RISK_LAYER_TOKEN_VORGAENGER:-}"
+      RISK_LAYER_OPERATOR_TOKEN: "${RISK_LAYER_OPERATOR_TOKEN:-}"
       RISK_LAYER_EMB_DEVICE: "${RISK_LAYER_EMB_DEVICE:-cpu}"
+      RISK_LAYER_EMBEDDING_DIR: /state/embedding
     command:
       - python
       - -m
@@ -55,6 +58,9 @@ services:
       - type: volume
         source: embedding-cache-dev
         target: /cache
+      - type: volume
+        source: embedding-state-dev
+        target: /state/embedding
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
@@ -77,6 +83,9 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+    # Ein beschreibbares Operator-Overlay gehoert exakt einer Engine-Instanz.
+    deploy:
+      replicas: 1
     restart: unless-stopped
 
   llm:
@@ -130,3 +139,4 @@ services:
 
 volumes:
   embedding-cache-dev:
+  embedding-state-dev:

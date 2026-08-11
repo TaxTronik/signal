@@ -214,7 +214,21 @@ try {
     if ($token.Length -lt 32 -or $token -match "\s") {
         throw "Auth-Token ist ungueltig oder zu kurz."
     }
+    $operatorTokenPath = Join-Path $PSScriptRoot ".operator_token"
+    if (-not (Test-Path -LiteralPath $operatorTokenPath -PathType Leaf)) {
+        throw "Operator-Token-Datei fehlt."
+    }
+    $operatorToken = ([System.IO.File]::ReadAllText($operatorTokenPath)).Trim()
+    if ($operatorToken.Length -lt 32 -or $operatorToken -match "\s") {
+        throw "Operator-Token ist ungueltig oder zu kurz."
+    }
+    if ($operatorToken -eq $token) {
+        throw "Operator-Token muss vom Bearer-Token verschieden sein."
+    }
     $env:RISK_LAYER_TOKEN = $token
+    $env:RISK_LAYER_OPERATOR_TOKEN = $operatorToken
+    $env:RISK_LAYER_EMBEDDING_DIR = Join-Path $PSScriptRoot ".signal\embedding"
+    [void][System.IO.Directory]::CreateDirectory($env:RISK_LAYER_EMBEDDING_DIR)
     $env:RISK_LAYER_EMB_DEVICE = "@EMBEDDING_DEVICE@"
 
     $releaseMode = "@RELEASE_MODE@" -eq "1"
@@ -277,5 +291,5 @@ Register-ScheduledTask -TaskName $Name -TaskPath "\" -Action $action -Trigger $t
 Start-ScheduledTask -TaskName $Name -TaskPath "\"
 OkMsg "Task '$Name' fuer '$($identity.Name)' installiert und gestartet (RunLevel Limited)."
 Info "Autostart erfolgt bei Benutzeranmeldung; kein Kennwort wird gespeichert."
-Info "Ohne lesbares Token mit mindestens 32 Zeichen verweigert der Wrapper den Start."
+Info "Ohne lesbare Bearer-/Operator-Token mit mindestens 32 Zeichen verweigert der Wrapper den Start."
 Info "Status: Get-ScheduledTask -TaskName $Name   |   Entfernen: ./deploy/install-service.ps1 -Remove"

@@ -16,6 +16,7 @@ in diesem Dokument:
 ./signal start
 ./signal stop
 ./signal restart
+./signal embedding-refresh
 ./signal status
 ./signal doctor
 ./signal backup
@@ -151,6 +152,95 @@ Verifikation lesen ausschließlich diesen Stage; der Upload verwendet danach
 exakt dieselben Dateien und veröffentlicht das bindende Manifest zuletzt. So
 kann kein im Repository-Unterverzeichnis liegendes Begleitartefakt nur im
 Manifest stehen, aber im tatsächlichen Downloadsatz fehlen.
+
+### Embedding-Index triggern und automatisieren
+
+Im eingerichteten lokalen Checkout wird der Index über die einheitliche
+Operatoroberfläche neu gebaut und unmittelbar durch einen kontrollierten
+Dienstneustart aktiviert:
+
+```bash
+./signal embedding-refresh
+# falls die optionale Schicht noch nicht installiert wurde (einmalig, CPU-Lock):
+./signal embedding-refresh --install-dependencies
+# optional: ./signal embedding-refresh --device cuda:0 --model models/bge-m3
+# Wartungsfall ohne sofortige Aktivierung:
+./signal embedding-refresh --no-restart
+```
+
+Unter Windows lautet der entsprechende Aufruf
+`.\signal.ps1 embedding-refresh`. Das zugrunde liegende Expertenkommando
+`risk-layer embedding build` bleibt verfügbar. Bei einem manifestierten
+Offline-Modell wird dessen lokaler Pfad über `--model` übergeben; ohne Angabe
+verwendet der Build den gepinnten Modellbezug. Die optionale
+Embedding-Abhängigkeit muss im Checkout installiert sein;
+`--install-dependencies` installiert sie bewusst und ausschließlich aus dem
+plattformgebundenen Python-3.12-CPU-Hashlock. GPU-Torch bleibt eine separat zu
+auditierende Umgebung. Die reine Abfrage ist davon getrennt und steht über
+`risk-layer embedding suche ...` sowie
+`POST /v1/embedding/suche` zur Verfügung.
+
+In einer explizit profilierten Release-Instanz lehnt das lokale CLI-Kommando
+`signal embedding-refresh` weiterhin geschlossen ab. Die Engine kann jedoch
+aus dem manifestgebundenen, read-only Graph/Katalog/Modell einen neuen Index in
+ein separates persistentes Overlay (`RISK_LAYER_EMBEDDING_DIR`) bauen. Das
+Festwissen-Release selbst wird dabei nicht verändert.
+
+Ein täglicher oder wöchentlicher Blind-Rebuild bringt keinen fachlichen
+Mehrwert, solange Normgraph, Katalog und Encoder unverändert sind, verursacht
+aber erhebliche CPU-/RAM-Last. Der Rebuild ist deshalb **ereignisgesteuert**:
+
+1. Korpus oder Katalog ändern sich kontrolliert.
+2. `graph build` und `trigger build` erzeugen den neuen deterministischen Stand.
+3. `embedding build` erzeugt den dazu passenden semantischen Index.
+4. Radar- und Gold-Gate-Berichte werden geprüft und archiviert.
+5. Der vollständige Stand wird als neues Festwissens-Release aktiviert.
+
+`GET /v1/embedding/status` liefert mit dem normalen Bearer-Token den aktiven
+Indexstand, den persistenten Jobzustand sowie letzten Erfolg und nächsten
+Prüftermin. Der globale Plan ist standardmäßig wöchentlich. Er prüft Graph-,
+Katalog- und Encoderstand und baut nur bei fehlendem oder veraltetem Index neu;
+ein erfolgreicher manueller Build verschiebt den nächsten Check um das
+konfigurierte Intervall. Ein geplanter Skip lässt `last_success` unverändert.
+
+Die beiden mutierenden Routen verlangen zusätzlich zum normalen Bearer den
+Header `x-risk-layer-operator-token`, konstant-zeitig geprüft gegen das
+separate `RISK_LAYER_OPERATOR_TOKEN` (mindestens 32 UTF-8-Bytes). Es muss sich
+vom aktuellen und vom Vorgänger-Bearer unterscheiden; andernfalls verweigert
+die Engine den Start beziehungsweise bleibt bei direkter Handler-Nutzung
+fail-closed:
+
+```text
+POST /v1/embedding/refresh   {"force": false}
+POST /v1/embedding/schedule  {"enabled": true, "interval_days": 7}
+```
+
+Der Refresh antwortet sofort mit HTTP 202 und einer Job-ID; parallele Trigger
+erhalten dieselbe laufende Job-ID (Single-flight). `force:true` baut bewusst
+auch einen aktuellen Index neu. Jede Generation wird zunächst vollständig in
+`RISK_LAYER_EMBEDDING_DIR/generations/` gebaut und verifiziert. Erst danach
+veröffentlicht ein atomar ersetzter Zeiger die Generation und die Engine
+tauscht Index+Encoder als konsistenten In-Memory-Snapshot aus. Ein Neustart ist
+nicht erforderlich; bei Crash/Teilbuild bleibt die alte Generation aktiv.
+Nach erfolgreicher Aktivierung bleiben nur die aktuelle und die unmittelbar
+vorherige vollständige Generation erhalten; unveröffentlichte Crash-Temporaries
+werden niemals als aktiv betrachtet und beim nächsten Engine-Start sicher
+bereinigt. Graph-, Katalog-, Encoder- und Builder-Version entscheiden gemeinsam,
+ob ein Index aktuell ist. Ein veraltetes Overlay verdrängt deshalb keinen beim
+Releasewechsel nachweislich frischeren, read-only ausgelieferten Index.
+Job-/Zeitplanstate liegt atomar außerhalb des Index-Swaps. API-Fehler enthalten
+weder Tracebacks noch Secrets.
+
+Das Overlay ist absichtlich eine Ein-Instanz-Ressource. Pro
+`RISK_LAYER_EMBEDDING_DIR` darf genau ein Engine-Prozess laufen; dasselbe Named
+Volume darf nicht zwischen Replikas geteilt werden. Compose deklariert daher
+explizit eine Engine-Replika, systemd und der Windows-Task genau einen Dienst.
+
+Ohne Operator-Token bleiben beide POST-Routen fail-closed; GET-Status und die
+übrige Engine funktionieren weiter. In Compose muss zusätzlich das persistente
+Volume auf `/state/embedding` beschreibbar sein. Fehlen Runtime, lokales Modell,
+Graph oder Schreibrecht, zeigt der Status `refresh_available:false` mit einem
+generischen Grund und ein Trigger antwortet 503.
 
 In Forgejo muss `v*` als geschütztes Tag-Muster nur für die
 Release-Verantwortlichen beschreibbar sein. `REGISTRY_TOKEN` erhält nur Paket-
@@ -322,7 +412,7 @@ installierte Anwendung.
 ```bash
 sudo install -d -o "$USER" -g "$(id -gn)" -m 0700 \
   /opt/risk-layer /opt/risk-layer/bootstrap \
-  /var/lib/risk-layer/definitionen
+  /var/lib/risk-layer/definitionen /var/lib/risk-layer/embedding
 sudo install -d -o root -g "$(id -gn)" -m 0750 /etc/risk-layer
 sudo install -o root -g "$(id -gn)" -m 0640 \
   risk-layer-ops.native-linux.example.json /etc/risk-layer/ops.json
@@ -338,9 +428,14 @@ install -m 0444 risk-layer-release.service.in \
   /opt/risk-layer/bootstrap/risk-layer-release.service.in
 umask 077
 TOKEN="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > ~/.config/risk-layer/engine.env
+OPERATOR_TOKEN="$(python3.12 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+test "$OPERATOR_TOKEN" != "$TOKEN"
+printf 'RISK_LAYER_TOKEN=%s\nRISK_LAYER_OPERATOR_TOKEN=%s\nRISK_LAYER_EMBEDDING_DIR=%s\n' \
+  "$TOKEN" "$OPERATOR_TOKEN" /var/lib/risk-layer/embedding \
+  > ~/.config/risk-layer/engine.env
 printf '%s\n' "$TOKEN" > ~/.config/risk-layer/engine.token
-unset TOKEN
+printf '%s\n' "$OPERATOR_TOKEN" > ~/.config/risk-layer/operator.token
+unset TOKEN OPERATOR_TOKEN
 python3.12 -I /opt/risk-layer/bootstrap/install-release-service.py \
   --python "$(realpath "$(command -v python3.12)")" \
   --launcher /opt/risk-layer/bootstrap/release-launcher.py \
@@ -359,8 +454,11 @@ Manifestbindung, Hosttag, Runtime-Marker und Interpreter-Hash, entfernt
 Python-Pfadvariablen und startet mit `-I` aus der releasegebundenen Offline-Venv
 im Release-CWD. Die Unit bindet Release-Home, Launcher und Env-Datei zusätzlich
 read-only ein.
-`engine.token` enthält denselben Token als rohe Einzelzeile für den
-Post-Healthcheck; beide Dateien sind bei jeder Rotation gemeinsam zu ersetzen.
+`engine.token` enthält den Bearer-Token als rohe Einzelzeile für den
+Post-Healthcheck. `operator.token` enthält den davon verschiedenen
+Operator-Schlüssel für TaxTronik. Bei einer Rotation sind der jeweilige
+Env-Eintrag und seine rohe Token-Datei gemeinsam zu ersetzen; beide Rollen
+dürfen nie denselben Wert verwenden.
 
 Installation mit Pflicht-Backup, Candidate-Smoke, Dienstaktivierung und
 Post-Healthcheck:
@@ -467,7 +565,10 @@ New-Item -ItemType Directory -Force -Path $ConfigHome | Out-Null
 Copy-Item risk-layer-ops.native-windows.example.json "$ConfigHome\ops.json"
 # ops.json jetzt anpassen, einschließlich backup_target_id=$BackupTargetId.
 $Token = & C:\Python312\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
+$OperatorToken = & C:\Python312\python.exe -c "import secrets; print(secrets.token_urlsafe(48))"
+if ($OperatorToken -eq $Token) { throw "Operator- und Bearer-Token muessen verschieden sein" }
 [IO.File]::WriteAllText("$Stable\.engine_token", $Token, [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText("$Stable\.operator_token", $OperatorToken, [Text.UTF8Encoding]::new($false))
 & "$Stable\install-service.ps1" `
   -ReleaseHome C:\ProgramData\TaxTronik\RiskLayer\runtime `
   -BeraterDir C:\ProgramData\TaxTronik\RiskLayer\definitionen `

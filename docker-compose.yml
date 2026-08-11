@@ -13,6 +13,7 @@
 #   RISK_LAYER_FESTWISSEN_DIR=/opt/risk-layer/releases/vX.Y.Z
 #   RISK_LAYER_DEFINITIONEN_DIR=/var/lib/risk-layer/definitionen
 #   RISK_LAYER_TOKEN=<mindestens 32 UTF-8-Bytes>
+#   RISK_LAYER_OPERATOR_TOKEN=<anderes Secret, mindestens 32 UTF-8-Bytes>
 #
 # Start ohne LLM:
 #   docker compose pull engine
@@ -28,7 +29,9 @@ services:
     environment:
       RISK_LAYER_TOKEN: "${RISK_LAYER_TOKEN:?RISK_LAYER_TOKEN setzen}"
       RISK_LAYER_TOKEN_VORGAENGER: "${RISK_LAYER_TOKEN_VORGAENGER:-}"
+      RISK_LAYER_OPERATOR_TOKEN: "${RISK_LAYER_OPERATOR_TOKEN:-}"
       RISK_LAYER_EMB_DEVICE: "${RISK_LAYER_EMB_DEVICE:-cpu}"
+      RISK_LAYER_EMBEDDING_DIR: /state/embedding
       RISK_LAYER_EMBEDDING_MODEL: /release/models/bge-m3
       RISK_LAYER_EMBEDDING_OFFLINE: "1"
       HF_HUB_OFFLINE: "1"
@@ -71,6 +74,9 @@ services:
       - type: volume
         source: embedding-cache
         target: /cache
+      - type: volume
+        source: embedding-state
+        target: /state/embedding
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m,mode=1777
@@ -95,6 +101,11 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
+    # Das persistente Operator-Overlay ist absichtlich genau einer Engine
+    # zugeordnet. Single-flight/Retention sind pro Instanz; nie dasselbe Volume
+    # zwischen Replikas teilen.
+    deploy:
+      replicas: 1
     restart: unless-stopped
 
   # Optional und bewusst nicht in engine.depends_on: Der deterministische Kern
@@ -150,3 +161,4 @@ services:
 
 volumes:
   embedding-cache:
+  embedding-state:

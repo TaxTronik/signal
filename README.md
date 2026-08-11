@@ -226,12 +226,14 @@ for karte in report.luecken:
     print("Lücke:", karte.rechercheauftrag)
 ```
 
-### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.3.2`)
+### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.4.0`)
 
 `GET /v1/health` · `GET /v1/status` · `POST /v1/analyse` · `GET /v1/katalog` ·
 `POST /v1/katalog/definiere` · `POST /v1/katalog/review` · `GET /v1/radar` ·
 `GET /v1/normgraph/{aufloesen,suche}` ·
-`POST /v1/embedding/suche` · `GET /v1/llm/status` · `POST /v1/llm/start`. Details + Beispiel-Antworten:
+`POST /v1/embedding/suche` · `GET /v1/embedding/status` ·
+`POST /v1/embedding/{refresh,schedule}` · `GET /v1/llm/status` ·
+`POST /v1/llm/start`. Details + Beispiel-Antworten:
 **[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)** und
 [fixtures/](fixtures/).
 
@@ -248,14 +250,20 @@ Host-Overlay. **Auth:** Bearer-Token (`RISK_LAYER_TOKEN`), konstant-zeitig gepr�
 ein Nicht-Loopback-Bind ohne Token wird abgelehnt.
 
 **Degradations-Transparenz (`engine_status`, seit `1.2.0`):** `GET /v1/status`
-liefert den beim Start erhobenen Engine-Zustand (Schichten aktiv/`grund`,
+liefert einen konsistenten Engine-Snapshot (Schichten aktiv/`grund`,
 Katalogversion, Graph-/Index-Fingerprint, `index_aktuell`, NER-Verfügbarkeit,
 LLM-`host:port`); **jede** `/v1/analyse`-Antwort trägt denselben Block plus die
-effektiven Optionen des Laufs. Der Host legt ihn mit dem Ergebnis in seiner
+effektiven Optionen des Laufs. Ein aktivierter Embedding-Index aktualisiert nur
+diesen Teil atomar; eine laufende Analyse behält ihren vorherigen Snapshot.
+Der Host legt ihn mit dem Ergebnis in seiner
 Audit-Chain ab — der Degradations-Nachweis je Analyse (deterministisch, keine
 Zeitstempel — bricht keine Hash-Ketten).
 
 **Env-Variablen:** `RISK_LAYER_TOKEN` (Pflicht-Auth bei Netz-Bind),
+`RISK_LAYER_OPERATOR_TOKEN` (separates Secret, mindestens 32 UTF-8-Bytes, nur
+für mutierende Embedding-Operatorrouten), `RISK_LAYER_EMBEDDING_DIR`
+(beschreibbares persistentes Generationen-/Operatorstate-Overlay; ein
+manifestierter `corpus/embedding` bleibt der Legacy-Fallback),
 `RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook;
 außerhalb von Loopback ist HTTPS Pflicht, SSRF-/DNS-Rebinding-Schutz),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
@@ -385,8 +393,24 @@ risk-layer embedding build               # baut den Index (+ Katalog-Paraphrasen
 risk-layer embedding suche "Der Chef hat die Lohnsteuer trotz Geld nicht abgeführt"
 ```
 
-Der Index trägt den Korpus-Stand seines Builds (`graph_fingerprint` in
-`meta.json`). Wird der Normgraph danach neu gebaut, deckt `pruefe_aktualitaet`
+Im eingerichteten lokalen Checkout ist der bevorzugte Betreiberpfad
+`./signal embedding-refresh` beziehungsweise
+`.\signal.ps1 embedding-refresh`. Er baut den BGE-M3-Index isoliert, promotet
+ihn atomar und bestätigt die Live-Aktivierung nach einem blockierenden
+Dienstneustart. Bei fehlgeschlagener Readiness werden alter Disk-Stand und
+Dienst automatisch wiederhergestellt; `--no-restart` verschiebt die
+Aktivierung bis zum nächsten Dienststart. Fehlt die optionale Embedding-Laufzeit, wird sie
+einmalig mit `./signal embedding-refresh --install-dependencies` aus dem
+plattformgebundenen CPU-Hashlock installiert. Profilierte
+Produktionsinstanzen halten Graph, Katalog und Modell weiterhin unveränderlich;
+die Laufzeit-API kann daraus ausschließlich ein getrenntes regenerierbares
+Index-Overlay erzeugen.
+
+Der Index trägt den Korpus- und Katalogstand sowie seine eindeutige
+Buildinput-Identität (`graph_fingerprint`, `catalog_version`,
+`catalog_fingerprint` und `input_fingerprint` in
+`meta.json`). Werden Normgraph oder Katalog danach geändert, deckt
+`pruefe_aktualitaet`
 den **veralteten Index** beim Start auf (Warnung im Log; maschinell sichtbar
 als `index_aktuell` im `engine_status`) — Abhilfe: `embedding build` erneut.
 
@@ -710,14 +734,16 @@ der bewusst freigegebene, abstrahierte Recherche-Export und der RSS-Abgleich). E
 werden keine Mandantendaten an externe Dienste gesendet (§ 203 StGB, AVV). Die
 `/v1`-Engine ist **zustandslos** — sie persistiert keine Mandantendaten; Speicherung
 und Audit liegen beim Host-System. CLI-Ausgaben (`out/`, `*.report.html`) und
-Secrets (`.engine_token`, `.env`) sind in `.gitignore` ausgenommen.
+Secrets (`.engine_token`, `.operator_token`, `.env`) sind in `.gitignore` und
+im Docker-Buildkontext zusaetzlich durch `.dockerignore` ausgenommen.
 
 ---
 
 ## Weitere Dokumentation
 
 Lebende Dokumente liegen im Repo-Root (dieses README,
-[FEATURES.md](FEATURES.md), [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md));
+[FEATURES.md](FEATURES.md), [INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)
+und [CHANGELOG.md](CHANGELOG.md));
 eingefrorene Anforderungs- und Entscheidungsdokumente (Lastenheft,
 Spezifikationen, ADRs) sowie Planungsdokumente liegen unter `docs/`. Der
 vollständige Index aller Dokumente mit Zweck und Stand:

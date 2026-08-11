@@ -47,6 +47,10 @@ from .torch_compat import patch_rocm_dist
 _log = logging.getLogger(__name__)
 
 DEFAULT_DIR = Path("corpus") / "embedding"
+# Manuell zu erhoehen, sobald sich die Vektorisierungs-/Ankerlogik aendert.
+# Graph-, Katalog- und Modellfingerprints allein erkennen reine Code-Aenderungen
+# am Builder nicht; persistente Runtime-Overlays ueberleben jedoch Releases.
+EMBEDDING_BUILDER_VERSION = "risk-layer/embedding-builder/v1"
 _TOKEN = re.compile(r"[a-zäöüß]+")
 
 # Hugging-Face-Modellnamen sind bewegliche Referenzen: auch ein unveränderter
@@ -84,6 +88,108 @@ _ENCODER_REVISIONEN: dict[str, str] = {
 def encoder_revision_fuer_name(name: str | None) -> str | None:
     """Liefert den kuratierten Commit-SHA eines kanonischen Encoder-Namens."""
     return _ENCODER_REVISIONEN.get(name or "")
+
+
+def katalog_fingerprint_berechnen(katalog: Any) -> str:
+    """Deterministischer Hash der fuer den Embedding-Build relevanten Felder.
+
+    Die Katalogversion allein ist ein guter Betriebsindikator, schuetzt aber
+    nicht vor einer versehentlich unveraendert gelassenen Versionsnummer. Der
+    Fingerprint bindet deshalb auch Paraphrasen und ihre Normziele ein.
+    """
+    eintraege = []
+    for eintrag in katalog:
+        eintraege.append({
+            "id": eintrag.id,
+            "paraphrasen": list(eintrag.paraphrasen),
+            "norm_anker": list(eintrag.norm_anker),
+            "normketten": [
+                {
+                    "glieder": list(kette.glieder),
+                    "verknuepfung": kette.verknuepfung,
+                    "hinweis": kette.hinweis,
+                }
+                for kette in eintrag.normketten
+            ],
+        })
+    roh = json.dumps(
+        {"version": str(getattr(katalog, "version", "")), "eintraege": eintraege},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(roh).hexdigest()
+
+
+def embedding_graph_fingerprint_berechnen(
+    graph: Any,
+    *,
+    max_zeichen: int = 1500,
+) -> str:
+    """Hasht alle Graphfelder, die den semantischen Index beeinflussen.
+
+    ``NormGraph.fingerprint()`` ist absichtlich ein stabiler, textbasierter
+    Korpusvertrag und wird auch von anderen Artefakten verwendet. Der
+    Embedding-Build nutzt daneben jedoch Titel, Gesetz und Paragraph. Dieser
+    eigene Fingerprint bindet den Index an genau diese Eingaben, ohne den
+    bestehenden Graphvertrag rueckwirkend umzudefinieren.
+    """
+    memo = getattr(graph, "_embedding_graph_fingerprint_memo", None)
+    if isinstance(memo, str):
+        return memo
+    rows = graph.con.execute(
+        "SELECT id, titel, law, para, text FROM knoten "
+        "WHERE absatz IS NULL AND nummer IS NULL ORDER BY id"
+    ).fetchall()
+    paragraphen = [
+        {
+            "id": str(row["id"]),
+            "titel": (row["titel"] or "").strip(),
+            "law": row["law"],
+            "para": row["para"],
+            # Nur dieser normalisierte Ausschnitt fliesst in den Vektor ein.
+            "text": (row["text"] or "").strip()[:max_zeichen],
+        }
+        for row in rows
+    ]
+    roh = json.dumps(
+        {
+            "schema": "risk-layer/embedding-graph-input/v1",
+            "max_zeichen": max_zeichen,
+            "paragraphen": paragraphen,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(roh).hexdigest()
+
+
+def embedding_input_fingerprint_berechnen(
+    *,
+    embedding_graph_fingerprint: str | None,
+    catalog_version: str | None,
+    catalog_fingerprint: str | None,
+    builder_version: str | None,
+    encoder_name: str | None,
+    encoder_revision: str | None,
+) -> str:
+    """Eindeutige Audit-Identitaet aller persistierten Embedding-Buildinputs."""
+    roh = json.dumps(
+        {
+            "schema": "risk-layer/embedding-input/v1",
+            "embedding_graph_fingerprint": embedding_graph_fingerprint,
+            "catalog_version": catalog_version,
+            "catalog_fingerprint": catalog_fingerprint,
+            "builder_version": builder_version,
+            "encoder_name": encoder_name,
+            "encoder_revision": encoder_revision,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(roh).hexdigest()
 
 
 def _tokens(text: str) -> list[str]:
@@ -371,23 +477,37 @@ class EmbeddingIndex:
     def __init__(self, vectors: np.ndarray, ids: list[str], zitate: list[str],
                  titel: list[str], encoder_name: str,
                  graph_fingerprint: str | None = None,
-                 encoder_revision: str | None = None):
+                 embedding_graph_fingerprint: str | None = None,
+                 input_fingerprint: str | None = None,
+                 encoder_revision: str | None = None,
+                 catalog_version: str | None = None,
+                 catalog_fingerprint: str | None = None,
+                 builder_version: str | None = None):
         self.vectors = vectors
         self.ids = ids
         self.zitate = zitate
         self.titel = titel
         self.encoder_name = encoder_name
         self.encoder_revision = encoder_revision
+        self.catalog_version = catalog_version
+        self.catalog_fingerprint = catalog_fingerprint
+        self.builder_version = builder_version
         self.dim = int(vectors.shape[1]) if vectors.size else 0
         # Fingerprint des Quell-Graphen zur Staleness-Erkennung (Abgleich über
         # ``pruefe_aktualitaet``). None bei Alt-Indizes, die vor Einführung des
         # Felds gebaut wurden – Aktualität ist dann schlicht nicht prüfbar.
         self.graph_fingerprint = graph_fingerprint
+        self.embedding_graph_fingerprint = embedding_graph_fingerprint
+        self.input_fingerprint = input_fingerprint
         # Merker für pruefe_aktualitaet: der Alt-Index-Hinweis (Info) soll
         # EINMAL ins Log, nicht pro Aufruf – Info-Spam würde echte Warnungen
         # verwässern.
         self._aktualitaet_hinweis_geloggt = False
+        self._embedding_graph_hinweis_geloggt = False
+        self._input_hinweis_geloggt = False
         self._revision_hinweis_geloggt = False
+        self._katalog_hinweis_geloggt = False
+        self._builder_hinweis_geloggt = False
         # Anker-Statistik: von build() befuellt. Reguläre Attribute mit Defaults,
         # damit sie auch nach load() existieren (Persistenz fuehrt sie nicht) –
         # sonst AttributeError je nach Entstehungsweg des Index.
@@ -417,6 +537,9 @@ class EmbeddingIndex:
         # sollen weiter funktionieren (Abwärtskompatibilität). Ohne Fingerprint
         # bleibt das Feld None = "Aktualität nicht prüfbar", wie bei Alt-Indizes.
         fp = graph.fingerprint() if hasattr(graph, "fingerprint") else None
+        embedding_fp = embedding_graph_fingerprint_berechnen(
+            graph, max_zeichen=max_zeichen
+        )
         rows = graph.con.execute(
             "SELECT id, titel, law, para, text FROM knoten "
             "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
@@ -521,6 +644,19 @@ class EmbeddingIndex:
         # und wuerde eine falsche Dimension in den persistierten Index schreiben.
         # self.dim ist fuer leere Matrizen ohnehin definiert 0.
         vecs = encoder.encode(texte) if texte else np.zeros((0, 0), np.float32)
+        catalog_version = str(getattr(katalog, "version", "")) or None
+        catalog_fingerprint = (
+            katalog_fingerprint_berechnen(katalog) if katalog is not None else None
+        )
+        encoder_revision = getattr(encoder, "revision", None)
+        input_fingerprint = embedding_input_fingerprint_berechnen(
+            embedding_graph_fingerprint=embedding_fp,
+            catalog_version=catalog_version,
+            catalog_fingerprint=catalog_fingerprint,
+            builder_version=EMBEDDING_BUILDER_VERSION,
+            encoder_name=encoder.name,
+            encoder_revision=encoder_revision,
+        )
         idx = cls(
             vecs.astype(np.float32),
             ids,
@@ -528,7 +664,12 @@ class EmbeddingIndex:
             titel,
             encoder.name,
             graph_fingerprint=fp,
-            encoder_revision=getattr(encoder, "revision", None),
+            embedding_graph_fingerprint=embedding_fp,
+            input_fingerprint=input_fingerprint,
+            encoder_revision=encoder_revision,
+            catalog_version=catalog_version,
+            catalog_fingerprint=catalog_fingerprint,
+            builder_version=EMBEDDING_BUILDER_VERSION,
         )
         idx.n_paraphrase_anker = n_anker
         idx.verlorene_anker = verlorene_anker
@@ -545,6 +686,20 @@ class EmbeddingIndex:
             "ids": self.ids, "zitate": self.zitate, "titel": self.titel,
             # Staleness-Erkennung: Fingerprint des Quell-Graphen zum Build-Zeitpunkt.
             "graph_fingerprint": self.graph_fingerprint,
+            # Separater Vertrag fuer Titel/Gesetz/Paragraph/Text, die der
+            # Embedding-Builder tatsaechlich in Vektoren und Metadaten nutzt.
+            "embedding_graph_fingerprint": self.embedding_graph_fingerprint,
+            # Kanonischer Composite ueber Graph-, Katalog-, Builder- und
+            # Encodereingaben; dient Status/Audit und Aktivierungsnachweis.
+            "input_fingerprint": self.input_fingerprint,
+            # Katalog-Paraphrasen sind ebenfalls Build-Input. Kein Zeitstempel:
+            # meta.json bleibt bei identischen Inputs byte-reproduzierbar.
+            "catalog_version": self.catalog_version,
+            "catalog_fingerprint": self.catalog_fingerprint,
+            # Bindet persistente Overlays an die aktuell erwartete Buildlogik.
+            # Reine Code-Aenderungen waeren aus Graph/Katalog/Modell sonst nicht
+            # erkennbar und koennten einen frischeren Release-Index verdraengen.
+            "builder_version": self.builder_version,
         }, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
@@ -558,10 +713,19 @@ class EmbeddingIndex:
                    # tolerant via .get: Alt-Indizes (vor dem Feld gebaut) laden
                    # weiter – graph_fingerprint bleibt dann None.
                    graph_fingerprint=meta.get("graph_fingerprint"),
+                   embedding_graph_fingerprint=meta.get(
+                       "embedding_graph_fingerprint"
+                   ),
+                   input_fingerprint=meta.get("input_fingerprint"),
                    # Gleiches gilt fuer Indizes vor der Supply-Chain-Haertung:
                    # sie bleiben lesbar, gelten bei kuratierten HF-Encodern aber
                    # als veraltet und muessen neu gebaut werden.
-                   encoder_revision=meta.get("encoder_revision"))
+                   encoder_revision=meta.get("encoder_revision"),
+                   # Alt-Indizes bleiben lesbar. Der Operator-Plan behandelt
+                   # fehlende Katalog-Metadaten jedoch als erneuerungsbeduerftig.
+                   catalog_version=meta.get("catalog_version"),
+                   catalog_fingerprint=meta.get("catalog_fingerprint"),
+                   builder_version=meta.get("builder_version"))
 
     # -- Laufzeit -----------------------------------------------------------
     def _encoder_pruefen(self, encoder: Encoder, qdim: int) -> None:
@@ -670,7 +834,7 @@ def index_oeffnen(verzeichnis: str | Path = DEFAULT_DIR) -> EmbeddingIndex | Non
     return EmbeddingIndex.load(verzeichnis)
 
 
-def pruefe_aktualitaet(index: EmbeddingIndex | None, graph) -> bool:
+def pruefe_aktualitaet(index: EmbeddingIndex | None, graph, katalog=None) -> bool:
     """Prüft, ob der Embedding-Index noch zum aktuellen Normgraphen passt.
 
     Vergleicht ``index.graph_fingerprint`` (zum Build-Zeitpunkt eingebrannt) mit
@@ -735,5 +899,72 @@ def pruefe_aktualitaet(index: EmbeddingIndex | None, graph) -> bool:
             "Build neu gebaut (Fingerprint-Abweichung). Semantik-Vorschläge "
             "können still auf alte Normtexte zeigen. Abhilfe: "
             "'risk-layer embedding build' ausführen.")
+        return False
+    embedding_fp_index = getattr(index, "embedding_graph_fingerprint", None)
+    if embedding_fp_index is None:
+        if not getattr(index, "_embedding_graph_hinweis_geloggt", False):
+            index._embedding_graph_hinweis_geloggt = True
+            _log.info(
+                "Embedding-Index ohne embedding_graph_fingerprint – "
+                "Aktualitaet von Normtitel und Zitat ist nicht pruefbar. "
+                "Einmalig neu bauen: 'risk-layer embedding build'."
+            )
+        return False
+    try:
+        embedding_fp_graph = embedding_graph_fingerprint_berechnen(graph)
+    except Exception as exc:  # noqa: BLE001 – degradierend, nie Show-Stopper
+        _log.warning(
+            "Embedding-Graph-Fingerprint nicht berechenbar (%s) – "
+            "Aktualitaet des Embedding-Index unbestaetigt.",
+            exc,
+        )
+        return False
+    if embedding_fp_index != embedding_fp_graph:
+        _log.warning(
+            "Embedding-Index ist VERALTET: Titel, Gesetz, Paragraph oder "
+            "eingebetteter Normtext weicht vom Build-Stand ab. Abhilfe: "
+            "'risk-layer embedding build' ausfuehren."
+        )
+        return False
+    if katalog is not None:
+        katalog_version = str(getattr(katalog, "version", "")) or None
+        katalog_fp = katalog_fingerprint_berechnen(katalog)
+        if (getattr(index, "catalog_version", None) != katalog_version
+                or getattr(index, "catalog_fingerprint", None) != katalog_fp):
+            if not getattr(index, "_katalog_hinweis_geloggt", False):
+                index._katalog_hinweis_geloggt = True
+                _log.warning(
+                    "Embedding-Index ist VERALTET: Katalogversion oder "
+                    "Paraphrasen-Fingerprint weicht ab. Abhilfe: "
+                    "'risk-layer embedding build' ausfuehren."
+                )
+            return False
+    builder_version = getattr(index, "builder_version", None)
+    if builder_version != EMBEDDING_BUILDER_VERSION:
+        if not getattr(index, "_builder_hinweis_geloggt", False):
+            index._builder_hinweis_geloggt = True
+            _log.warning(
+                "Embedding-Index ist VERALTET: Builder-Version %r statt %r. "
+                "Abhilfe: 'risk-layer embedding build' ausfuehren.",
+                builder_version,
+                EMBEDDING_BUILDER_VERSION,
+            )
+        return False
+    erwarteter_input_fp = embedding_input_fingerprint_berechnen(
+        embedding_graph_fingerprint=embedding_fp_graph,
+        catalog_version=getattr(index, "catalog_version", None),
+        catalog_fingerprint=getattr(index, "catalog_fingerprint", None),
+        builder_version=EMBEDDING_BUILDER_VERSION,
+        encoder_name=getattr(index, "encoder_name", None),
+        encoder_revision=getattr(index, "encoder_revision", None),
+    )
+    if getattr(index, "input_fingerprint", None) != erwarteter_input_fp:
+        if not getattr(index, "_input_hinweis_geloggt", False):
+            index._input_hinweis_geloggt = True
+            _log.warning(
+                "Embedding-Index ist VERALTET: der Composite-Fingerprint der "
+                "Buildinputs fehlt oder weicht ab. Abhilfe: "
+                "'risk-layer embedding build' ausfuehren."
+            )
         return False
     return True

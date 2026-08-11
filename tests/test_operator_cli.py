@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import runpy
 import stat
 import subprocess
 import sys
@@ -489,6 +491,386 @@ def test_checkout_bench_verlangt_bootstrap(
 def test_profiliertes_bench_wird_abgelehnt() -> None:
     with pytest.raises(O.OperatorError, match="lokalen Checkout"):
         O._cmd_profiled_bench(None, _args("bench"))
+
+
+def test_checkout_embedding_refresh_baut_und_startet_dienst_neu(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    model = root / "models" / "bge-m3"
+    corpus = root / "corpus"
+    python = tmp_path / "venv" / ("python.exe" if os.name == "nt" else "python")
+    model.mkdir(parents=True)
+    corpus.mkdir()
+    commands: list[tuple[list[str], Path | None]] = []
+    activations: list[str] = []
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_python", lambda _root: python)
+    monkeypatch.setattr(O, "_require_control_file", lambda *_args: None)
+    monkeypatch.setattr(O, "_require_control_directory", lambda *_args: None)
+    monkeypatch.setattr(
+        O, "_checkout_embedding_dependencies_available", lambda _root: True
+    )
+    monkeypatch.setattr(
+        O, "_checkout_embedding_stage_fingerprint", lambda *_args: "f" * 64
+    )
+    monkeypatch.setattr(
+        O,
+        "_passthrough",
+        lambda command, cwd=None: commands.append((list(command), cwd)) or 0,
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_activate",
+        lambda _root, _profile, fingerprint: activations.append(fingerprint) or 0,
+    )
+
+    args = _args(
+        "embedding-refresh", "--device", "CUDA:1", "--model", "models/bge-m3"
+    )
+    assert O._checkout_embedding_refresh(root, O._checkout_profile(root), args) == 0
+
+    ((command, cwd),) = commands
+    stage = Path(command[7])
+    assert stage.parent == corpus
+    assert stage.name.startswith(".embedding.restore-")
+    assert command == [
+        str(python), "-I", "-m", "risk_layer.cli",
+        "embedding", "build",
+        "--dir", str(stage),
+        "--graph-db", str(root / "corpus" / "graph.sqlite"),
+        "--encoder", "bge-m3", "--device", "cuda:1",
+        "--model", str(model.absolute()),
+    ]
+    assert cwd == root
+    assert activations == ["f" * 64]
+    assert (corpus / "embedding").is_dir()
+    assert not stage.exists()
+
+
+def test_checkout_embedding_refresh_aktiviert_nicht_nach_buildfehler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    target = root / "corpus" / "embedding"
+    target.mkdir(parents=True)
+    (target / "old.marker").write_text("alt", encoding="utf-8")
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_embedding_command", lambda *_args: ["build"])
+    monkeypatch.setattr(
+        O, "_checkout_embedding_dependencies_available", lambda _root: True
+    )
+    monkeypatch.setattr(O, "_passthrough", lambda *_args, **_kwargs: 7)
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_stage_fingerprint",
+        lambda *_args: pytest.fail("Fehlgeschlagener Build darf nicht validieren"),
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_activate",
+        lambda *_args: pytest.fail("Fehlgeschlagener Build darf keinen Neustart ausloesen"),
+    )
+
+    assert O._checkout_embedding_refresh(
+        root, O._checkout_profile(root), _args("embedding-refresh")
+    ) == 7
+    assert (target / "old.marker").read_text(encoding="utf-8") == "alt"
+    assert not list(target.parent.glob(".embedding.restore-*"))
+
+
+def test_checkout_embedding_refresh_kann_neustart_aufschieben(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    (root / "corpus").mkdir(parents=True)
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_embedding_command", lambda *_args: ["build"])
+    monkeypatch.setattr(
+        O, "_checkout_embedding_dependencies_available", lambda _root: True
+    )
+    monkeypatch.setattr(O, "_passthrough", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_stage_fingerprint",
+        lambda *_args: "e" * 64,
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_activate",
+        lambda *_args: pytest.fail("--no-restart muss den Dienst unangetastet lassen"),
+    )
+
+    assert O._checkout_embedding_refresh(
+        root,
+        O._checkout_profile(root),
+        _args("embedding-refresh", "--no-restart"),
+    ) == 0
+
+
+def test_embedding_promotion_behaelt_altstand_bis_commit_und_ordnete_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from risk_layer import dateisperre as D
+
+    target = tmp_path / "corpus" / "embedding"
+    stage = target.parent / ".embedding.restore-test"
+    target.mkdir(parents=True)
+    stage.mkdir()
+    (target / "marker").write_text("alt", encoding="utf-8")
+    (stage / "marker").write_text("neu", encoding="utf-8")
+    events: list[str] = []
+    real_remove = O._checkout_embedding_remove_tree
+    real_finish = D.restore_transaktion_beenden
+
+    def remove(target_path, candidate, *, prefix):
+        if ".vor-restore-" in candidate.name:
+            events.append("rollback-entfernt")
+        return real_remove(target_path, candidate, prefix=prefix)
+
+    def finish(path):
+        events.append("journal-beendet")
+        return real_finish(path)
+
+    monkeypatch.setattr(O, "_checkout_embedding_remove_tree", remove)
+    monkeypatch.setattr(D, "restore_transaktion_beenden", finish)
+
+    promotion = O._checkout_embedding_promote(stage, target)
+    assert (target / "marker").read_text(encoding="utf-8") == "neu"
+    assert (promotion.rollback / "marker").read_text(encoding="utf-8") == "alt"
+    assert (target.parent / ".embedding.restore-journal.json").is_file()
+
+    O._checkout_embedding_commit(target, promotion)
+
+    assert events == ["rollback-entfernt", "journal-beendet"]
+    assert not promotion.rollback.exists()
+    assert not (target.parent / ".embedding.restore-journal.json").exists()
+
+
+def test_embedding_refresh_rollt_nach_activation_failure_zurueck(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    target = root / "corpus" / "embedding"
+    target.mkdir(parents=True)
+    (target / "marker").write_text("alt", encoding="utf-8")
+    restored: list[bool] = []
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(
+        O, "_checkout_embedding_dependencies_available", lambda _root: True
+    )
+    monkeypatch.setattr(O, "_checkout_embedding_command", lambda *_args: ["build"])
+    monkeypatch.setattr(O, "_passthrough", lambda *_args, **_kwargs: 0)
+    monkeypatch.setattr(
+        O, "_checkout_embedding_stage_fingerprint", lambda *_args: "a" * 64
+    )
+    monkeypatch.setattr(O, "_checkout_embedding_activate", lambda *_args: 9)
+
+    def restore_service(_root, _profile):
+        restored.append((target / "marker").read_text(encoding="utf-8") == "alt")
+
+    monkeypatch.setattr(O, "_checkout_embedding_restore_service", restore_service)
+
+    assert O._checkout_embedding_refresh(
+        root, O._checkout_profile(root), _args("embedding-refresh")
+    ) == 9
+    assert restored == [True]
+    assert (target / "marker").read_text(encoding="utf-8") == "alt"
+    assert not list(target.parent.glob(".embedding.restore-*"))
+    assert not list(target.parent.glob(".embedding.vor-restore-*"))
+
+
+def test_embedding_restart_ist_blockierend_und_prueft_nicht_nach_fehler(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        O,
+        "_checkout_service_command",
+        lambda *_args: ["systemctl", "--no-block", "restart", "risk-layer.service"],
+    )
+    monkeypatch.setattr(
+        O,
+        "_passthrough",
+        lambda command, **_kwargs: calls.append(list(command)) or 17,
+    )
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_activation_command",
+        lambda *_args: pytest.fail("Fehlgeschlagener Restart darf keinen Doctor starten"),
+    )
+
+    assert O._checkout_embedding_activate(
+        tmp_path, O._checkout_profile(tmp_path), "b" * 64
+    ) == 17
+    assert calls == [["systemctl", "restart", "risk-layer.service"]]
+
+
+def test_embedding_sync_nutzt_windows_taugliches_schreibhandle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = tmp_path / "meta.json"
+    artifact.write_text("{}", encoding="utf-8")
+    flags_seen: list[int] = []
+    real_open = os.open
+
+    def tracked_open(path, flags, *args):
+        flags_seen.append(flags)
+        return real_open(path, flags, *args)
+
+    monkeypatch.setattr(O.os, "open", tracked_open)
+    O._checkout_embedding_sync_file(artifact)
+    assert flags_seen and flags_seen[0] & os.O_RDWR == os.O_RDWR
+
+
+def test_embedding_promotion_importiert_auch_im_datei_wrapper_absolut(
+    tmp_path: Path,
+) -> None:
+    namespace = runpy.run_path(str(Path(O.__file__)), run_name="signal_wrapper_test")
+    assert namespace["__package__"] == ""
+    target = tmp_path / "corpus" / "embedding"
+    stage = target.parent / ".embedding.restore-wrapper"
+    target.parent.mkdir(parents=True)
+    stage.mkdir()
+    promotion = namespace["_checkout_embedding_promote"](stage, target)
+    namespace["_checkout_embedding_commit"](target, promotion)
+    assert target.is_dir()
+
+
+def test_profiliertes_embedding_refresh_wird_abgelehnt() -> None:
+    with pytest.raises(O.OperatorError, match="Festwissen-Release"):
+        O._cmd_profiled_embedding_refresh(None, _args("embedding-refresh"))
+
+
+def test_checkout_dispatch_verankert_embedding_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[Path, str]] = []
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_refresh",
+        lambda root, _profile, args: calls.append((root, args.command)) or 0,
+    )
+
+    assert O._dispatch_checkout(tmp_path, _args("embedding-refresh")) == 0
+    assert calls == [(tmp_path, "embedding-refresh")]
+
+
+@pytest.mark.skipif(
+    sys.version_info[:2] != (3, 12),
+    reason="Embedding-Hashlock ist absichtlich CPython-3.12-spezifisch",
+)
+def test_embedding_refresh_installiert_cpu_hashlock_vor_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    (root / "corpus").mkdir(parents=True)
+    python = tmp_path / "venv" / ("python.exe" if os.name == "nt" else "python")
+    lock_name = (
+        "requirements-embedding-windows-cpu-py312-lock.txt"
+        if os.name == "nt"
+        else "requirements-embedding-linux-cpu-py312-lock.txt"
+    )
+    calls: list[list[str]] = []
+    dependency_checks = iter((False, True))
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_python", lambda _root: python)
+    monkeypatch.setattr(O, "_require_control_file", lambda *_args: None)
+    monkeypatch.setattr(
+        O,
+        "_checkout_embedding_dependencies_available",
+        lambda _root: next(dependency_checks),
+    )
+    monkeypatch.setattr(O, "_checkout_embedding_command", lambda *_args: ["build"])
+    monkeypatch.setattr(
+        O, "_checkout_embedding_stage_fingerprint", lambda *_args: "d" * 64
+    )
+    monkeypatch.setattr(
+        O,
+        "_passthrough",
+        lambda command, **_kwargs: calls.append(list(command)) or 0,
+    )
+
+    assert O._checkout_embedding_refresh(
+        root,
+        O._checkout_profile(root),
+        _args("embedding-refresh", "--install-dependencies", "--no-restart"),
+    ) == 0
+    assert calls == [
+        [
+            str(python), "-I", "-m", "pip", "install", "--require-hashes",
+            "--only-binary=:all:", "-r", str(root / lock_name),
+        ],
+        ["build"],
+    ]
+
+
+def test_embedding_refresh_ohne_abhaengigkeit_erklaert_installation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "checkout"
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(
+        O, "_checkout_embedding_dependencies_available", lambda _root: False
+    )
+
+    with pytest.raises(O.OperatorError, match="--install-dependencies"):
+        O._checkout_embedding_refresh(
+            root, O._checkout_profile(root), _args("embedding-refresh")
+        )
+
+
+def test_embedding_dependency_probe_laeuft_unter_refresh_sperre(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from risk_layer import dateisperre as D
+
+    root = tmp_path / "checkout"
+    (root / "corpus").mkdir(parents=True)
+    active = False
+    events: list[str] = []
+
+    @contextmanager
+    def tracked_lock(target):
+        nonlocal active
+        events.append(f"lock:{Path(target).name}")
+        active = True
+        try:
+            yield
+        finally:
+            active = False
+
+    def dependencies(_root):
+        assert active is True
+        events.append("probe")
+        return False
+
+    monkeypatch.setattr(D, "festwissen_sperre", tracked_lock)
+    monkeypatch.setattr(O, "_checkout_service_ready", lambda *_args: None)
+    monkeypatch.setattr(O, "_checkout_embedding_dependencies_available", dependencies)
+
+    with pytest.raises(O.OperatorError, match="--install-dependencies"):
+        O._checkout_embedding_refresh(
+            root, O._checkout_profile(root), _args("embedding-refresh")
+        )
+
+    assert events == ["lock:embedding", "probe"]
+
+
+def test_embedding_dependency_installation_ist_cpu_only(tmp_path: Path) -> None:
+    with pytest.raises(O.OperatorError, match="CPU-Lock"):
+        O._checkout_embedding_install_command(
+            tmp_path,
+            _args(
+                "embedding-refresh", "--device", "cuda:0", "--install-dependencies"
+            ),
+        )
+
+
+def test_embedding_refresh_validiert_device() -> None:
+    assert _args("embedding-refresh", "--device", "CUDA:2").device == "cuda:2"
+    with pytest.raises(SystemExit):
+        _args("embedding-refresh", "--device", "rocm")
 
 
 @pytest.mark.parametrize("operation", ["start", "stop", "restart"])

@@ -495,10 +495,18 @@ def _doctor(
     erwartet_release: str | None = None,
     erwartet_git_sha: str | None = None,
     erwartet_manifest_sha256: str | None = None,
+    erwartet_embedding_fingerprint: str | None = None,
     schichten: Sequence[str] = (),
     unsicheres_http: bool = False,
 ) -> dict[str, Any]:
     timeout = _positive_timeout(timeout, "Health-Timeout")
+    if (
+        erwartet_embedding_fingerprint is not None
+        and not _SHA256_RE.fullmatch(erwartet_embedding_fingerprint)
+    ):
+        raise OpsFehler(
+            "--expected-embedding-fingerprint muss 64 lowercase Hex-Zeichen enthalten"
+        )
     basis = _basis_url(url, unsicheres_http=unsicheres_http)
     token = _token_lesen(token_datei)
     deadline = time.monotonic() + timeout
@@ -544,7 +552,33 @@ def _doctor(
                 )
                 if aktiv is not True:
                     raise OpsFehler(f"Erforderliche Schicht ist nicht aktiv: {name}")
-            return {"ok": True, "health": health, "status": status}
+            embedding: dict[str, Any] | None = None
+            if erwartet_embedding_fingerprint is not None:
+                embedding = _hole_json(
+                    basis, "/v1/embedding/status", token, einzel_timeout
+                )
+                if embedding.get("ok") is not True:
+                    raise OpsFehler("Embedding-Status meldet ok nicht als true")
+                index = embedding.get("index")
+                if not isinstance(index, dict):
+                    raise OpsFehler("Embedding-Status enthaelt keinen index-Block")
+                if index.get("current") is not True:
+                    raise OpsFehler("Aktiver Embedding-Index ist nicht aktuell")
+                fingerprint = index.get("input_fingerprint")
+                if fingerprint != erwartet_embedding_fingerprint:
+                    raise OpsFehler(
+                        "Falscher aktiver Embedding-Fingerprint: "
+                        f"erwartet {erwartet_embedding_fingerprint!r}, "
+                        f"ist {fingerprint!r}"
+                    )
+            result: dict[str, Any] = {
+                "ok": True,
+                "health": health,
+                "status": status,
+            }
+            if embedding is not None:
+                result["embedding"] = embedding
+            return result
         except OpsFehler as exc:
             letzter_fehler = exc
             time.sleep(min(0.5, max(0.0, deadline - time.monotonic())))
@@ -558,6 +592,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         erwartet_release=args.expected_release,
         erwartet_git_sha=args.expected_git_sha,
         erwartet_manifest_sha256=args.expected_manifest_sha256,
+        erwartet_embedding_fingerprint=args.expected_embedding_fingerprint,
         schichten=args.require_layer,
         unsicheres_http=args.allow_insecure_http,
     )
@@ -1517,6 +1552,7 @@ def build_parser() -> argparse.ArgumentParser:
     doctor.add_argument("--expected-release")
     doctor.add_argument("--expected-git-sha")
     doctor.add_argument("--expected-manifest-sha256")
+    doctor.add_argument("--expected-embedding-fingerprint")
     doctor.add_argument("--require-layer", action="append", default=[])
     doctor.add_argument("--allow-insecure-http", action="store_true")
     doctor.add_argument("--json", action="store_true")

@@ -600,6 +600,8 @@ def test_engine_status_traegt_encoder_degradationsgrund(tmp_path, monkeypatch):
     class FakeIdx:
         encoder_name = "hash512"
         graph_fingerprint = "fp-test"
+        embedding_graph_fingerprint = "graph-input-test"
+        input_fingerprint = "composite-input-test"
     monkeypatch.setattr(emb, "index_oeffnen", lambda *a, **k: FakeIdx())
 
     def boom(*a, **k):
@@ -612,9 +614,42 @@ def test_engine_status_traegt_encoder_degradationsgrund(tmp_path, monkeypatch):
     # Index-Metadaten bleiben trotz Encoder-Ausfall erhalten: der Status belegt,
     # WELCHER Index benutzt worden wäre (Haftungsakte).
     assert st["embedding"]["index_fingerprint"] == "fp-test"
+    assert st["embedding"]["index_input_fingerprint"] == "composite-input-test"
+    assert (
+        st["embedding"]["index_input_fingerprint"]
+        != FakeIdx.embedding_graph_fingerprint
+    )
     assert st["embedding"]["encoder"] == "hash512"
     # Folge-Degradation: ohne Encoder auch kein Reranker – ebenfalls begründet.
     assert st["reranker"]["aktiv"] is False and st["reranker"]["grund"]
+
+
+def test_hot_aktivierung_archiviert_composite_input_fingerprint(
+    tmp_path, monkeypatch
+):
+    import risk_layer.embedding as emb
+
+    app = Anwendung(None, str(tmp_path), graph_pfad=str(tmp_path / "missing.sqlite"))
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        encoder_revision = None
+        graph_fingerprint = "graph-text-test"
+        embedding_graph_fingerprint = "graph-input-test"
+        input_fingerprint = "composite-input-test"
+
+    class FakeEncoder:
+        name = "hash512"
+        revision = None
+
+    monkeypatch.setattr(emb, "pruefe_aktualitaet", lambda *_args: True)
+    try:
+        app._activate_embedding(FakeIdx(), FakeEncoder())
+        status = app.engine_status()["schichten"]["embedding"]
+        assert status["index_input_fingerprint"] == "composite-input-test"
+        assert status["index_input_fingerprint"] != FakeIdx.embedding_graph_fingerprint
+    finally:
+        app.close()
 
 
 def test_engine_status_reranker_grund_ohne_gpu(tmp_path, monkeypatch):

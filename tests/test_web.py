@@ -75,6 +75,7 @@ def test_analyse_antwort_traegt_engine_status(tmp_path):
     assert emb["aktiv"] is False
     assert emb["grund"] == "kein Embedding-Index gebaut"
     assert emb["index_aktuell"] is None and emb["index_fingerprint"] is None
+    assert emb["index_input_fingerprint"] is None
     # effektive Lauf-Optionen genau DIESES Aufrufs
     assert st["optionen"] == {"unknown": True, "berater": True,
                               "abweichung": False, "mit_llm": False}

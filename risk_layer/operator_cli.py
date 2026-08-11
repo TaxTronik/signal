@@ -123,6 +123,7 @@ CHECKOUT_SERVICE_SCHEMA = "risk-layer-checkout-service/v1"
 CHECKOUT_SERVICE_STATE_NAME = "service.json"
 MINIMUM_PYTHON = (3, 11, 4)
 INTERPRETER_CHECK_TIMEOUT = 10.0
+CHECKOUT_EMBEDDING_ACTIVATION_TIMEOUT = 60.0
 WINDOWS_POWERSHELL_TIMEOUT = 15.0
 MAX_OPERATION_TIMEOUT_SECONDS = 3600.0
 WINDOWS_SYSTEM_SID = "S-1-5-18"
@@ -267,6 +268,15 @@ def _positive_timeout(value: Any, name: str) -> float:
     ):
         raise OperatorError(
             f"{name} muss endlich und > 0 bis {MAX_OPERATION_TIMEOUT_SECONDS:g}s sein"
+        )
+    return normalized
+
+
+def _embedding_device(value: str) -> str:
+    normalized = value.lower()
+    if re.fullmatch(r"(?:cpu|cuda(?::[0-9]+)?)", normalized) is None:
+        raise argparse.ArgumentTypeError(
+            "--device erwartet cpu, cuda oder cuda:N"
         )
     return normalized
 
@@ -2802,6 +2812,18 @@ def _cmd_profiled_bench(profile: Profile, args: argparse.Namespace) -> int:
     )
 
 
+def _cmd_profiled_embedding_refresh(
+    profile: Profile,
+    args: argparse.Namespace,
+) -> int:
+    del profile, args
+    raise OperatorError(
+        "signal embedding-refresh veraendert Festwissen und ist deshalb nur im "
+        "lokalen Checkout verfuegbar; profilierte Instanzen brauchen einen neuen "
+        "manifestierten Festwissen-Release"
+    )
+
+
 def _checkout_python(root: Path) -> Path:
     python = Path(os.path.abspath(sys.executable))
     venv = Path(os.path.abspath(root / ".venv"))
@@ -2834,6 +2856,538 @@ def _checkout_python(root: Path) -> Path:
 
 def _checkout_ops_command(root: Path, arguments: Sequence[str]) -> list[str]:
     return [str(_checkout_python(root)), "-I", "-m", "risk_layer.ops_cli", *arguments]
+
+
+def _checkout_embedding_command(
+    root: Path,
+    args: argparse.Namespace,
+    target: Path | None = None,
+) -> list[str]:
+    """Bindet den semantischen Rebuild an den kontrollierten Checkout-Stand."""
+    python = _checkout_python(root)
+    graph = root / "corpus" / "graph.sqlite"
+    katalog = root / "catalog" / "begriffe.yaml"
+    _require_control_file(graph, "Lokaler Normgraph")
+    _require_control_file(katalog, "Lokaler Katalog")
+    command = [
+        str(python),
+        "-I",
+        "-m",
+        "risk_layer.cli",
+        "embedding",
+        "build",
+        "--dir",
+        str(target if target is not None else root / "corpus" / "embedding"),
+        "--graph-db",
+        str(graph),
+        "--encoder",
+        "bge-m3",
+        "--device",
+        args.device,
+    ]
+    if args.model:
+        model = Path(args.model)
+        if not model.is_absolute():
+            model = root / model
+        model = Path(os.path.abspath(model))
+        _require_control_directory(model, "Lokales Embedding-Modell")
+        command.extend(["--model", str(model)])
+    return command
+
+
+def _checkout_embedding_remove_tree(
+    target: Path,
+    candidate: Path,
+    *,
+    prefix: str,
+) -> None:
+    """Entfernt nur einen sicher benannten direkten Geschwisterbaum."""
+    absolute_target = Path(os.path.abspath(target))
+    absolute_candidate = Path(os.path.abspath(candidate))
+    if (
+        absolute_candidate.parent != absolute_target.parent
+        or not absolute_candidate.name.startswith(prefix)
+    ):
+        raise OperatorError(
+            f"Unsicheres Embedding-Bereinigungsziel abgelehnt: {absolute_candidate}"
+        )
+    try:
+        info = os.lstat(absolute_candidate)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise OperatorError(
+            f"Embedding-Bereinigungsziel nicht sicher pruefbar: {absolute_candidate}"
+        ) from exc
+    if stat.S_ISLNK(info.st_mode) or _is_reparse(info) or not stat.S_ISDIR(info.st_mode):
+        raise OperatorError(
+            f"Unsicheres Embedding-Bereinigungsziel: {absolute_candidate}"
+        )
+    shutil.rmtree(absolute_candidate)
+
+
+def _checkout_embedding_cleanup_stages(target: Path) -> None:
+    """Bereinigt verwaiste, nie promotete Build-Stages unter gehaltenem Lock."""
+    prefix = f".{target.name}.restore-"
+    try:
+        candidates = list(target.parent.iterdir())
+    except OSError as exc:
+        raise OperatorError("Embedding-Verzeichnis kann nicht aufgelistet werden") from exc
+    for candidate in candidates:
+        if candidate.name.startswith(prefix):
+            _checkout_embedding_remove_tree(target, candidate, prefix=prefix)
+
+
+def _checkout_embedding_stage(target: Path) -> Path:
+    _require_control_directory(target.parent, "Lokales Korpus-Verzeichnis")
+    _checkout_embedding_cleanup_stages(target)
+    try:
+        return Path(
+            tempfile.mkdtemp(
+                dir=str(target.parent),
+                prefix=f".{target.name}.restore-",
+            )
+        )
+    except OSError as exc:
+        raise OperatorError("Embedding-Staging konnte nicht angelegt werden") from exc
+
+
+def _checkout_embedding_sync_file(path: Path) -> None:
+    # Windows/CPython lehnt fsync auf einem read-only CRT-Handle mit EBADF ab.
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise OperatorError(f"Embedding-Artefakt nicht sicher lesbar: {path}") from exc
+    try:
+        opened = os.fstat(descriptor)
+        named = os.lstat(path)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or stat.S_ISLNK(named.st_mode)
+            or _is_reparse(named)
+            or (opened.st_dev, opened.st_ino) != (named.st_dev, named.st_ino)
+            or opened.st_nlink != 1
+        ):
+            raise OperatorError(f"Unsicheres Embedding-Artefakt: {path}")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _checkout_embedding_sync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _checkout_embedding_stage_fingerprint(root: Path, stage: Path) -> str:
+    """Laedt den Stage vollstaendig und bindet ihn an Graph, Katalog und Builder."""
+    expected_names = {"meta.json", "vectors.npy"}
+    try:
+        children = list(stage.iterdir())
+    except OSError as exc:
+        raise OperatorError("Embedding-Staging kann nicht gelesen werden") from exc
+    if {child.name for child in children} != expected_names:
+        raise OperatorError(
+            "Embedding-Staging muss exakt meta.json und vectors.npy enthalten"
+        )
+    for child in children:
+        _checkout_embedding_sync_file(child)
+    _checkout_embedding_sync_directory(stage)
+
+    # Der echte ``signal``-Wrapper startet diese Datei direkt; relative Imports
+    # waeren dort wegen ``__package__ is None`` ungueltig.
+    from risk_layer.catalog import lade_katalog
+    from risk_layer.embedding import EmbeddingIndex, pruefe_aktualitaet
+    from risk_layer.graph import graph_oeffnen
+
+    graph = None
+    try:
+        index = EmbeddingIndex.load(stage)
+        graph = graph_oeffnen(root / "corpus" / "graph.sqlite")
+        katalog = lade_katalog(root / "catalog" / "begriffe.yaml")
+        if index is None or not pruefe_aktualitaet(index, graph, katalog):
+            raise OperatorError(
+                "Gebauter Embedding-Index ist nicht aktuell zu Graph und Katalog"
+            )
+        fingerprint = getattr(index, "input_fingerprint", None)
+        if not isinstance(fingerprint, str) or not SHA256_RE.fullmatch(fingerprint):
+            raise OperatorError(
+                "Gebauter Embedding-Index hat keinen gueltigen Input-Fingerprint"
+            )
+        return fingerprint
+    except OperatorError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        raise OperatorError(f"Gebauter Embedding-Index ist ungueltig: {exc}") from exc
+    finally:
+        if graph is not None:
+            graph.close()
+
+
+def _checkout_embedding_rollback_path(target: Path) -> Path:
+    prefix = f".{target.name}.vor-restore-"
+    for _ in range(10):
+        candidate = target.parent / f"{prefix}{secrets.token_hex(16)}"
+        if not candidate.exists() and not candidate.is_symlink():
+            return candidate
+    raise OperatorError("Kein freier Embedding-Rollback-Pfad verfuegbar")
+
+
+@dataclass(frozen=True, slots=True)
+class _CheckoutEmbeddingPromotion:
+    stage: Path
+    rollback: Path
+    had_target: bool
+
+
+def _checkout_embedding_promote(
+    stage: Path,
+    target: Path,
+) -> _CheckoutEmbeddingPromotion:
+    """Promotet den Stage, behaelt den Altstand aber bis zur Live-Bestaetigung."""
+    from risk_layer.dateisperre import (
+        DateisperrenFehler,
+        restore_transaktion_beenden,
+        restore_transaktion_beginnen,
+    )
+
+    had_target = target.exists()
+    rollback = _checkout_embedding_rollback_path(target)
+    if not had_target:
+        rollback.mkdir(mode=0o700)
+    target_active = False
+    try:
+        restore_transaktion_beginnen(target, stage, rollback)
+    except DateisperrenFehler as exc:
+        if not had_target:
+            _checkout_embedding_remove_tree(
+                target,
+                rollback,
+                prefix=f".{target.name}.vor-restore-",
+            )
+        raise OperatorError(
+            f"Embedding-Promotion konnte nicht vorbereitet werden: {exc}"
+        ) from exc
+    try:
+        if had_target:
+            os.replace(target, rollback)
+        os.replace(stage, target)
+        target_active = True
+        _checkout_embedding_sync_directory(target.parent)
+    except BaseException as exc:
+        try:
+            if target_active and target.exists():
+                os.replace(target, stage)
+                os.replace(rollback, target)
+                _checkout_embedding_remove_tree(
+                    target,
+                    stage,
+                    prefix=f".{target.name}.restore-",
+                )
+            elif not target.exists() and rollback.exists():
+                os.replace(rollback, target)
+        except BaseException as rollback_exc:
+            raise OperatorError(
+                "Embedding-Promotion und automatischer Rollback sind fehlgeschlagen: "
+                f"{exc}; Rollback: {rollback_exc}"
+            ) from rollback_exc
+        try:
+            restore_transaktion_beenden(target)
+        except DateisperrenFehler as journal_exc:
+            raise OperatorError(
+                "Embedding-Promotion ist fehlgeschlagen; der alte Index wurde "
+                f"wiederhergestellt, das Journal aber nicht bereinigt: {journal_exc}"
+            ) from journal_exc
+        if not had_target and target.exists():
+            _checkout_embedding_remove_tree(target, target, prefix=target.name)
+        raise
+    return _CheckoutEmbeddingPromotion(stage, rollback, had_target)
+
+
+def _checkout_embedding_commit(
+    target: Path,
+    promotion: _CheckoutEmbeddingPromotion,
+) -> None:
+    """Vergisst den Altstand erst nach bestaetigter Live-Aktivierung."""
+    from risk_layer.dateisperre import DateisperrenFehler, restore_transaktion_beenden
+
+    try:
+        _checkout_embedding_remove_tree(
+            target,
+            promotion.rollback,
+            prefix=f".{target.name}.vor-restore-",
+        )
+        _checkout_embedding_sync_directory(target.parent)
+        restore_transaktion_beenden(target)
+    except (DateisperrenFehler, OSError, OperatorError) as exc:
+        raise OperatorError(
+            "Embedding-Aktivierung ist bestaetigt, die atomare Transaktion konnte "
+            f"aber nicht abgeschlossen werden: {exc}"
+        ) from exc
+
+
+def _checkout_embedding_revert(
+    target: Path,
+    promotion: _CheckoutEmbeddingPromotion,
+) -> None:
+    """Stellt nach fehlgeschlagener Aktivierung den alten Disk-Stand wieder her."""
+    from risk_layer.dateisperre import DateisperrenFehler, restore_transaktion_beenden
+
+    try:
+        os.replace(target, promotion.stage)
+        os.replace(promotion.rollback, target)
+        _checkout_embedding_remove_tree(
+            target,
+            promotion.stage,
+            prefix=f".{target.name}.restore-",
+        )
+        _checkout_embedding_sync_directory(target.parent)
+        restore_transaktion_beenden(target)
+        if not promotion.had_target:
+            _checkout_embedding_remove_tree(target, target, prefix=target.name)
+            _checkout_embedding_sync_directory(target.parent)
+    except (DateisperrenFehler, OSError, OperatorError) as exc:
+        raise OperatorError(
+            "Fehlgeschlagene Embedding-Aktivierung konnte den alten Disk-Stand "
+            f"nicht atomar wiederherstellen: {exc}"
+        ) from exc
+
+
+def _checkout_embedding_activation_command(
+    root: Path,
+    profile: Profile,
+    fingerprint: str,
+) -> list[str]:
+    arguments = [
+        "doctor",
+        "--url",
+        profile.health_url,
+        "--token-file",
+        str(profile.token_file),
+        "--timeout",
+        str(CHECKOUT_EMBEDDING_ACTIVATION_TIMEOUT),
+        "--require-layer",
+        "matcher",
+        "--expected-embedding-fingerprint",
+        fingerprint,
+        "--json",
+    ]
+    if urlsplit(profile.health_url).scheme == "http":
+        arguments.append("--allow-insecure-http")
+    return _checkout_ops_command(root, arguments)
+
+
+def _checkout_embedding_health_command(root: Path, profile: Profile) -> list[str]:
+    arguments = [
+        "doctor",
+        "--url",
+        profile.health_url,
+        "--token-file",
+        str(profile.token_file),
+        "--timeout",
+        str(CHECKOUT_EMBEDDING_ACTIVATION_TIMEOUT),
+        "--require-layer",
+        "matcher",
+        "--json",
+    ]
+    if urlsplit(profile.health_url).scheme == "http":
+        arguments.append("--allow-insecure-http")
+    return _checkout_ops_command(root, arguments)
+
+
+def _checkout_embedding_restart(root: Path) -> int:
+    restart_command = [
+        part
+        for part in _checkout_service_command(root, "restart")
+        if part != "--no-block"
+    ]
+    return _passthrough(restart_command)
+
+
+def _checkout_embedding_activate(
+    root: Path,
+    profile: Profile,
+    fingerprint: str,
+) -> int:
+    # systemctl --no-block koennte den noch laufenden alten Prozess sofort an
+    # den Doctor durchreichen. Ein identischer Rebuild wuerde dann trotz eines
+    # spaeter fehlgeschlagenen Restarts faelschlich als aktiviert gelten.
+    restarted = _checkout_embedding_restart(root)
+    if restarted != 0:
+        return restarted
+    verified = _passthrough(
+        _checkout_embedding_activation_command(root, profile, fingerprint),
+        cwd=root,
+    )
+    if verified != 0:
+        print(
+            "Embedding-Neustart konnte den neuen aktiven Index nicht bestaetigen.",
+            file=sys.stderr,
+        )
+        return verified
+    return 0
+
+
+def _checkout_embedding_restore_service(root: Path, profile: Profile) -> None:
+    restarted = _checkout_embedding_restart(root)
+    if restarted != 0:
+        raise OperatorError(
+            "Alter Embedding-Index ist auf Disk wiederhergestellt, aber sein "
+            f"Dienst-Neustart schlug mit Exit-Code {restarted} fehl"
+        )
+    verified = _passthrough(
+        _checkout_embedding_health_command(root, profile),
+        cwd=root,
+    )
+    if verified != 0:
+        raise OperatorError(
+            "Alter Embedding-Index ist auf Disk wiederhergestellt, sein Dienst "
+            f"wurde aber nicht gesund (Exit-Code {verified})"
+        )
+
+
+def _checkout_embedding_install_command(
+    root: Path,
+    args: argparse.Namespace,
+) -> list[str]:
+    if args.device != "cpu":
+        raise OperatorError(
+            "--install-dependencies verwendet den auditierten CPU-Lock; fuer GPU-Torch "
+            "eine separat bereitgestellte Umgebung ohne diesen Schalter verwenden"
+        )
+    if sys.version_info[:2] != (3, 12):
+        raise OperatorError(
+            "Embedding-Hashlocks sind fuer den Checkout nur mit CPython 3.12 verfuegbar"
+        )
+    if os.name == "nt":
+        lock_name = "requirements-embedding-windows-cpu-py312-lock.txt"
+    elif sys.platform.startswith("linux"):
+        lock_name = "requirements-embedding-linux-cpu-py312-lock.txt"
+    else:
+        raise OperatorError(
+            "Automatische Embedding-Abhaengigkeiten sind nur fuer Windows und Linux "
+            "manifestiert"
+        )
+    lock = root / lock_name
+    _require_control_file(lock, "Embedding-Hashlock")
+    return [
+        str(_checkout_python(root)),
+        "-I",
+        "-m",
+        "pip",
+        "install",
+        "--require-hashes",
+        "--only-binary=:all:",
+        "-r",
+        str(lock),
+    ]
+
+
+def _checkout_embedding_dependencies_available(root: Path) -> bool:
+    probe = (
+        "import importlib.util,sys;"
+        "sys.exit(0 if importlib.util.find_spec('sentence_transformers') else 1)"
+    )
+    result = _run(
+        [str(_checkout_python(root)), "-I", "-c", probe],
+        capture=True,
+        timeout=INTERPRETER_CHECK_TIMEOUT,
+    )
+    return result.returncode == 0
+
+
+def _checkout_embedding_refresh(
+    root: Path,
+    profile: Profile,
+    args: argparse.Namespace,
+) -> int:
+    """Baut isoliert, promotet atomar und bestaetigt die Live-Aktivierung."""
+    _checkout_service_ready(root, profile)
+    from risk_layer.dateisperre import DateisperrenFehler, festwissen_sperre
+
+    target = root / "corpus" / "embedding"
+    stage: Path | None = None
+    try:
+        with festwissen_sperre(target):
+            dependencies_ready = _checkout_embedding_dependencies_available(root)
+            if args.install_dependencies and not dependencies_ready:
+                installed = _passthrough(
+                    _checkout_embedding_install_command(root, args),
+                    cwd=root,
+                )
+                if installed != 0:
+                    return installed
+                dependencies_ready = _checkout_embedding_dependencies_available(root)
+            if not dependencies_ready:
+                raise OperatorError(
+                    "Embedding-Abhaengigkeiten fehlen; einmalig "
+                    "'signal embedding-refresh --install-dependencies' ausfuehren"
+                )
+            stage = _checkout_embedding_stage(target)
+            built = _passthrough(
+                _checkout_embedding_command(root, args, stage),
+                cwd=root,
+            )
+            if built != 0:
+                print(
+                    "Embedding-Build fehlgeschlagen; der bestehende Index auf "
+                    "Disk und der laufende Dienst bleiben unveraendert.",
+                    file=sys.stderr,
+                )
+                return built
+            fingerprint = _checkout_embedding_stage_fingerprint(root, stage)
+            promotion = _checkout_embedding_promote(stage, target)
+            stage = None
+            if args.no_restart:
+                _checkout_embedding_commit(target, promotion)
+                print(
+                    "Embedding-Index atomar bereitgestellt. Er wird beim naechsten "
+                    "Dienststart geladen (--no-restart war gesetzt)."
+                )
+                return 0
+            try:
+                activated = _checkout_embedding_activate(root, profile, fingerprint)
+            except BaseException as activation_exc:
+                try:
+                    _checkout_embedding_revert(target, promotion)
+                    _checkout_embedding_restore_service(root, profile)
+                except BaseException as restore_exc:
+                    raise OperatorError(
+                        "Embedding-Aktivierung ist fehlgeschlagen und auch der "
+                        "vorherige Dienstzustand konnte nicht vollstaendig "
+                        f"wiederhergestellt werden: {restore_exc}"
+                    ) from activation_exc
+                raise
+            if activated != 0:
+                _checkout_embedding_revert(target, promotion)
+                _checkout_embedding_restore_service(root, profile)
+                print(
+                    "Neuer Embedding-Index wurde nicht aktiviert; alter Disk-Stand "
+                    "und gesunder Dienst sind wiederhergestellt.",
+                    file=sys.stderr,
+                )
+                return activated
+            _checkout_embedding_commit(target, promotion)
+            print(
+                "Embedding-Index atomar aktiviert und verifiziert "
+                f"({fingerprint})."
+            )
+            return 0
+    except DateisperrenFehler as exc:
+        raise OperatorError(f"Embedding-Index ist durch einen anderen Vorgang gesperrt: {exc}") from exc
+    finally:
+        if stage is not None:
+            _checkout_embedding_remove_tree(
+                target,
+                stage,
+                prefix=f".{target.name}.restore-",
+            )
 
 
 def _checkout_install_runtime(root: Path) -> int:
@@ -3089,6 +3643,8 @@ def _dispatch_checkout(root: Path, args: argparse.Namespace) -> int:
             [str(python), "-P", "-m", "risk_layer.cli", "modell", "bench"],
             cwd=root,
         )
+    if args.command == "embedding-refresh":
+        return _checkout_embedding_refresh(root, profile, args)
     if args.command == "backup":
         _ensure_checkout_layout(profile)
         return _cmd_backup(profile, args)
@@ -3207,6 +3763,42 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     bench.set_defaults(handler=_cmd_profiled_bench)
+
+    embedding = sub.add_parser(
+        "embedding-refresh",
+        help="semantischen Checkout-Index neu bauen und Dienst neu starten",
+        description=(
+            "Baut den BGE-M3-Index aus dem lokalen Normgraphen und Katalog neu. "
+            "Der verwaltete Dienst wird danach standardmaessig neu gestartet, "
+            "damit Graph und Index gemeinsam geladen werden."
+        ),
+    )
+    embedding.add_argument(
+        "--device",
+        default="cpu",
+        type=_embedding_device,
+        metavar="GERAET",
+        help="Torch-Geraet fuer den Build (Standard: cpu)",
+    )
+    embedding.add_argument(
+        "--model",
+        metavar="PFAD",
+        help="manifestiertes lokales BGE-M3-Modell (Standard: gepinnter Modellbezug)",
+    )
+    embedding.add_argument(
+        "--install-dependencies",
+        action="store_true",
+        help=(
+            "fehlende optionale Embedding-Pakete einmalig aus dem auditierten "
+            "CPU-Hashlock installieren"
+        ),
+    )
+    embedding.add_argument(
+        "--no-restart",
+        action="store_true",
+        help="Index nur bauen; Aktivierung bis zum naechsten Dienststart aufschieben",
+    )
+    embedding.set_defaults(handler=_cmd_profiled_embedding_refresh)
 
     backup = sub.add_parser("backup", help="manifestiertes Festwissen-Backup anlegen")
     backup.set_defaults(handler=_cmd_backup)

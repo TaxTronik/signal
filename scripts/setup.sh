@@ -590,6 +590,39 @@ ok "RISK_LAYER_TOKEN fuer diesen Deploy-Lauf gesetzt"
 info "Token gespeichert: $TOKEN_PATH (nicht angezeigt)"
 info "Bewusst anzeigen: cat -- $TOKEN_FILE"
 
+# Der normale Bearer darf keine Build-Berechtigung verleihen. Der getrennte
+# Operator-Token folgt demselben atomaren/0600-Pfad, ist aber immer ein anderes
+# Secret. --rotate-token rotiert beide Vertrauensgrenzen bewusst gemeinsam.
+OPERATOR_TOKEN_FILE=".operator_token"
+OPERATOR_TOKEN_PATH="$(pwd)/$OPERATOR_TOKEN_FILE"
+[[ ! -L "$OPERATOR_TOKEN_FILE" ]] \
+  || { echo "$OPERATOR_TOKEN_FILE darf kein symbolischer Link sein." >&2; exit 1; }
+[[ ! -e "$OPERATOR_TOKEN_FILE" || -f "$OPERATOR_TOKEN_FILE" ]] \
+  || { echo "$OPERATOR_TOKEN_FILE muss eine regulaere Datei sein." >&2; exit 1; }
+if [[ ! -f "$OPERATOR_TOKEN_FILE" || $ROTATE_TOKEN -eq 1 ]]; then
+  (
+    umask 077
+    operator_tmp="$(mktemp "${OPERATOR_TOKEN_FILE}.tmp.XXXXXX")"
+    trap 'rm -f -- "$operator_tmp"' EXIT
+    "$PY" -c 'import secrets,sys; sys.stdout.write(secrets.token_hex(32))' \
+      > "$operator_tmp"
+    chmod 600 -- "$operator_tmp"
+    mv -f -- "$operator_tmp" "$OPERATOR_TOKEN_FILE"
+    trap - EXIT
+  )
+  ok "neues separates Operator-Token erzeugt ($OPERATOR_TOKEN_FILE, chmod 600)"
+else ok "$OPERATOR_TOKEN_FILE vorhanden (wiederverwendet)"; fi
+chmod 600 -- "$OPERATOR_TOKEN_FILE"
+OPERATOR_TOKEN="$(tr -d '[:space:]' < "$OPERATOR_TOKEN_FILE")"
+[[ "$OPERATOR_TOKEN" != "$TOKEN" ]] || {
+  echo "Operator-Token muss vom Bearer-Token verschieden sein; --rotate-token ausfuehren." >&2
+  exit 1
+}
+export RISK_LAYER_OPERATOR_TOKEN="$OPERATOR_TOKEN"
+export RISK_LAYER_EMBEDDING_DIR="$(pwd)/.signal/embedding"
+ok "Embedding-Operator fuer diesen Deploy-Lauf aktiviert"
+info "Operator-Token gespeichert: $OPERATOR_TOKEN_PATH (nicht angezeigt)"
+
 # --- LLM-Modell (GGUF) -----------------------------------------------------
 if [[ $SKIP_MODEL -eq 0 ]]; then
   schritt "LLM-Modell (GGUF) herunterladen"
@@ -744,22 +777,26 @@ printf "\n${G}Deploy abgeschlossen.${N}\n"
 printf "${Y}Kanzleikonsole .env (Host-Prozess, nicht Docker):${N}\n"
 printf "RISK_LAYER_URL=%s\n" "$BASE_URL"
 printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
+printf "# RISK_LAYER_OPERATOR_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$OPERATOR_TOKEN_FILE"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 printf "${Y}Kanzleikonsole .env (Docker, Risk-Layer im selben Compose-Netz):${N}\n"
 printf "RISK_LAYER_URL=http://risk-layer:8000\n"
 printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
+printf "# RISK_LAYER_OPERATOR_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$OPERATOR_TOKEN_FILE"
 printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
 printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 if [[ -n "$DOCKER_NATIVE_URL" ]]; then
   printf "${Y}Kanzleikonsole .env (Docker-App -> nativer Host-Risk-Layer):${N}\n"
   printf "RISK_LAYER_URL=%s\n" "$DOCKER_NATIVE_URL"
   printf "# RISK_LAYER_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$TOKEN_FILE"
+  printf "# RISK_LAYER_OPERATOR_TOKEN aus %s uebernehmen (nicht angezeigt)\n" "$OPERATOR_TOKEN_FILE"
   printf "RISK_LAYER_HEALTH_PATH=/v1/health\n"
   printf "RISK_LAYER_ANALYSE_PATH=/v1/analyse\n"
 fi
 printf "${Y}Token bei Bedarf bewusst anzeigen:${N}\n"
 printf "  cat -- %s\n" "$TOKEN_FILE"
+printf "  cat -- %s\n" "$OPERATOR_TOKEN_FILE"
 printf "${Y}Alltagsbetrieb (Engine + LLM als verwalteter Service):${N}\n"
 printf "  ./signal start | ./signal stop | ./signal restart | ./signal status\n"
 
@@ -789,8 +826,15 @@ if [[ $SERVICE -eq 1 ]]; then
     install -d -m 0700 "$ENV_DIR"
     install -d -m 0700 "$UNIT_DIR"
   fi
+  if [[ $SYSTEM_SERVICE -eq 1 ]]; then
+    EMBEDDING_STATE_DIR="/var/lib/risk-layer/embedding"
+  else
+    EMBEDDING_STATE_DIR=".signal/embedding"
+    install -d -m 0700 "$(pwd)/$EMBEDDING_STATE_DIR"
+  fi
   ENV_TEMP="$(mktemp "$ENV_DIR/.engine.env.XXXXXX")"
-  (umask 077; printf 'RISK_LAYER_TOKEN=%s\n' "$TOKEN" > "$ENV_TEMP")
+  (umask 077; printf 'RISK_LAYER_TOKEN=%s\nRISK_LAYER_OPERATOR_TOKEN=%s\nRISK_LAYER_EMBEDDING_DIR=%s\n' \
+    "$TOKEN" "$OPERATOR_TOKEN" "$EMBEDDING_STATE_DIR" > "$ENV_TEMP")
   chmod 0600 "$ENV_TEMP"
   mv -fT "$ENV_TEMP" "$ENV_FILE"
   ok "Token-EnvironmentFile geschrieben: $ENV_FILE (chmod 600)"

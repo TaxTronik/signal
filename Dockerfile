@@ -85,7 +85,7 @@ RUN groupadd --gid "$RISK_LAYER_GID" risklayer \
  && useradd --uid "$RISK_LAYER_UID" --gid "$RISK_LAYER_GID" \
       --home-dir /home/risklayer --create-home --shell /usr/sbin/nologin risklayer \
  && install -d -o risklayer -g risklayer -m 0750 \
-      /app/corpus /app/definitionen /cache
+      /app/corpus /app/definitionen /cache /state/embedding
 
 # Festwissen-Volumes (regenerierbar, mandantenfrei). corpus/ wird gemountet:
 #   corpus/graph.sqlite     – Normgraph (graph build)
