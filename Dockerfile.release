@@ -1,0 +1,27 @@
+# Self-contained Produktionsimage fuer den von TaxTronik verwalteten Betrieb.
+# Das Runtime-Image wird zuerst unveraenderlich gebaut; erst danach wird das im
+# selben Release-Lauf erzeugte und verifizierte Festwissen eingebettet.
+ARG ENGINE_BASE_IMAGE=risk-layer-engine:runtime
+FROM ${ENGINE_BASE_IMAGE}
+
+USER root
+COPY --chown=root:root .managed-release/ /release/
+
+# Das Image muss ohne Host-Checkout vollstaendig startbar sein. Modi werden
+# deterministisch normalisiert; Schreibrechte bleiben allein bei den bereits im
+# Basisimage angelegten State-/Cache-Pfaden.
+RUN test -r /release/festwissen-manifest.json \
+ && test -r /release/catalog/begriffe.yaml \
+ && test -r /release/corpus/graph.sqlite \
+ && test -r /release/corpus/embedding/meta.json \
+ && test -r /release/corpus/embedding/vectors.npy \
+ && test -r /release/models/bge-m3/model-manifest.json \
+ && chmod -R u=rwX,go=rX /release
+
+WORKDIR /release
+USER risklayer:risklayer
+
+CMD ["python", "-m", "risk_layer.web", "--host", "0.0.0.0", "--port", "8000", \
+     "--katalog", "/release/catalog/begriffe.yaml", \
+     "--berater", "/app/definitionen", \
+     "--graph", "/release/corpus/graph.sqlite"]

@@ -18,6 +18,7 @@ Aufruf-Kontrakt: ``dispatch(app, method, pfad, payload, query) -> (status, dict)
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .berater import REVIEW_REIHENFOLGE
@@ -407,6 +408,24 @@ def _embedding_refresh(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any
     return 202, {"ok": True, "engineVersion": V1_VERSION, **job}
 
 
+def _embedding_cancel(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    """POST /v1/embedding/cancel – bricht genau den beobachteten Job ab."""
+    job_id = payload.get("job_id")
+    if not isinstance(job_id, str) or not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        return 400, {"error": "Feld 'job_id' muss eine gueltige Job-ID sein"}
+    from .embedding_operator import (
+        EmbeddingOperatorConflict,
+        EmbeddingOperatorUnavailable,
+    )
+    try:
+        job = app.embedding_cancel(job_id=job_id)
+    except EmbeddingOperatorConflict as exc:
+        return 409, {"error": str(exc)}
+    except EmbeddingOperatorUnavailable as exc:
+        return 503, {"error": str(exc)}
+    return 202, {"ok": True, "engineVersion": V1_VERSION, **job}
+
+
 def _embedding_schedule(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/embedding/schedule – globaler Check-Rhythmus (1..365 Tage)."""
     enabled = payload.get("enabled")
@@ -708,7 +727,8 @@ _GET_PFADE = frozenset({"/v1/health", "/v1/status", "/v1/radar", "/v1/katalog",
                         "/v1/embedding/status"})
 _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/norm_kuratieren",
                          "/v1/katalog/review", "/v1/embedding/suche",
-                         "/v1/embedding/refresh", "/v1/embedding/schedule",
+                         "/v1/embedding/refresh", "/v1/embedding/cancel",
+                         "/v1/embedding/schedule",
                          "/v1/los/ziehen", "/v1/los/abholen", "/v1/los/pruefen",
                          "/v1/llm/start", "/v1/llm/stop"})
 
@@ -759,6 +779,8 @@ def dispatch(app, method: str, pfad: str, payload: dict[str, Any],
             return _embedding_suche(app, payload)
         if pfad == "/v1/embedding/refresh":
             return _embedding_refresh(app, payload)
+        if pfad == "/v1/embedding/cancel":
+            return _embedding_cancel(app, payload)
         if pfad == "/v1/embedding/schedule":
             return _embedding_schedule(app, payload)
         if pfad == "/v1/los/ziehen":

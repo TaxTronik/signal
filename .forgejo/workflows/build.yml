@@ -344,7 +344,7 @@ jobs:
             festwissen_mode=--ohne-embedding
           fi
           docker build --build-arg "WITH_EMBEDDING=$embedding_build_arg" \
-            -t risk-layer-engine:release .
+            -t risk-layer-engine:runtime .
           python -m pip wheel --no-build-isolation --no-deps --wheel-dir dist .
           ./scripts/build-release-artifact.sh "$RELEASE_TAG" "$festwissen_mode"
           wheel="$(find dist -maxdepth 1 -type f -name '*.whl' -print -quit)"
@@ -390,6 +390,21 @@ jobs:
             --output-dir "release-$RELEASE_TAG" \
             --archive "taxtronik-native-$RELEASE_TAG.tar.gz" \
             --source-date-epoch "$SOURCE_DATE_EPOCH"
+          # Der von TaxTronik verwaltete Betriebsweg braucht keinen Checkout-
+          # oder Host-Festwissen-Mount: exakt das oben erzeugte Release wird als
+          # read-only Layer in dasselbe OCI-Artefakt gebunden.
+          rm -rf -- .managed-release
+          install -d -m 0755 .managed-release
+          trap 'rm -rf -- .managed-release' EXIT
+          tar -xzf "taxtronik-festwissen-$RELEASE_TAG.tar.gz" \
+            -C .managed-release --no-same-owner --no-same-permissions
+          docker build -f Dockerfile.release \
+            --build-arg ENGINE_BASE_IMAGE=risk-layer-engine:runtime \
+            -t risk-layer-engine:release .
+          docker run --rm --entrypoint python risk-layer-engine:release -c \
+            "import importlib.util,pathlib,sys; required=['/release/catalog/begriffe.yaml','/release/corpus/graph.sqlite','/release/corpus/embedding/meta.json','/release/corpus/embedding/vectors.npy','/release/models/bge-m3/model-manifest.json']; sys.exit(0 if all(pathlib.Path(p).is_file() for p in required) and importlib.util.find_spec('sentence_transformers') else 1)"
+          rm -rf -- .managed-release
+          trap - EXIT
           python tools/build_release_tools_zipapp.py \
             --output risk-layer-release-tools.pyz \
             --source-date-epoch "$SOURCE_DATE_EPOCH"

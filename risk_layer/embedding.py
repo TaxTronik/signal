@@ -30,7 +30,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 import numpy as np
 
@@ -213,6 +213,10 @@ class Encoder(Protocol):
 
     def encode(self, texts: list[str]) -> np.ndarray:
         ...
+
+
+class EmbeddingBuildCancelled(RuntimeError):
+    """Ein Operator hat einen noch nicht publizierten Indexbau abgebrochen."""
 
 
 class HashEncoder:
@@ -517,7 +521,8 @@ class EmbeddingIndex:
     # -- Bau ----------------------------------------------------------------
     @classmethod
     def build(cls, graph, encoder: Encoder, *, max_zeichen: int = 1500,
-              katalog=None, extra_anker=None) -> "EmbeddingIndex":
+              katalog=None, extra_anker=None,
+              cancelled: Callable[[], bool] | None = None) -> "EmbeddingIndex":
         """Bettet alle §-Knoten (Paragraph-Ebene) des Normgraphen ein.
 
         Ist ``katalog`` gesetzt, werden zusätzlich die kuratierten LAIEN-Paraphrasen
@@ -532,6 +537,12 @@ class EmbeddingIndex:
         vergessen, lieferte er stille, plausible, FALSCHE Semantik-Vorschläge.
         ``pruefe_aktualitaet`` deckt das auf.
         """
+
+        def cancellation_point() -> None:
+            if cancelled is not None and cancelled():
+                raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
+
+        cancellation_point()
         # hasattr-tolerant: build verlangt vom graph-Parameter bisher nur
         # ``.con`` (Duck-Typing) – minimale Graph-Stubs ohne fingerprint()
         # sollen weiter funktionieren (Abwärtskompatibilität). Ohne Fingerprint
@@ -546,6 +557,7 @@ class EmbeddingIndex:
         ids, zitate, titel, texte = [], [], [], []
         para_meta: dict[str, tuple[str, str]] = {}   # node-id → (zitat, titel)
         for r in rows:
+            cancellation_point()
             roh_titel = (r["titel"] or "").strip()
             roh_text = (r["text"] or "").strip()
             # (1) Tote/leere Paragraphen ("(weggefallen)", "(gegenstandslos)", …)
@@ -631,6 +643,7 @@ class EmbeddingIndex:
         # Eingebettet als Vektor auf die §-Ebene der Zielnorm, OHNE den Katalog zu
         # ändern (für Grounding-Evals / Was-wäre-wenn).
         for text, ziel_roh in (extra_anker or []):
+            cancellation_point()
             ziel = ziel_roh if ziel_roh in para_meta else para_level(str(ziel_roh))
             if ziel in para_meta and str(text).strip():
                 ids.append(ziel)
@@ -643,7 +656,19 @@ class EmbeddingIndex:
         # Lazy-Load nur der Klassen-Default (z. B. Qwen3-4B: 1024 statt echt 2560)
         # und wuerde eine falsche Dimension in den persistierten Index schreiben.
         # self.dim ist fuer leere Matrizen ohnehin definiert 0.
-        vecs = encoder.encode(texte) if texte else np.zeros((0, 0), np.float32)
+        if not texte:
+            vecs = np.zeros((0, 0), np.float32)
+        elif cancelled is None:
+            # Bestehender Bibliotheks-/CLI-Pfad bleibt unveraendert. Nur der
+            # asynchrone Operator zerlegt den Lauf in abbrechbare Modellbatches.
+            vecs = encoder.encode(texte)
+        else:
+            batches: list[np.ndarray] = []
+            for start in range(0, len(texte), 32):
+                cancellation_point()
+                batches.append(encoder.encode(texte[start:start + 32]))
+                cancellation_point()
+            vecs = np.vstack(batches)
         catalog_version = str(getattr(katalog, "version", "")) or None
         catalog_fingerprint = (
             katalog_fingerprint_berechnen(katalog) if katalog is not None else None

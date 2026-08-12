@@ -7,6 +7,7 @@ from http.server import ThreadingHTTPServer
 import pytest
 
 import risk_layer.web as web
+from risk_layer.embedding_operator import EmbeddingOperatorConflict
 from risk_layer.web import Anwendung, make_handler
 
 
@@ -201,6 +202,63 @@ def test_schedule_schema_und_grenzen(tmp_path, monkeypatch):
         assert status == 200
         assert body["schedule"]["enabled"] is True
         assert body["schedule"]["interval_days"] == 7
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        app.close()
+
+
+def test_cancel_verlangt_exakte_job_id_und_operator_auth(tmp_path, monkeypatch):
+    monkeypatch.setenv("RISK_LAYER_TOKEN", BEARER)
+    monkeypatch.setenv("RISK_LAYER_OPERATOR_TOKEN", OPERATOR)
+    monkeypatch.setenv("RISK_LAYER_EMBEDDING_DIR", str(tmp_path / "overlay"))
+    app = Anwendung(None, str(tmp_path), graph_pfad=str(tmp_path / "missing.sqlite"))
+    job_id = "c" * 32
+    monkeypatch.setattr(
+        app.embedding_operator,
+        "cancel",
+        lambda *, job_id: {"job_id": job_id, "state": "cancelling"},
+    )
+    httpd, base = _starte(app)
+    try:
+        payload = json.dumps({"job_id": job_id}).encode("utf-8")
+        assert _request(
+            f"{base}/v1/embedding/cancel",
+            method="POST",
+            body=payload,
+            bearer=BEARER,
+        )[0] == 403
+        assert _request(
+            f"{base}/v1/embedding/cancel",
+            method="POST",
+            body=b'{"job_id":"nicht-gueltig"}',
+            bearer=BEARER,
+            operator=OPERATOR,
+        )[0] == 400
+        status, body = _request(
+            f"{base}/v1/embedding/cancel",
+            method="POST",
+            body=payload,
+            bearer=BEARER,
+            operator=OPERATOR,
+        )
+        assert status == 202
+        assert body["job_id"] == job_id
+        assert body["state"] == "cancelling"
+
+        def conflict(*, job_id):
+            raise EmbeddingOperatorConflict("Der Job ist nicht mehr aktiv")
+
+        monkeypatch.setattr(app.embedding_operator, "cancel", conflict)
+        status, body = _request(
+            f"{base}/v1/embedding/cancel",
+            method="POST",
+            body=payload,
+            bearer=BEARER,
+            operator=OPERATOR,
+        )
+        assert status == 409
+        assert body == {"error": "Der Job ist nicht mehr aktiv"}
     finally:
         httpd.shutdown()
         httpd.server_close()

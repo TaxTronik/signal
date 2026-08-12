@@ -130,8 +130,10 @@ muss exakt mit `[project].version`, `risk_layer.__version__` und der Metadaten-
 Version des tatsächlich gebauten Wheels übereinstimmen. Er baut und prüft zuerst
 lokal und veröffentlicht anschließend:
 
-- zunächst das Engine-Image nur unter einem release-spezifischen
-  `candidate-*`-Tag;
+- zunächst das self-contained CPU-Engine-Image nur unter einem
+  release-spezifischen `candidate-*`-Tag. Dieses OCI-Artefakt bindet exakt das
+  im selben Lauf erzeugte Festwissen samt Graph, Katalog, Embedding-Runtime und
+  manifestiertem BGE-M3-Modell read-only unter `/release` ein;
 - ein natives Transferarchiv mit `release.json`, Anwendungs-Wheel, Runtime-Lock,
   Offline-Wheelhouses für CPython 3.12 auf Linux x86-64 und Windows x64 sowie
   einzeln gehashten `corpus/`- und `catalog/`-Dateien;
@@ -145,6 +147,13 @@ lokal und veröffentlicht anschließend:
 - das bindende `taxtronik-container-vX.Y.Z.json`;
 - als **allerletzten** Publish-Schritt den produktiven OCI-SemVer-Tag, ohne
   `latest`. Fehlt er, gilt ein partieller Upload nicht als freigegeben.
+
+Das self-contained Image ist der von TaxTronik verwaltbare, portable CPU-Pfad.
+Native Linux-/Windows-Installationen und GPU-/ROCm-Konfigurationen bleiben
+gleichwertige, aber extern verwaltete Betriebsarten. Ein Host-System darf deren
+Lifecycle nur dann verändern, wenn dieser Besitzvertrag ausdrücklich als
+`managed` konfiguriert wurde; eine bloße API-URL begründet keine
+Update-Berechtigung.
 
 Der Workflow kopiert alle veröffentlichten Dateien zunächst kollisionsfrei in
 ein flaches, leeres Stage-Verzeichnis. Manifest-Erzeugung und vollständige
@@ -198,12 +207,16 @@ aber erhebliche CPU-/RAM-Last. Der Rebuild ist deshalb **ereignisgesteuert**:
 
 `GET /v1/embedding/status` liefert mit dem normalen Bearer-Token den aktiven
 Indexstand, den persistenten Jobzustand sowie letzten Erfolg und nächsten
-Prüftermin. Der globale Plan ist standardmäßig wöchentlich. Er prüft Graph-,
-Katalog- und Encoderstand und baut nur bei fehlendem oder veraltetem Index neu;
-ein erfolgreicher manueller Build verschiebt den nächsten Check um das
-konfigurierte Intervall. Ein geplanter Skip lässt `last_success` unverändert.
+Prüftermin. **Installation und Engine-Start aktivieren keinen Plan und starten
+keinen Build.** Der globale Plan ist standardmäßig aus und wird erst durch den
+expliziten Schedule-POST aktiviert. Dann prüft er Graph-, Katalog- und
+Encoderstand und baut nur bei fehlendem oder veraltetem Index neu; ein
+erfolgreicher manueller Build verschiebt den nächsten Check um das konfigurierte
+Intervall. Ein geplanter Skip lässt `last_success` unverändert. Beim Upgrade
+auf den v2-Operatorstate wird ein früher implizit aktivierter v1-Plan einmalig
+fail-safe ausgeschaltet und muss bei Bedarf erneut bestätigt werden.
 
-Die beiden mutierenden Routen verlangen zusätzlich zum normalen Bearer den
+Die drei mutierenden Routen verlangen zusätzlich zum normalen Bearer den
 Header `x-risk-layer-operator-token`, konstant-zeitig geprüft gegen das
 separate `RISK_LAYER_OPERATOR_TOKEN` (mindestens 32 UTF-8-Bytes). Es muss sich
 vom aktuellen und vom Vorgänger-Bearer unterscheiden; andernfalls verweigert
@@ -212,12 +225,16 @@ fail-closed:
 
 ```text
 POST /v1/embedding/refresh   {"force": false}
+POST /v1/embedding/cancel    {"job_id": "<32-stellige Job-ID>"}
 POST /v1/embedding/schedule  {"enabled": true, "interval_days": 7}
 ```
 
 Der Refresh antwortet sofort mit HTTP 202 und einer Job-ID; parallele Trigger
 erhalten dieselbe laufende Job-ID (Single-flight). `force:true` baut bewusst
-auch einen aktuellen Index neu. Jede Generation wird zunächst vollständig in
+auch einen aktuellen Index neu. `cancel` fordert den kooperativen Abbruch genau
+dieser Job-ID an. Modellarbeit kann bis zum Ende des aktuellen Batches kurz
+weiterlaufen; eine abgebrochene Generation wird aber nie veröffentlicht und der
+bisherige Index bleibt aktiv. Jede Generation wird zunächst vollständig in
 `RISK_LAYER_EMBEDDING_DIR/generations/` gebaut und verifiziert. Erst danach
 veröffentlicht ein atomar ersetzter Zeiger die Generation und die Engine
 tauscht Index+Encoder als konsistenten In-Memory-Snapshot aus. Ein Neustart ist
@@ -236,7 +253,7 @@ Das Overlay ist absichtlich eine Ein-Instanz-Ressource. Pro
 Volume darf nicht zwischen Replikas geteilt werden. Compose deklariert daher
 explizit eine Engine-Replika, systemd und der Windows-Task genau einen Dienst.
 
-Ohne Operator-Token bleiben beide POST-Routen fail-closed; GET-Status und die
+Ohne Operator-Token bleiben alle drei POST-Routen fail-closed; GET-Status und die
 übrige Engine funktionieren weiter. In Compose muss zusätzlich das persistente
 Volume auf `/state/embedding` beschreibbar sein. Fehlen Runtime, lokales Modell,
 Graph oder Schreibrecht, zeigt der Status `refresh_available:false` mit einem

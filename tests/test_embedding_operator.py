@@ -7,8 +7,12 @@ import pytest
 import risk_layer.embedding_operator as embedding_operator_mod
 
 from risk_layer.catalog import Katalog
-from risk_layer.embedding import EmbeddingIndex, HashEncoder
-from risk_layer.embedding_operator import EmbeddingOperator, EmbeddingOperatorUnavailable
+from risk_layer.embedding import EmbeddingBuildCancelled, EmbeddingIndex, HashEncoder
+from risk_layer.embedding_operator import (
+    EmbeddingOperator,
+    EmbeddingOperatorConflict,
+    EmbeddingOperatorUnavailable,
+)
 from risk_layer.gii import NormKnoten
 from risk_layer.graph import NormGraph
 from risk_layer.models import Katalogeintrag
@@ -70,7 +74,7 @@ def _operator(tmp_path, *, current=True):
     return operator, graph, runtime, aktivierungen
 
 
-def test_default_status_ist_woechentlich_und_index_aktuell(tmp_path):
+def test_default_status_startet_keinen_plan_und_index_ist_aktuell(tmp_path):
     operator, graph, _runtime, _aktivierungen = _operator(tmp_path)
     try:
         status = operator.status()
@@ -87,9 +91,52 @@ def test_default_status_ist_woechentlich_und_index_aktuell(tmp_path):
             != _runtime[0].embedding_graph_fingerprint
         )
         assert status["job"]["state"] == "idle"
-        assert status["schedule"]["enabled"] is True
+        assert status["schedule"]["enabled"] is False
         assert status["schedule"]["interval_days"] == 7
-        assert status["schedule"]["next_run_at"] is not None
+        assert status["schedule"]["next_run_at"] is None
+    finally:
+        operator.close()
+        graph.close()
+
+
+def test_v1_defaultplan_wird_beim_upgrade_einmalig_deaktiviert(tmp_path):
+    graph, katalog, index, encoder = _ressourcen(tmp_path)
+    root = tmp_path / "overlay"
+    root.mkdir()
+    (root / "operator-state.json").write_text(
+        json.dumps(
+            {
+                "schema": "risk-layer/embedding-operator-state/v1",
+                "job": {"state": "idle"},
+                "schedule": {
+                    "enabled": True,
+                    "interval_days": 7,
+                    "next_run_at": "2020-01-01T00:00:00Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    operator = EmbeddingOperator(
+        graph_path=graph.path,
+        katalog=katalog,
+        state_dir=root,
+        configured=True,
+        device="cpu",
+        snapshot=lambda: (index, encoder),
+        activate=lambda *_args: None,
+    )
+    operator.bind_status_graph(graph)
+    try:
+        assert operator.status()["schedule"] == {
+            "enabled": False,
+            "interval_days": 7,
+            "last_check_at": None,
+            "next_run_at": None,
+        }
+        persisted = json.loads(operator.state_path.read_text(encoding="utf-8"))
+        assert persisted["schema"] == "risk-layer/embedding-operator-state/v2"
+        assert persisted["schedule"]["enabled"] is False
     finally:
         operator.close()
         graph.close()
@@ -98,6 +145,7 @@ def test_default_status_ist_woechentlich_und_index_aktuell(tmp_path):
 def test_force_build_publiziert_generation_und_verschiebt_plan(tmp_path):
     operator, graph, runtime, aktivierungen = _operator(tmp_path)
     try:
+        operator.set_schedule(enabled=True, interval_days=7)
         vorher = runtime[0]
         accepted = operator.trigger(force=True)
         assert accepted["state"] == "queued"
@@ -207,6 +255,39 @@ def test_single_flight_gibt_dieselbe_job_id_zurueck(tmp_path, monkeypatch):
         graph.close()
 
 
+def test_laufender_build_kann_gezielt_abgebrochen_werden(tmp_path, monkeypatch):
+    operator, graph, _runtime, aktivierungen = _operator(tmp_path)
+    gestartet = threading.Event()
+
+    def abbrechbarer_build(job_id):
+        gestartet.set()
+        assert operator._cancel_event.wait(5)
+        assert operator._cancel_job_id == job_id
+        raise EmbeddingBuildCancelled("abgebrochen")
+
+    monkeypatch.setattr(operator, "_build_generation", abbrechbarer_build)
+    try:
+        accepted = operator.trigger(force=True)
+        assert gestartet.wait(5)
+        cancelling = operator.cancel(job_id=accepted["job_id"])
+        assert cancelling == {
+            "job_id": accepted["job_id"],
+            "state": "cancelling",
+        }
+        operator.wait_for_job()
+        job = operator.status()["job"]
+        assert job["state"] == "cancelled"
+        assert job["completed"] is not None
+        assert job["error"] is None
+        assert aktivierungen == []
+        assert operator.cancel(job_id=accepted["job_id"])["state"] == "cancelled"
+        with pytest.raises(EmbeddingOperatorConflict):
+            operator.cancel(job_id="f" * 32)
+    finally:
+        operator.close()
+        graph.close()
+
+
 def test_buildfehler_persistiert_keine_exception_details(tmp_path, monkeypatch):
     operator, graph, _runtime, _aktivierungen = _operator(tmp_path)
 
@@ -235,6 +316,7 @@ def test_interrupted_state_wird_beim_start_als_failed_markiert(tmp_path):
     (root / "operator-state.json").write_text(
         json.dumps(
             {
+                "schema": "risk-layer/embedding-operator-state/v2",
                 "job": {
                     "state": "running",
                     "id": job_id,
@@ -292,6 +374,7 @@ def test_crash_nach_pointer_swap_wird_als_erfolg_rekonstruiert(tmp_path):
     (root / "operator-state.json").write_text(
         json.dumps(
             {
+                "schema": "risk-layer/embedding-operator-state/v2",
                 "job": {
                     "state": "running",
                     "id": generation,
@@ -592,6 +675,7 @@ def test_geplanter_skip_pflegt_check_aber_nicht_last_success(tmp_path):
         operator.wait_for_job()
         last_success = operator.status()["job"]["last_success"]
         with operator._lock:
+            operator._state["schedule"]["enabled"] = True
             operator._state["schedule"]["next_run_at"] = "2020-01-01T00:00:00Z"
         operator._scheduled_check()
         status = operator.status()
@@ -626,6 +710,7 @@ def test_geplanter_skip_ueberschreibt_keinen_parallelen_force_job(
     monkeypatch.setattr(operator, "_index_status", blockierender_status)
     monkeypatch.setattr(operator, "_build_generation", blockierender_build)
     with operator._lock:
+        operator._state["schedule"]["enabled"] = True
         operator._state["schedule"]["next_run_at"] = "2020-01-01T00:00:00Z"
     scheduler = threading.Thread(target=operator._scheduled_check)
     try:

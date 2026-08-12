@@ -16,7 +16,8 @@ import pytest
 from risk_layer.catalog import lade_katalog
 from risk_layer.embedding import (EMBEDDING_BUILDER_VERSION,
                                   HF_MODELL_REVISIONEN, BgeM3Encoder,
-                                  EmbeddingIndex, GraniteR2Encoder, HashEncoder,
+                                  EmbeddingBuildCancelled, EmbeddingIndex,
+                                  GraniteR2Encoder, HashEncoder,
                                   JinaV5Encoder, Qwen3Encoder, encoder_oeffnen,
                                   pruefe_aktualitaet)
 from risk_layer.gii import NormKnoten
@@ -58,6 +59,46 @@ def test_index_build_save_load(tmp_path):
     assert wieder is not None
     assert wieder.ids == idx.ids
     assert np.array_equal(wieder.vectors, idx.vectors)
+
+
+def test_operator_build_prueft_abbruch_zwischen_modellbatches(tmp_path):
+    knoten = [
+        NormKnoten(
+            id=f"norm:AO:{nummer}",
+            law="AO",
+            para=str(nummer),
+            absatz=None,
+            nummer=None,
+            titel=f"Testtitel {nummer}",
+            text=f"Ausreichend langer Testwortlaut fuer Paragraph {nummer}.",
+        )
+        for nummer in range(100, 140)
+    ]
+    graph = NormGraph.build(knoten, tmp_path / "cancel.sqlite")
+
+    class CountingEncoder:
+        name = "test-encoder"
+        revision = "test-revision"
+        dim = 4
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def encode(self, texte):
+            self.calls += 1
+            return np.ones((len(texte), self.dim), dtype=np.float32)
+
+    encoder = CountingEncoder()
+    try:
+        with pytest.raises(EmbeddingBuildCancelled):
+            EmbeddingIndex.build(
+                graph,
+                encoder,
+                cancelled=lambda: encoder.calls >= 1,
+            )
+        assert encoder.calls == 1
+    finally:
+        graph.close()
 
 
 def test_suche_findet_passende_norm(tmp_path):

@@ -421,6 +421,9 @@ class Anwendung:
     def embedding_refresh(self, *, force: bool) -> dict[str, str]:
         return self.embedding_operator.trigger(force=force)
 
+    def embedding_cancel(self, *, job_id: str) -> dict[str, str]:
+        return self.embedding_operator.cancel(job_id=job_id)
+
     def embedding_schedule(self, *, enabled: bool,
                            interval_days: int) -> dict[str, Any]:
         return self.embedding_operator.set_schedule(
@@ -959,7 +962,7 @@ def antwort_json(report: RunReport, text: str) -> dict[str, Any]:
 _MAX_BODY = 8 * 1024 * 1024
 _MIN_TOKEN_BYTES = 32  # mindestens 256 Bit bei zufällig erzeugtem Byte-/Hex-Secret
 _EMBEDDING_OPERATOR_POSTS = frozenset({
-    "/v1/embedding/refresh", "/v1/embedding/schedule",
+    "/v1/embedding/refresh", "/v1/embedding/cancel", "/v1/embedding/schedule",
 })
 
 

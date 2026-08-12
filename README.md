@@ -1,4 +1,7 @@
-# Risk-Layer — Schlüsselbegriff-Assistenz für die steuerliche Risikosteuerung
+# Signal — Schlüsselbegriff-Assistenz für die steuerliche Risikosteuerung
+
+Der stabile technische HTTP-/Paketname bleibt aus Bestandsgründen
+`risk_layer` beziehungsweise Risk-Layer-API.
 
 > Die Engine liest steuerrechtliche Texte und **markiert die unbestimmten
 > Rechtsbegriffe, an denen subsumiert werden muss**. Sie beantwortet die
@@ -101,6 +104,21 @@ manifestgebundenen Release-Betrieb vorbehalten.
 Mit `./signal configure` lassen sich Bind-Adresse, Docker-Zugriff,
 Implementierung und Service-Unit später interaktiv ändern, ohne Modelle,
 Abhängigkeiten oder Korpus erneut aufzubauen.
+
+### Betrieb zusammen mit TaxTronik
+
+Für den einfachen Standardbetrieb veröffentlicht jeder stabile Signal-Release
+zusätzlich ein versioniertes, self-contained CPU-Image. Es enthält Engine,
+Katalog, Graph, Embedding-Runtime und das manifestierte lokale BGE-M3-Modell in
+einem read-only Release-Layer. TaxTronik kann dieses Image bei
+`SIGNAL_DEPLOYMENT=managed` selbst beziehen, Secrets provisionieren und
+zusammen mit der Kanzleikonsole aktualisieren; ein Host-Checkout oder separater
+Festwissen-Mount ist dafür nicht erforderlich.
+
+Native Installationen bleiben der vorgesehene Weg für AMD/ROCm und besondere
+GPU-Setups. Sie werden in TaxTronik als `SIGNAL_DEPLOYMENT=external` angebunden.
+Dieser Modus überträgt TaxTronik ausdrücklich keine Lifecycle-Rechte: Setup,
+Service und Updates bleiben vollständig beim Signal-Betreiber.
 
 Ein explizites `--config` beziehungsweise ein checkout-frei installierter
 Wrapper schaltet auf den manifestgebundenen Produktionspfad. Dessen Vorlagen
@@ -232,7 +250,7 @@ for karte in report.luecken:
 `POST /v1/katalog/definiere` · `POST /v1/katalog/review` · `GET /v1/radar` ·
 `GET /v1/normgraph/{aufloesen,suche}` ·
 `POST /v1/embedding/suche` · `GET /v1/embedding/status` ·
-`POST /v1/embedding/{refresh,schedule}` · `GET /v1/llm/status` ·
+`POST /v1/embedding/{refresh,cancel,schedule}` · `GET /v1/llm/status` ·
 `POST /v1/llm/start`. Details + Beispiel-Antworten:
 **[INTEGRATION_TAXTRONIK.md](INTEGRATION_TAXTRONIK.md)** und
 [fixtures/](fixtures/).
@@ -404,7 +422,10 @@ einmalig mit `./signal embedding-refresh --install-dependencies` aus dem
 plattformgebundenen CPU-Hashlock installiert. Profilierte
 Produktionsinstanzen halten Graph, Katalog und Modell weiterhin unveränderlich;
 die Laufzeit-API kann daraus ausschließlich ein getrenntes regenerierbares
-Index-Overlay erzeugen.
+Index-Overlay erzeugen. Setup und Dienststart lassen den Operatorplan
+standardmäßig ausgeschaltet und starten keinen Neuaufbau. Ein laufender
+API-Auftrag kann mit seiner Job-ID über `POST /v1/embedding/cancel` kooperativ
+zwischen Modell-Batches beendet werden; eine Teilgeneration wird nie aktiviert.
 
 Der Index trägt den Korpus- und Katalogstand sowie seine eindeutige
 Buildinput-Identität (`graph_fingerprint`, `catalog_version`,

@@ -416,11 +416,13 @@ Braucht nur den normalen Bearer-Token und liefert den globalen Livezustand:
 Normtitel, Gesetz und Paragraph sowie Katalog, Builder und Encoderrevision an
 den konkreten Vektorstand.
 Zeitstempel sind UTC-ISO-8601 oder `null`. Jobzustände sind
-`idle|queued|running|succeeded|failed|skipped`.
+`idle|queued|running|cancelling|cancelled|succeeded|failed|skipped`. Der Plan
+ist bei Installation und nach der v1→v2-State-Migration standardmäßig aus;
+das Provisionieren des Operator-Tokens startet weder Plan noch Build.
 
-### `POST /v1/embedding/refresh` und `/v1/embedding/schedule` (seit `1.4.0`)
+### Mutierende `/v1/embedding/*`-Routen (seit `1.4.0`)
 
-Beide Routen brauchen zusätzlich
+`refresh`, `cancel` und `schedule` brauchen zusätzlich
 `x-risk-layer-operator-token: $RISK_LAYER_OPERATOR_TOKEN`; der normale Bearer
 allein reicht ausdrücklich nicht. Das Operator-Secret muss vom aktuellen und
 vom Vorgänger-Bearer verschieden sein. Refresh `{force?:boolean}` antwortet
@@ -430,6 +432,12 @@ Aufrufe teilen dieselbe Job-ID. Schedule
 den gespeicherten Plan. Mutierende Clients dürfen diese POSTs ohne expliziten
 Idempotenzvertrag nicht automatisch wiederholen. Das Overlay hält nach einem
 Erfolg höchstens die aktuelle und die unmittelbar vorige Generation.
+
+`POST /v1/embedding/cancel` erwartet
+`{"job_id":"<32-stellige kleingeschriebene Hex-ID>"}` und antwortet mit HTTP
+202. Der Abbruch ist kooperativ: Der aktuelle Encoder-Batch kann noch kurz
+laufen, aber eine abgebrochene Generation wird nicht veröffentlicht. Eine
+fremde oder veraltete Job-ID liefert HTTP 409.
 
 `RISK_LAYER_EMBEDDING_DIR` ist eine harte **Ein-Instanz-Grenze**: genau ein
 Engine-Prozess darf ein Overlay besitzen. Mehrere Replikas dürfen weder dasselbe

@@ -58,3 +58,9 @@ deploy/
 *.sh
 *.cmd
 docker-compose.yml
+
+# Ausschliesslich der Release-Workflow erzeugt dieses bereits verifizierte
+# Staging. Lokale Modelle/Korpora ausserhalb dieses exakten Pfads bleiben oben
+# weiterhin aus jedem Buildkontext ausgeschlossen.
+!.managed-release/
+!.managed-release/**

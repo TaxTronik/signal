@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from .embedding import (
+    EmbeddingBuildCancelled,
     EmbeddingIndex,
     encoder_oeffnen,
     pruefe_aktualitaet,
@@ -39,20 +40,27 @@ JOB_STATES = frozenset(
         "idle",
         "queued",
         "running",
+        "cancelling",
+        "cancelled",
         "succeeded",
         "failed",
         "skipped",
     }
 )
-_ACTIVE_JOB_STATES = frozenset({"queued", "running"})
+_ACTIVE_JOB_STATES = frozenset({"queued", "running", "cancelling"})
 _GENERATION_RE = re.compile(r"^[a-f0-9]{32}$")
 _TEMP_GENERATION_RE = re.compile(r"^\.tmp-[a-f0-9]{32}$")
 _STATE_MAX_BYTES = 64 * 1024
 _DEFAULT_INTERVAL_DAYS = 7
+_STATE_SCHEMA = "risk-layer/embedding-operator-state/v2"
 
 
 class EmbeddingOperatorUnavailable(RuntimeError):
     """Der Build-Pfad ist in diesem Deployment nicht sicher nutzbar."""
+
+
+class EmbeddingOperatorConflict(RuntimeError):
+    """Der angeforderte Job ist nicht mehr der aktive Single-flight-Job."""
 
 
 def _utc_now() -> datetime:
@@ -132,15 +140,16 @@ def _default_job() -> dict[str, Any]:
     }
 
 
-def _default_schedule(configured: bool, now: datetime) -> dict[str, Any]:
-    enabled = bool(configured)
+def _default_schedule(_configured: bool, _now: datetime) -> dict[str, Any]:
+    # Ein Operator-Token gibt nur die Steuerung frei. Installation/Start darf
+    # niemals implizit einen rechenintensiven Build planen; der Wochenplan wird
+    # erst durch einen ausdruecklichen, bestaetigten Operator-POST aktiviert.
+    enabled = False
     return {
         "enabled": enabled,
         "interval_days": _DEFAULT_INTERVAL_DAYS,
         "last_check_at": None,
-        "next_run_at": (
-            _iso(now + timedelta(days=_DEFAULT_INTERVAL_DAYS)) if enabled else None
-        ),
+        "next_run_at": None,
     }
 
 
@@ -215,6 +224,8 @@ class EmbeddingOperator:
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._schedule_wakeup = threading.Event()
+        self._cancel_event = threading.Event()
+        self._cancel_job_id: str | None = None
         self._scheduler_thread: threading.Thread | None = None
         self._job_thread: threading.Thread | None = None
         self._closing = False
@@ -278,7 +289,7 @@ class EmbeddingOperator:
     def _load_state(self) -> dict[str, Any]:
         now = self._now()
         default = {
-            "schema": "risk-layer/embedding-operator-state/v1",
+            "schema": _STATE_SCHEMA,
             "job": _default_job(),
             "schedule": _default_schedule(self.configured and self._available, now),
         }
@@ -295,14 +306,27 @@ class EmbeddingOperator:
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 raise ValueError("state is not an object")
-            return {
-                "schema": "risk-layer/embedding-operator-state/v1",
+            # v1 aktivierte den Wochenplan bereits durch das Vorhandensein des
+            # Operator-Tokens. Das war keine belastbare Zustimmung zu einem
+            # ressourcenintensiven Build. Beim einmaligen v2-Upgrade wird dieser
+            # implizite Plan daher fail-safe ausgeschaltet; danach bleibt jede
+            # explizite v2-Entscheidung erhalten.
+            legacy_schedule = raw.get("schema") != _STATE_SCHEMA
+            state = {
+                "schema": _STATE_SCHEMA,
                 "job": _safe_job(raw.get("job")),
-                # Ein explizit persistierter Plan bleibt auch bei temporaerer
-                # Unverfuegbarkeit sichtbar. Nur der frische Default richtet
-                # sich nach der tatsaechlichen Build-Verfuegbarkeit.
-                "schedule": _safe_schedule(raw.get("schedule"), self.configured, now),
+                "schedule": _safe_schedule(
+                    None if legacy_schedule else raw.get("schedule"),
+                    self.configured,
+                    now,
+                ),
             }
+            if legacy_schedule and self._available:
+                try:
+                    self._persist(state)
+                except EmbeddingOperatorUnavailable:
+                    pass
+            return state
         except (OSError, ValueError, json.JSONDecodeError):
             _log.warning(
                 "Embedding-Operatorstate ist unlesbar; sichere Defaults werden verwendet"
@@ -328,6 +352,7 @@ class EmbeddingOperator:
         job = self._state["job"]
         if job["state"] not in _ACTIVE_JOB_STATES:
             return
+        cancellation_was_requested = job["state"] == "cancelling"
         completed = _iso(self._now())
         job["completed"] = completed
         if recovered_generation is not None and recovered_generation == job.get("id"):
@@ -342,10 +367,14 @@ class EmbeddingOperator:
                     self._now() + timedelta(days=schedule["interval_days"])
                 )
         else:
-            job["state"] = "failed"
-            job["error"] = "Vorheriger Engine-Prozess wurde waehrend des Builds beendet"
+            job["state"] = "cancelled" if cancellation_was_requested else "failed"
+            job["error"] = (
+                None
+                if cancellation_was_requested
+                else "Vorheriger Engine-Prozess wurde waehrend des Builds beendet"
+            )
             schedule = self._state["schedule"]
-            if schedule["enabled"]:
+            if schedule["enabled"] and not cancellation_was_requested:
                 # Der faellige Check hatte seinen Folgetermin bereits vor dem
                 # Build reserviert. Nach einem Prozessabbruch zeitnah erneut
                 # pruefen statt den veralteten/fehlenden Index eine Woche liegen
@@ -601,6 +630,8 @@ class EmbeddingOperator:
             if job["state"] in _ACTIVE_JOB_STATES and job["id"]:
                 return {"job_id": job["id"], "state": job["state"]}
             job_id = uuid.uuid4().hex
+            self._cancel_job_id = None
+            self._cancel_event.clear()
             self._state["job"] = {
                 "state": "queued",
                 "id": job_id,
@@ -632,6 +663,26 @@ class EmbeddingOperator:
                     "Embedding-Worker konnte nicht gestartet werden"
                 ) from exc
             return {"job_id": job_id, "state": "queued"}
+
+    def cancel(self, *, job_id: str) -> dict[str, str]:
+        with self._lock:
+            if not self._available or self._closing:
+                raise EmbeddingOperatorUnavailable(
+                    self._unavailable_reason
+                    or "Embedding-Operator ist nicht verfuegbar"
+                )
+            job = self._state["job"]
+            if job.get("id") != job_id:
+                raise EmbeddingOperatorConflict(
+                    "Der Embedding-Job ist nicht mehr der aktive Job"
+                )
+            if job["state"] not in _ACTIVE_JOB_STATES:
+                return {"job_id": job_id, "state": job["state"]}
+            job["state"] = "cancelling"
+            self._persist()
+            self._cancel_job_id = job_id
+            self._cancel_event.set()
+            return {"job_id": job_id, "state": "cancelling"}
 
     def set_schedule(self, *, enabled: bool, interval_days: int) -> dict[str, Any]:
         with self._lock:
@@ -669,6 +720,9 @@ class EmbeddingOperator:
             with self._lock:
                 if self._state["job"].get("id") != job_id:
                     return
+                if self._state["job"]["state"] == "cancelling":
+                    self._finish_job(job_id, "cancelled")
+                    return
                 self._state["job"]["state"] = "running"
                 self._state["job"]["started"] = _iso(self._now())
                 self._persist()
@@ -678,11 +732,21 @@ class EmbeddingOperator:
                 return
             self._build_generation(job_id)
             self._finish_job(job_id, "succeeded")
+        except EmbeddingBuildCancelled:
+            self._finish_job(job_id, "cancelled")
         except Exception as exc:  # noqa: BLE001 - Jobfehler werden persistiert
             _log.exception("Embedding-Operatorbuild fehlgeschlagen")
             self._finish_job(job_id, "failed", error=self._public_build_error(exc))
 
     def _build_generation(self, generation: str) -> None:
+        def cancelled() -> bool:
+            return (
+                self._cancel_event.is_set()
+                and self._cancel_job_id == generation
+            )
+
+        if cancelled():
+            raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
         graph = graph_oeffnen(self.graph_path)
         if graph is None:
             raise EmbeddingOperatorUnavailable("Normgraph ist nicht verfuegbar")
@@ -693,7 +757,16 @@ class EmbeddingOperator:
             index_alt, _ = self._snapshot()
             encoder_name = getattr(index_alt, "encoder_name", None) or "bge-m3"
             encoder = encoder_oeffnen(encoder_name, device=self.device)
-            gebaut = EmbeddingIndex.build(graph, encoder, katalog=self.katalog)
+            if cancelled():
+                raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
+            gebaut = EmbeddingIndex.build(
+                graph,
+                encoder,
+                katalog=self.katalog,
+                cancelled=cancelled,
+            )
+            if cancelled():
+                raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
 
             tmp.mkdir(parents=False, exist_ok=False)
             gebaut.save(tmp)
@@ -711,6 +784,8 @@ class EmbeddingOperator:
                 verifiziert, graph, self.katalog
             ):
                 raise RuntimeError("generated index verification failed")
+            if cancelled():
+                raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
             os.replace(tmp, final)
             _fsync_directory(self.generations)
             previous = self._pointer_generation()
