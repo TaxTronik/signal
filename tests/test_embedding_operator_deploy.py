@@ -95,6 +95,26 @@ def test_managed_release_image_ist_self_contained_und_unprivilegiert():
     assert '"--berater", "/app/definitionen"' in dockerfile
 
 
+def test_taxtronik_source_build_baut_runtime_aber_keinen_index_ohne_bestaetigung():
+    script = _text("scripts/build-managed-image.sh")
+    artifact = _text("scripts/build-release-artifact.sh")
+
+    assert script.startswith("#!/bin/sh\n")
+    assert "--build-arg WITH_EMBEDDING=1" in script
+    assert "--build-arg ALLOW_MISSING_EMBEDDING_INDEX=1" in script
+    assert "--ohne-embedding" in script
+    assert "tools.snapshot_embedding_model" in script
+    assert "risk_layer.cli embedding build" not in script
+    assert 'SIGNAL_BUILD_MEMORY_LIMIT:-3g' in script
+    assert 'SIGNAL_BUILD_CPUS:-2' in script
+    assert '--memory "$MEMORY_LIMIT" --memory-swap "$MEMORY_LIMIT"' in script
+    assert artifact.startswith("#!/bin/sh\n")
+    assert 'GIT_SHA="${GIT_SHA:-' in artifact
+    dockerfile = _text("Dockerfile.release")
+    assert "ARG ALLOW_MISSING_EMBEDDING_INDEX=0" in dockerfile
+    assert 'test "$ALLOW_MISSING_EMBEDDING_INDEX" = 1' in dockerfile
+
+
 def test_release_workflow_bindet_exakt_das_gepruefte_festwissen_ins_oci_image():
     workflow = _text(".forgejo/workflows/build.yml")
     runtime_build = "-t risk-layer-engine:runtime ."

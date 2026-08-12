@@ -6,6 +6,10 @@ FROM ${ENGINE_BASE_IMAGE}
 
 USER root
 COPY --chown=root:root .managed-release/ /release/
+# Freigegebene Registry-Releases verlangen weiterhin einen gebauten Index.
+# Nur der lokale TaxTronik-Source-Pfad darf Runtime+Modell ohne Index bündeln,
+# damit dessen Aufbau nicht ungefragt während des Setups läuft.
+ARG ALLOW_MISSING_EMBEDDING_INDEX=0
 
 # Das Image muss ohne Host-Checkout vollstaendig startbar sein. Modi werden
 # deterministisch normalisiert; Schreibrechte bleiben allein bei den bereits im
@@ -13,9 +17,17 @@ COPY --chown=root:root .managed-release/ /release/
 RUN test -r /release/festwissen-manifest.json \
  && test -r /release/catalog/begriffe.yaml \
  && test -r /release/corpus/graph.sqlite \
- && test -r /release/corpus/embedding/meta.json \
- && test -r /release/corpus/embedding/vectors.npy \
  && test -r /release/models/bge-m3/model-manifest.json \
+ && if test "$ALLOW_MISSING_EMBEDDING_INDEX" = 1; then \
+      if test -e /release/corpus/embedding/meta.json \
+          || test -e /release/corpus/embedding/vectors.npy; then \
+        test -r /release/corpus/embedding/meta.json \
+          && test -r /release/corpus/embedding/vectors.npy; \
+      fi; \
+    else \
+      test -r /release/corpus/embedding/meta.json \
+        && test -r /release/corpus/embedding/vectors.npy; \
+    fi \
  && chmod -R u=rwX,go=rX /release
 
 WORKDIR /release

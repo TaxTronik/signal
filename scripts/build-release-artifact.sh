@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # =============================================================================
 # Baut ein reproduzierbares, manifestiertes FESTWISSEN-Release. Der Default ist
 # explizit OHNE Embedding; der Inhalt hängt nicht mehr von zufällig installierten
@@ -8,8 +8,8 @@
 #   ./scripts/build-release-artifact.sh VERSION [--mit-embedding|--ohne-embedding]
 # Für byte-identische Wiederholungen denselben SOURCE_DATE_EPOCH mitgeben.
 # =============================================================================
-set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+set -eu
+ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
 cd "$ROOT"
 
 PY=python3
@@ -22,7 +22,7 @@ case "$MODUS" in
   *) echo "Unbekannte Option: $MODUS" >&2; exit 2 ;;
 esac
 
-GIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf unknown)"
+GIT_SHA="${GIT_SHA:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
 SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
 export SOURCE_DATE_EPOCH="$SOURCE_EPOCH"
 OUT="taxtronik-festwissen-$VER.tar.gz"
@@ -33,7 +33,7 @@ cleanup() {
     *) echo "Unsicheres Staging-Verzeichnis wird nicht entfernt: $STAGE" >&2 ;;
   esac
 }
-trap cleanup EXIT
+trap cleanup 0 1 2 15
 CORPUS="$STAGE/corpus"
 mkdir -p "$STAGE/catalog"
 install -m 0644 catalog/begriffe.yaml "$STAGE/catalog/begriffe.yaml"
@@ -50,8 +50,7 @@ echo "=== Festwissen bauen (Version $VER, Embedding=$MIT_EMBEDDING) ==="
 "$PY" -m risk_layer.cli trigger build \
   --db "$CORPUS/trigger.sqlite" --graph-db "$CORPUS/graph.sqlite"
 
-PAKET_ARGS=()
-if [[ "$MIT_EMBEDDING" == "1" ]]; then
+if [ "$MIT_EMBEDDING" = "1" ]; then
   "$PY" -c "import sentence_transformers" >/dev/null 2>&1 || {
     echo "--mit-embedding verlangt sentence-transformers" >&2
     exit 1
@@ -65,16 +64,24 @@ if [[ "$MIT_EMBEDDING" == "1" ]]; then
   "$PY" -m risk_layer.cli embedding build \
     --encoder bge-m3 --model "$MODEL" --device cpu \
     --dir "$CORPUS/embedding" --graph-db "$CORPUS/graph.sqlite"
-  PAKET_ARGS+=(--embedding)
 fi
 
-"$PY" -m tools.package_festwissen_release \
-  --release-id "$VER" \
-  --git-sha "$GIT_SHA" \
-  --source-date-epoch "$SOURCE_EPOCH" \
-  --output "$OUT" \
-  --source-root "$STAGE" \
-  "${PAKET_ARGS[@]}"
+if [ "$MIT_EMBEDDING" = "1" ]; then
+  "$PY" -m tools.package_festwissen_release \
+    --release-id "$VER" \
+    --git-sha "$GIT_SHA" \
+    --source-date-epoch "$SOURCE_EPOCH" \
+    --output "$OUT" \
+    --source-root "$STAGE" \
+    --embedding
+else
+  "$PY" -m tools.package_festwissen_release \
+    --release-id "$VER" \
+    --git-sha "$GIT_SHA" \
+    --source-date-epoch "$SOURCE_EPOCH" \
+    --output "$OUT" \
+    --source-root "$STAGE"
+fi
 
 echo "=== fertig ==="
 echo "  $OUT"

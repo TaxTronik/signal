@@ -280,6 +280,19 @@ ab:
 ./scripts/build-release-artifact.sh 2026.07.13 --mit-embedding
 ```
 
+Für einen von TaxTronik verwalteten Git-Quellstand existiert zusätzlich der
+lokale OCI-Build:
+
+```bash
+./scripts/build-managed-image.sh taxtronik/risk-layer-engine:source-<commit>
+```
+
+Er baut die gelockte Embedding-Runtime, das Kern-Festwissen und ein
+manifestiertes lokales BGE-M3-Modell mit CPU-/RAM-Grenzen. Einen Index berechnet
+dieser Pfad bewusst nicht. Dadurch löst Installation oder Update keinen
+rechenintensiven Embedding-Lauf aus; dieser bleibt dem bestätigten manuellen
+Trigger beziehungsweise dem ausdrücklich aktivierten Zeitplan vorbehalten.
+
 `--mit-embedding` snapshotet `BAAI/bge-m3` ausschließlich am Commit
 `5617a9f61b028005a4858fdac845db406aefb181` nach `models/bge-m3`. Das
 Pflichtinventar samt Einzelhashes und Revision steht in

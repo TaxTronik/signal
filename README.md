@@ -115,6 +115,14 @@ einem read-only Release-Layer. TaxTronik kann dieses Image bei
 zusammen mit der Kanzleikonsole aktualisieren; ein Host-Checkout oder separater
 Festwissen-Mount ist dafür nicht erforderlich.
 
+Solange noch kein OCI-Release veröffentlicht ist, kann TaxTronik denselben
+verwalteten CPU-Pfad mit `SIGNAL_DEPLOY_CHANNEL=source` direkt aus einem
+kontrollierten Git-Checkout bauen. Dafür stellt
+`scripts/build-managed-image.sh <lokales-image:tag>` Runtime, Graph und das
+manifestierte lokale Modell zusammen. Der Source-Build berechnet absichtlich
+keinen Embedding-Index: Der rechenintensive Aufbau bleibt der ausdrücklichen
+Bestätigung in den TaxTronik-Einstellungen vorbehalten.
+
 Native Installationen bleiben der vorgesehene Weg für AMD/ROCm und besondere
 GPU-Setups. Sie werden in TaxTronik als `SIGNAL_DEPLOYMENT=external` angebunden.
 Dieser Modus überträgt TaxTronik ausdrücklich keine Lifecycle-Rechte: Setup,
