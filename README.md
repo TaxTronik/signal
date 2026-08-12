@@ -119,9 +119,12 @@ Solange noch kein OCI-Release veröffentlicht ist, kann TaxTronik denselben
 verwalteten CPU-Pfad mit `SIGNAL_DEPLOY_CHANNEL=source` direkt aus einem
 kontrollierten Git-Checkout bauen. Dafür stellt
 `scripts/build-managed-image.sh <lokales-image:tag>` Runtime, Graph und das
-manifestierte lokale Modell zusammen. Der Source-Build berechnet absichtlich
-keinen Embedding-Index: Der rechenintensive Aufbau bleibt der ausdrücklichen
-Bestätigung in den TaxTronik-Einstellungen vorbehalten.
+manifestierte lokale Modell zusammen. Graph und Trigger entstehen aus dem im
+selben Commit versionierten Normquellen-Snapshot; der Zielserver muss dafür
+nicht auf externe Gesetzesportale zugreifen. Nur der Modellsnapshot benötigt
+beim ersten, noch nicht gecachten Source-Build Netz. Der Source-Build berechnet
+absichtlich keinen Embedding-Index: Der rechenintensive Aufbau bleibt der
+ausdrücklichen Bestätigung in den TaxTronik-Einstellungen vorbehalten.
 
 Native Installationen bleiben der vorgesehene Weg für AMD/ROCm und besondere
 GPU-Setups. Sie werden in TaxTronik als `SIGNAL_DEPLOYMENT=external` angebunden.

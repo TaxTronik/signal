@@ -6,6 +6,7 @@
 #
 # Aufruf:
 #   ./scripts/build-release-artifact.sh VERSION [--mit-embedding|--ohne-embedding]
+#       [--corpus-snapshot PFAD]
 # Für byte-identische Wiederholungen denselben SOURCE_DATE_EPOCH mitgeben.
 # =============================================================================
 set -eu
@@ -15,12 +16,21 @@ cd "$ROOT"
 PY=python3
 command -v "$PY" >/dev/null 2>&1 || PY=python
 VER="${1:-$(date +%Y-%m-%d)}"
-MODUS="${2:---ohne-embedding}"
-case "$MODUS" in
-  --mit-embedding) MIT_EMBEDDING=1 ;;
-  --ohne-embedding) MIT_EMBEDDING=0 ;;
-  *) echo "Unbekannte Option: $MODUS" >&2; exit 2 ;;
-esac
+shift || true
+MIT_EMBEDDING=0
+CORPUS_SNAPSHOT=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mit-embedding) MIT_EMBEDDING=1; shift ;;
+    --ohne-embedding) MIT_EMBEDDING=0; shift ;;
+    --corpus-snapshot)
+      [ "$#" -ge 2 ] || { echo "--corpus-snapshot braucht einen Pfad" >&2; exit 2; }
+      CORPUS_SNAPSHOT="$2"
+      shift 2
+      ;;
+    *) echo "Unbekannte Option: $1" >&2; exit 2 ;;
+  esac
+done
 
 GIT_SHA="${GIT_SHA:-$(git rev-parse HEAD 2>/dev/null || printf unknown)}"
 SOURCE_EPOCH="${SOURCE_DATE_EPOCH:-$(date +%s)}"
@@ -40,10 +50,22 @@ install -m 0644 catalog/begriffe.yaml "$STAGE/catalog/begriffe.yaml"
 
 echo "=== Festwissen bauen (Version $VER, Embedding=$MIT_EMBEDDING) ==="
 "$PY" -m risk_layer.cli korpus init --dir "$CORPUS"
-"$PY" -m risk_layer.cli korpus fetch --dir "$CORPUS"
+if [ -n "$CORPUS_SNAPSHOT" ]; then
+  [ -d "$CORPUS_SNAPSHOT" ] && [ ! -L "$CORPUS_SNAPSHOT" ] || {
+    echo "Korpus-Snapshot fehlt oder ist kein regulaeres Verzeichnis: $CORPUS_SNAPSHOT" >&2
+    exit 1
+  }
+  mkdir -p "$CORPUS/gii"
+  find "$CORPUS_SNAPSHOT" -mindepth 1 -maxdepth 1 -type f -name '*.xml' \
+    -exec cp -- '{}' "$CORPUS/gii/" \;
+  echo "Versionierten Korpus-Snapshot verwendet: $CORPUS_SNAPSHOT"
+else
+  "$PY" -m risk_layer.cli korpus fetch --dir "$CORPUS"
+fi
 # `korpus fetch` war historisch schon bei einem einzigen erfolgreichen Download
-# exit 0. Das separate Gate verlangt aus dem leeren Staging exakt jede
-# konfigurierte, parsebare XML und schließt dadurch Teil-/Altbestände aus.
+# exit 0. Dasselbe separate Gate verlangt auch beim versionierten Snapshot aus
+# dem leeren Staging exakt jede konfigurierte, parsebare XML und schließt dadurch
+# Teil-, Alt- und Zusatzbestände aus.
 "$PY" -m tools.verify_corpus_fetch "$CORPUS"
 "$PY" -m risk_layer.cli graph build \
   --dir "$CORPUS" --db "$CORPUS/graph.sqlite"

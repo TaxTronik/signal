@@ -1,4 +1,9 @@
+import shutil
 from pathlib import Path
+
+from risk_layer import corpus
+from risk_layer.catalog import lade_katalog
+from tools.verify_corpus_fetch import verify
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,6 +108,7 @@ def test_taxtronik_source_build_baut_runtime_aber_keinen_index_ohne_bestaetigung
     assert "--build-arg WITH_EMBEDDING=1" in script
     assert "--build-arg ALLOW_MISSING_EMBEDDING_INDEX=1" in script
     assert "--ohne-embedding" in script
+    assert "--corpus-snapshot ./release-input/corpus/gii" in script
     assert "tools.snapshot_embedding_model" in script
     assert "risk_layer.cli embedding build" not in script
     assert 'SIGNAL_BUILD_MEMORY_LIMIT:-3g' in script
@@ -113,6 +119,17 @@ def test_taxtronik_source_build_baut_runtime_aber_keinen_index_ohne_bestaetigung
     dockerfile = _text("Dockerfile.release")
     assert "ARG ALLOW_MISSING_EMBEDDING_INDEX=0" in dockerfile
     assert 'test "$ALLOW_MISSING_EMBEDDING_INDEX" = 1' in dockerfile
+
+
+def test_versionierter_source_snapshot_deckt_exakt_den_katalog_ab(tmp_path: Path):
+    snapshot = ROOT / "release-input" / "corpus" / "gii"
+    expected = {f"{gesetz.law}.xml" for gesetz in corpus.ableiten_aus_katalog(lade_katalog())}
+    assert {path.name for path in snapshot.iterdir()} == expected
+
+    stage = tmp_path / "corpus"
+    corpus.schreibe_config(corpus.ableiten_aus_katalog(lade_katalog()), stage)
+    shutil.copytree(snapshot, stage / "gii")
+    verify(stage)
 
 
 def test_release_workflow_bindet_exakt_das_gepruefte_festwissen_ins_oci_image():

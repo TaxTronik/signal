@@ -20,6 +20,7 @@ engine_*/
 *.gguf
 *.bin
 corpus/
+release-input/
 out/
 runs/
 discovery/

@@ -88,7 +88,8 @@ docker run --rm \
   -e HOME=/tmp -e "GIT_SHA=$SHA" -e "SOURCE_DATE_EPOCH=$EPOCH" \
   -v "$ROOT:/src" -w /src \
   "$RUNTIME_IMAGE" \
-  sh ./scripts/build-release-artifact.sh "$RELEASE_ID" --ohne-embedding
+  sh ./scripts/build-release-artifact.sh "$RELEASE_ID" --ohne-embedding \
+    --corpus-snapshot ./release-input/corpus/gii
 
 tar -xzf "$ARTIFACT" -C "$MANAGED_RELEASE" --no-same-owner --no-same-permissions
 

@@ -288,10 +288,13 @@ lokale OCI-Build:
 ```
 
 Er baut die gelockte Embedding-Runtime, das Kern-Festwissen und ein
-manifestiertes lokales BGE-M3-Modell mit CPU-/RAM-Grenzen. Einen Index berechnet
-dieser Pfad bewusst nicht. Dadurch löst Installation oder Update keinen
-rechenintensiven Embedding-Lauf aus; dieser bleibt dem bestätigten manuellen
-Trigger beziehungsweise dem ausdrücklich aktivierten Zeitplan vorbehalten.
+manifestiertes lokales BGE-M3-Modell mit CPU-/RAM-Grenzen. Der Graph wird dabei
+ohne Live-Abruf aus dem im Commit geprüften Snapshot unter `release-input/`
+erzeugt. Der erstmalige Modellsnapshot benötigt weiterhin Netz; Folgeläufe
+verwenden den persistenten Build-Cache. Einen Index berechnet dieser Pfad
+bewusst nicht. Dadurch löst Installation oder Update keinen rechenintensiven
+Embedding-Lauf aus; dieser bleibt dem bestätigten manuellen Trigger
+beziehungsweise dem ausdrücklich aktivierten Zeitplan vorbehalten.
 
 `--mit-embedding` snapshotet `BAAI/bge-m3` ausschließlich am Commit
 `5617a9f61b028005a4858fdac845db406aefb181` nach `models/bge-m3`. Das
