@@ -109,8 +109,9 @@ Abhängigkeiten oder Korpus erneut aufzubauen.
 
 Für den einfachen Standardbetrieb veröffentlicht jeder stabile Signal-Release
 zusätzlich ein versioniertes, self-contained CPU-Image. Es enthält Engine,
-Katalog, Graph, Embedding-Runtime und das manifestierte lokale BGE-M3-Modell in
-einem read-only Release-Layer. TaxTronik kann dieses Image bei
+Katalog, Graph, Embedding-Runtime, die hash-gepinnte Quantenlos-Runtime und das
+manifestierte lokale BGE-M3-Modell in einem read-only Release-Layer. TaxTronik
+kann dieses Image bei
 `SIGNAL_DEPLOYMENT=managed` selbst beziehen, Secrets provisionieren und
 zusammen mit der Kanzleikonsole aktualisieren; ein Host-Checkout oder separater
 Festwissen-Mount ist dafür nicht erforderlich.
@@ -118,8 +119,9 @@ Festwissen-Mount ist dafür nicht erforderlich.
 Solange noch kein OCI-Release veröffentlicht ist, kann TaxTronik denselben
 verwalteten CPU-Pfad mit `SIGNAL_DEPLOY_CHANNEL=source` direkt aus einem
 kontrollierten Git-Checkout bauen. Dafür stellt
-`scripts/build-managed-image.sh <lokales-image:tag>` Runtime, Graph und das
-manifestierte lokale Modell zusammen. Graph und Trigger entstehen aus dem im
+`scripts/build-managed-image.sh <lokales-image:tag>` Runtime einschließlich der
+hash-gepinnten Quantenlos-Extras, Graph und das manifestierte lokale Modell
+zusammen. Graph und Trigger entstehen aus dem im
 selben Commit versionierten Normquellen-Snapshot; der Zielserver muss dafür
 nicht auf externe Gesetzesportale zugreifen. Nur der Modellsnapshot benötigt
 beim ersten, noch nicht gecachten Source-Build Netz. Der Source-Build berechnet

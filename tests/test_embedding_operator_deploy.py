@@ -106,6 +106,9 @@ def test_taxtronik_source_build_baut_runtime_aber_keinen_index_ohne_bestaetigung
 
     assert script.startswith("#!/bin/sh\n")
     assert "--build-arg WITH_EMBEDDING=1" in script
+    assert "--build-arg WITH_QUANTEN=1" in script
+    for modul in ("qiskit", "qiskit_aer", "qiskit_ibm_runtime"):
+        assert modul in script
     assert "--build-arg ALLOW_MISSING_EMBEDDING_INDEX=1" in script
     assert "--ohne-embedding" in script
     assert "--corpus-snapshot ./release-input/corpus/gii" in script
@@ -141,11 +144,15 @@ def test_release_workflow_bindet_exakt_das_gepruefte_festwissen_ins_oci_image():
     publish = 'docker tag risk-layer-engine:release "$IMAGE:$PUBLISH_TAG"'
 
     assert "RELEASE_WITH_EMBEDDING: 'true'" in workflow
+    assert "RELEASE_WITH_QUANTEN: 'true'" in workflow
     assert workflow.index(runtime_build) < workflow.index(artifact_build)
     assert workflow.index(artifact_build) < workflow.index(extract)
     assert workflow.index(extract) < workflow.index(managed_build)
     assert workflow.index(managed_build) < workflow.index(publish)
     assert "--build-arg ENGINE_BASE_IMAGE=risk-layer-engine:runtime" in workflow
+    assert "--build-arg WITH_QUANTEN=1" in workflow
+    for modul in ("qiskit", "qiskit_aer", "qiskit_ibm_runtime"):
+        assert modul in workflow
     assert "docker run --rm --entrypoint python risk-layer-engine:release" in workflow
 
 

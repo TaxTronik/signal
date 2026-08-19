@@ -2,9 +2,10 @@
 # Baut aus einem kontrollierten Signal-Checkout ein lokal getaggtes,
 # self-contained CPU-Image fuer den von TaxTronik verwalteten Betrieb.
 #
-# Der Build installiert die Embedding-Runtime und snapshotet das lokale Modell,
-# berechnet aber bewusst KEINEN Embedding-Index. Der rechenintensive Aufbau
-# bleibt damit hinter der ausdruecklichen Bestaetigung in TaxTronik.
+# Der Build installiert die Embedding- und Quantenlos-Runtime und snapshotet das
+# lokale Modell, berechnet aber bewusst KEINEN Embedding-Index. Der
+# rechenintensive Aufbau bleibt damit hinter der ausdruecklichen Bestaetigung in
+# TaxTronik.
 set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)"
@@ -78,6 +79,7 @@ docker build \
   --resource "cpu-period=100000" \
   --resource "cpu-quota=$((CPU_LIMIT * 100000))" \
   --build-arg WITH_EMBEDDING=1 \
+  --build-arg WITH_QUANTEN=1 \
   -t "$RUNTIME_IMAGE" "$ROOT"
 
 echo "=== Festwissen ohne automatischen Embedding-Index bauen ==="
@@ -119,7 +121,7 @@ docker build \
   -t "$TARGET_IMAGE" "$ROOT"
 
 docker run --rm --entrypoint python "$TARGET_IMAGE" -c \
-  "import importlib.util,pathlib,sys; required=['/release/catalog/begriffe.yaml','/release/corpus/graph.sqlite','/release/models/bge-m3/model-manifest.json']; sys.exit(0 if all(pathlib.Path(p).is_file() for p in required) and importlib.util.find_spec('sentence_transformers') else 1)"
+  "import importlib.util,pathlib,sys; required=['/release/catalog/begriffe.yaml','/release/corpus/graph.sqlite','/release/models/bge-m3/model-manifest.json']; modules=['sentence_transformers','qiskit','qiskit_aer','qiskit_ibm_runtime']; sys.exit(0 if all(pathlib.Path(p).is_file() for p in required) and all(importlib.util.find_spec(m) is not None for m in modules) else 1)"
 
 echo "=== fertig: $TARGET_IMAGE ==="
 echo "Der Embedding-Index wurde nicht automatisch aufgebaut."

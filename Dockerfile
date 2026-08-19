@@ -9,7 +9,9 @@
 # Normgraph, Zitat-Parser) + NER-Schicht der Anonymisierung (spaCy +
 # de_core_news_lg, §203-Gate — exakt gepinnt, siehe Block unten). Die
 # Embedding-Schicht (Schicht 1.7, ~2,3 GB BGE-M3) ist optional über das
-# Build-Arg WITH_EMBEDDING=1 zuschaltbar. Produktiv kommen die am festen Commit
+# Build-Arg WITH_EMBEDDING=1 zuschaltbar. Die Quantenlos-Runtime wird über
+# WITH_QUANTEN=1 aus ihrem Linux/Python-3.12-Hashlock ergänzt. Produktiv kommen
+# die am festen Commit
 # manifestierten Gewichte read-only aus `/release/models/bge-m3`; Netzwerk-
 # Fallback ist im Produktions-Compose gesperrt. Ohne die Python-Schicht liefert
 # /v1/embedding/suche schlicht leer.
@@ -42,16 +44,23 @@ WORKDIR /app
 COPY pyproject.toml README.md LICENSE \
      requirements-runtime-lock.txt \
      requirements-embedding-linux-cpu-py312-lock.txt \
+     requirements-quanten-linux-py312-lock.txt \
      requirements-ner-lock.txt ./
 
 ARG WITH_EMBEDDING=0
+ARG WITH_QUANTEN=0
 # Kern exakt aus dem schlanken Runtime-Hashlock (keine Testwerkzeuge). Die
 # optionale semantische Schicht hat einen eigenen, in Linux/Python 3.12
-# erzeugten CPU-Lock; kein freies Aufloesen von torch/Transformers im Build.
+# erzeugten CPU-Lock; Quantenlos wird ebenfalls nur aus seinem Hashlock
+# installiert. Kein freies Aufloesen von torch/Transformers/Qiskit im Build.
 RUN pip install --require-hashes --only-binary=:all: -r requirements-runtime-lock.txt \
  && if [ "$WITH_EMBEDDING" = "1" ]; then \
       pip install --require-hashes --only-binary=:all: \
         -r requirements-embedding-linux-cpu-py312-lock.txt; \
+    fi \
+ && if [ "$WITH_QUANTEN" = "1" ]; then \
+      pip install --require-hashes --only-binary=:all: \
+        -r requirements-quanten-linux-py312-lock.txt; \
     fi
 
 # --- NER-Schicht (Anonymisierung, §203-Gate): spaCy + de_core_news_lg -------

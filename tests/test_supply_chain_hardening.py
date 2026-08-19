@@ -22,6 +22,8 @@ def test_produktionsinstaller_loesen_keine_ml_ranges_mehr_auf() -> None:
     assert "requirements-runtime-lock.txt" in docker
     assert "requirements-lock.txt" not in docker
     assert "requirements-embedding-linux-cpu-py312-lock.txt" in docker
+    assert "requirements-quanten-linux-py312-lock.txt" in docker
+    assert "ARG WITH_QUANTEN=0" in docker
 
     for skript in (linux, windows):
         assert 'pip install "sentence-transformers' not in skript

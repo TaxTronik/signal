@@ -230,8 +230,10 @@ jobs:
       PACKAGE_SERVER: ${{ vars.PACKAGE_SERVER || github.server_url }}
       PACKAGE_OWNER: ${{ github.repository_owner }}
       # Versioniertes Produktionsprofil: Release-Image und Festwissen werden
-      # immer gemeinsam mit der semantischen Embedding-Schicht gebaut.
+      # immer gemeinsam mit der semantischen Embedding- und Quantenlos-Runtime
+      # gebaut.
       RELEASE_WITH_EMBEDDING: 'true'
+      RELEASE_WITH_QUANTEN: 'true'
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -298,6 +300,10 @@ jobs:
             echo "RELEASE_WITH_EMBEDDING muss für Releases explizit true oder false sein" >&2
             exit 1
           }
+          [[ "$RELEASE_WITH_QUANTEN" == "true" ]] || {
+            echo "RELEASE_WITH_QUANTEN muss für Managed-Releases true sein" >&2
+            exit 1
+          }
           epoch="$(git for-each-ref --format='%(taggerdate:unix)' "refs/tags/$tag")"
           [[ "$epoch" =~ ^[0-9]+$ ]] || { echo "Tagger-Zeit fehlt" >&2; exit 1; }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -344,6 +350,7 @@ jobs:
             festwissen_mode=--ohne-embedding
           fi
           docker build --build-arg "WITH_EMBEDDING=$embedding_build_arg" \
+            --build-arg WITH_QUANTEN=1 \
             -t risk-layer-engine:runtime .
           python -m pip wheel --no-build-isolation --no-deps --wheel-dir dist .
           ./scripts/build-release-artifact.sh "$RELEASE_TAG" "$festwissen_mode"
@@ -402,7 +409,7 @@ jobs:
             --build-arg ENGINE_BASE_IMAGE=risk-layer-engine:runtime \
             -t risk-layer-engine:release .
           docker run --rm --entrypoint python risk-layer-engine:release -c \
-            "import importlib.util,pathlib,sys; required=['/release/catalog/begriffe.yaml','/release/corpus/graph.sqlite','/release/corpus/embedding/meta.json','/release/corpus/embedding/vectors.npy','/release/models/bge-m3/model-manifest.json']; sys.exit(0 if all(pathlib.Path(p).is_file() for p in required) and importlib.util.find_spec('sentence_transformers') else 1)"
+            "import importlib.util,pathlib,sys; required=['/release/catalog/begriffe.yaml','/release/corpus/graph.sqlite','/release/corpus/embedding/meta.json','/release/corpus/embedding/vectors.npy','/release/models/bge-m3/model-manifest.json']; modules=['sentence_transformers','qiskit','qiskit_aer','qiskit_ibm_runtime']; sys.exit(0 if all(pathlib.Path(p).is_file() for p in required) and all(importlib.util.find_spec(m) is not None for m in modules) else 1)"
           rm -rf -- .managed-release
           trap - EXIT
           python tools/build_release_tools_zipapp.py \
