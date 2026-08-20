@@ -393,6 +393,7 @@ def test_managed_cpu_backend_is_reported_and_disables_gpu_offload(app, monkeypat
         "erreichbar": False,
         "queue": None,
     })
+    monkeypatch.setattr("risk_layer.llm.server_verfuegbar", lambda _url: False)
     monkeypatch.setattr("risk_layer.modell.finde_llama_server", lambda _binary: "/engine/llama-server")
     monkeypatch.setattr(app, "_modell_pfad", lambda: "/models/model.gguf")
     manager_args = {}
@@ -416,6 +417,22 @@ def test_managed_cpu_backend_is_reported_and_disables_gpu_offload(app, monkeypat
     assert status["performance_bottleneck"] is True
     assert started["ok"] is True
     assert manager_args["n_gpu_layers"] == 0
+
+
+def test_llm_status_meldet_explizit_konfiguriertes_aber_fehlendes_modell_nicht_als_geladen(
+        app, monkeypatch, tmp_path):
+    app.llm_model = str(tmp_path / "fehlt.gguf")
+    monkeypatch.setattr("risk_layer.llm.server_status", lambda _url: {
+        "erreichbar": False,
+        "queue": None,
+    })
+    monkeypatch.setattr("risk_layer.llm.server_verfuegbar", lambda _url: False)
+    monkeypatch.setattr("risk_layer.modell.finde_llama_server", lambda _binary: None)
+
+    status = app.llm_status()
+
+    assert status["modell_geladen"] is False
+    assert app.llm_start()["ok"] is False
 
 
 def test_llm_start_verweigert_managed_netz_bind(app, monkeypatch):

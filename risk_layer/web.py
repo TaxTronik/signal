@@ -771,7 +771,11 @@ class Anwendung:
     def _modell_pfad(self) -> str | None:
         from . import modell as M
         if self.llm_model:
-            return self.llm_model
+            # Ein konfigurierter String ist noch kein vorhandenes Modell. Der
+            # Status darf insbesondere bei einem fehlerhaften Host-Mount nicht
+            # `modell_geladen=true` melden und damit Betreiber/Host-UI täuschen.
+            configured = Path(self.llm_model)
+            return str(configured) if configured.is_file() else None
         p = M.modell_pfad(M.MODELLE[M.DEFAULT_MODELL])
         return str(p) if p else None
 
