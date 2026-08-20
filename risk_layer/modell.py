@@ -115,6 +115,22 @@ MODELLE: dict[str, ModellInfo] = {
 DEFAULT_MODELL = "granite-4.1-8b"
 
 
+def llm_laufzeit_backend() -> str:
+    """Configured execution class for status reporting and GPU offload.
+
+    Managed TaxTronik CPU deployments set this explicitly. Native/GPU setups
+    retain the historical ``auto`` behaviour (all supported layers are offered
+    to llama.cpp for acceleration).
+    """
+    backend = os.environ.get("RISK_LAYER_LLM_BACKEND", "auto").strip().lower()
+    return backend if backend in {"auto", "cpu", "gpu"} else "auto"
+
+
+def llm_gpu_layers() -> int:
+    """Use explicit CPU inference when the managed backend says ``cpu``."""
+    return 0 if llm_laufzeit_backend() == "cpu" else -1
+
+
 # ---------------------------------------------------------------------------
 # Hugging-Face-Auflösung (kein Dateinamen-Raten – aktuelle Dateiliste abfragen)
 # ---------------------------------------------------------------------------

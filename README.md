@@ -300,6 +300,8 @@ außerhalb von Loopback ist HTTPS Pflicht, SSRF-/DNS-Rebinding-Schutz),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
 `RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER),
 `RISK_LAYER_RERANK_SCHWELLE` (Abstention-Schwelle des Rerankers, Default `0.10`),
+`RISK_LAYER_LLM_BACKEND` (`auto|cpu|gpu`; `cpu` erzwingt `-ngl 0` und meldet
+den erwarteten Performance-Bottleneck an das Host-System),
 `RISK_LAYER_LLM_TIMEOUT` (Timeout der Schicht-2-Generierung in Sekunden;
 Auflösung: Env-Variable > Benchmark-Kalibrierung `.signal/llm_bench.json` >
 Default `300`).
@@ -659,6 +661,8 @@ Host entscheidet, ob er `mitLLM:true` jetzt sendet oder wartet. Modell/Binary ko
 aus der Engine-Config (kein Request-Input → kein Injection-Vektor). Ein über
 `/v1/llm/start` gestarteter llama-server bekommt `--slots --metrics` automatisch; ein
 **manuell** gestarteter braucht diese Flags, sonst bleibt `queue` null (kein Fehler).
+Zusätzlich weist `backend=cpu` den voll funktionsfähigen, aber erwartbar langsamen
+CPU-Pfad als `performance_bottleneck=true` aus.
 
 **LLM-Norm-Einordnung (Vorschlag, kein Mapping):** Zu einer erkannten Stelle darf
 das Modell eine einschlägige Norm *vermuten* (`norm_vorschlag`). Der Normgraph

@@ -545,6 +545,18 @@ def test_backend_patterns_auto_nutzt_vendor(monkeypatch):
     assert M.backend_patterns("auto") == M._BACKEND_WIN["cpu"]
 
 
+def test_llm_laufzeit_backend_steuert_gpu_layer(monkeypatch):
+    monkeypatch.setenv("RISK_LAYER_LLM_BACKEND", "cpu")
+    assert M.llm_laufzeit_backend() == "cpu"
+    assert M.llm_gpu_layers() == 0
+    monkeypatch.setenv("RISK_LAYER_LLM_BACKEND", "gpu")
+    assert M.llm_laufzeit_backend() == "gpu"
+    assert M.llm_gpu_layers() == -1
+    monkeypatch.setenv("RISK_LAYER_LLM_BACKEND", "ungueltig")
+    assert M.llm_laufzeit_backend() == "auto"
+    assert M.llm_gpu_layers() == -1
+
+
 def test_waehle_asset_trennt_cudart_und_formate():
     assets = [
         ("cudart-llama-bin-win-cuda-12.4-x64.zip", "u-cudart"),

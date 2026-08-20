@@ -780,6 +780,7 @@ class Anwendung:
         from . import modell as M
         from .llm import server_status
         st = server_status(self.llm_url)
+        backend = M.llm_laufzeit_backend()
         return {
             # Userinfo, Pfad und Query koennen API-Schluessel enthalten. Der
             # Status ist beobachtbar/auditierbar und braucht nur das Ziel.
@@ -789,6 +790,11 @@ class Anwendung:
             "modell_geladen": bool(self._modell_pfad()),
             "binary_vorhanden": bool(M.finde_llama_server(self.llm_bin)),
             "von_uns_gestartet": bool(self.manager and self.manager.laeuft),
+            "backend": backend,
+            # CPU ist voll funktionsfaehig, bleibt bei generativer Inferenz aber
+            # der dominante Laufzeit-Engpass. Der Host kann das so ehrlich in
+            # der UI ausweisen, ohne Signal mit "nicht installiert" zu verwechseln.
+            "performance_bottleneck": backend == "cpu",
         }
 
     def llm_start(self) -> dict[str, Any]:
@@ -825,8 +831,13 @@ class Anwendung:
             pfad = self._modell_pfad()
             if not pfad:
                 return {"ok": False, "fehler": "Modell nicht geladen – 'risk-layer modell download'"}
-            mgr = M.LlamaServerManager(pfad, binary=self.llm_bin,
-                                       host=u.hostname, port=port or 8080)
+            mgr = M.LlamaServerManager(
+                pfad,
+                binary=self.llm_bin,
+                host=u.hostname,
+                port=port or 8080,
+                n_gpu_layers=M.llm_gpu_layers(),
+            )
             try:
                 mgr.start()   # Popen kehrt sofort zurück; das Laden läuft im Subprozess
             except FileNotFoundError as exc:

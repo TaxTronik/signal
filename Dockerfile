@@ -26,12 +26,15 @@
 # und hier ersetzen.
 FROM python:3.12-slim@sha256:090ba77e2958f6af52a5341f788b50b032dd4ca28377d2893dcf1ecbdfdfe203 AS base
 
+# llama.cpp's portable CPU build needs libgomp. Managed images already contain
+# the hash-pinned CPU Torch runtime, which provides that library.
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_NO_INPUT=1 \
     RISK_LAYER_EMB_DEVICE=cpu \
+    LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/torch/lib \
     XDG_CACHE_HOME=/cache \
     HF_HOME=/cache/huggingface \
     SENTENCE_TRANSFORMERS_HOME=/cache/sentence-transformers

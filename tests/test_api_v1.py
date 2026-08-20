@@ -354,11 +354,12 @@ def test_v1_llm_status_traegt_queue(app, monkeypatch):
         "queue": {"quelle": "slots", "slots_gesamt": 4, "aktiv": 1, "frei": 3,
                   "slots": [{"id": 0, "aktiv": True}]},
         "modell_geladen": True, "binary_vorhanden": True, "von_uns_gestartet": False,
+        "backend": "cpu", "performance_bottleneck": True,
     })
     code, obj = dispatch(app, "GET", "/v1/llm/status", {}, {})
     assert code == 200
     for key in ("url", "verfuegbar", "queue", "modell_geladen", "binary_vorhanden",
-                "von_uns_gestartet", "engineVersion"):
+                "von_uns_gestartet", "backend", "performance_bottleneck", "engineVersion"):
         assert key in obj, key
     assert obj["queue"]["slots_gesamt"] == 4 and obj["queue"]["aktiv"] == 1
 
@@ -384,6 +385,37 @@ def test_v1_llm_start_route(app, monkeypatch):
     monkeypatch.setattr(app, "llm_start", lambda: {"ok": False, "fehler": "kein Modell (Test)"})
     code, obj = dispatch(app, "POST", "/v1/llm/start", {}, {})
     assert code == 200 and obj["ok"] is False and obj["engineVersion"]
+
+
+def test_managed_cpu_backend_is_reported_and_disables_gpu_offload(app, monkeypatch):
+    monkeypatch.setenv("RISK_LAYER_LLM_BACKEND", "cpu")
+    monkeypatch.setattr("risk_layer.llm.server_status", lambda _url: {
+        "erreichbar": False,
+        "queue": None,
+    })
+    monkeypatch.setattr("risk_layer.modell.finde_llama_server", lambda _binary: "/engine/llama-server")
+    monkeypatch.setattr(app, "_modell_pfad", lambda: "/models/model.gguf")
+    manager_args = {}
+
+    class Manager:
+        laeuft = False
+        url = "http://127.0.0.1:8080"
+
+        def __init__(self, _model, **kwargs):
+            manager_args.update(kwargs)
+
+        def start(self):
+            self.laeuft = True
+
+    monkeypatch.setattr("risk_layer.modell.LlamaServerManager", Manager)
+
+    status = app.llm_status()
+    started = app.llm_start()
+
+    assert status["backend"] == "cpu"
+    assert status["performance_bottleneck"] is True
+    assert started["ok"] is True
+    assert manager_args["n_gpu_layers"] == 0
 
 
 def test_llm_start_verweigert_managed_netz_bind(app, monkeypatch):

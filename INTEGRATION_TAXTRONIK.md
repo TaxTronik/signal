@@ -446,7 +446,11 @@ und damit getrennte Operatorzustände. Die gelieferten Compose-Profile setzen di
 Engine deshalb explizit auf eine Replika.
 
 ### `GET /v1/llm/status`
-→ `{url, verfuegbar: bool, queue, modell_geladen, binary_vorhanden, von_uns_gestartet}`.
+→ `{url, verfuegbar: bool, queue, modell_geladen, binary_vorhanden, von_uns_gestartet, backend, performance_bottleneck}`.
+`backend` stammt aus `RISK_LAYER_LLM_BACKEND` (`auto|cpu|gpu`). Bei `cpu` ist
+`performance_bottleneck=true`: Die Schicht ist vollständig funktionsfähig,
+generative Inferenz kann ohne Beschleuniger aber mehrere Minuten dauern. Der
+verwaltete Start setzt dann explizit `-ngl 0`, statt GPU-Offload anzubieten.
 `queue` zeigt den **Slot-/Auslastungszustand** des llama-server:
 `{quelle:"slots", slots_gesamt, aktiv, frei, slots:[{id, aktiv}]}` (aus `/slots`) bzw.
 `{quelle:"metrics", aktiv, wartend}` (aus `/metrics`). Ein über `POST /v1/llm/start`
