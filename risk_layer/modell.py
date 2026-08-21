@@ -611,6 +611,35 @@ def finde_engine_asset(pattern: str = "bin-win-vulkan-x64", *, timeout: float = 
     return (asset.name, asset.url) if asset else None
 
 
+def installierte_engine(ziel_dir: Path | str = DEFAULT_ENGINE_DIR, *,
+                        backend: str = "auto", pattern: str | None = None) -> str | None:
+    """Findet die installierte Engine des aktuell gepinnten Backend-Assets.
+
+    Anders als :func:`finde_llama_server` bleibt die Suche auf den exakten
+    Release-/Asset-Baum des angeforderten Backends begrenzt. Das erlaubt
+    idempotente Starter: Eine laufende Windows-Engine muss nicht erneut über
+    gesperrte DLLs entpackt werden, nur um ihren Binary-Pfad zu ermitteln.
+    """
+    _pruefe_engine_plattform()
+    if pattern is not None and not pattern.strip():
+        raise ValueError("Engine-Asset-Muster darf nicht leer sein")
+    muster = [pattern] if pattern else backend_patterns(backend)
+    asset: EngineAsset | None = None
+    for kandidat in muster:
+        asset = _waehle_engine_asset(kandidat)
+        if asset:
+            break
+    if asset is None:
+        return None
+    plattform_marker = "bin-win-" if sys.platform == "win32" else "bin-ubuntu-"
+    if plattform_marker not in asset.name:
+        return None
+    archiv_stamm = (asset.name[:-7] if asset.name.endswith(".tar.gz")
+                     else Path(asset.name).stem)
+    installations_dir = Path(ziel_dir) / LLAMA_CPP_RELEASE / archiv_stamm
+    return _finde_llama_server_im_verzeichnis(installations_dir)
+
+
 def _lade_und_entpacke(asset: EngineAsset, ziel_dir: Path,
                        fortschritt: Callable[[int, int], None] | None) -> None:
     name, url = asset.name, asset.url

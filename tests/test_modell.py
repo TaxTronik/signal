@@ -601,6 +601,28 @@ def test_finde_engine_asset_liest_keine_release_metadaten(monkeypatch):
     assert "/download/b9986/" in treffer[1]
 
 
+def test_installierte_engine_bleibt_beim_exakten_gepinnten_backend(monkeypatch, tmp_path):
+    monkeypatch.setattr(M.sys, "platform", "win32")
+    monkeypatch.setattr(M.platform, "machine", lambda: "AMD64")
+    cpu = (tmp_path / EM.LLAMA_CPP_RELEASE / "llama-b9986-bin-win-cpu-x64"
+           / "llama-server.exe")
+    gpu = (tmp_path / EM.LLAMA_CPP_RELEASE / "llama-b9986-bin-win-vulkan-x64"
+           / "llama-server.exe")
+    cpu.parent.mkdir(parents=True)
+    gpu.parent.mkdir(parents=True)
+    cpu.write_bytes(b"cpu")
+    gpu.write_bytes(b"gpu")
+
+    assert M.installierte_engine(tmp_path, backend="cpu") == str(cpu)
+    assert M.installierte_engine(tmp_path, backend="vulkan") == str(gpu)
+
+
+def test_installierte_engine_laesst_fehlendes_backend_laden(monkeypatch, tmp_path):
+    monkeypatch.setattr(M.sys, "platform", "win32")
+    monkeypatch.setattr(M.platform, "machine", lambda: "AMD64")
+    assert M.installierte_engine(tmp_path, backend="cpu") is None
+
+
 def test_lade_und_entpacke_prueft_hash_vor_extraktion(monkeypatch, tmp_path):
     asset = M.EngineAsset("manipuliert.zip", "ab" * 32, 5)
     monkeypatch.setattr(
