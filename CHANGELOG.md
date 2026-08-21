@@ -2,12 +2,10 @@
 
 Änderungsjournal für Signal / Risk-Layer.
 
-Der Stand trägt derzeit die Paketversion `0.1.0`, wurde aber noch nicht durch
-einen Git-Tag als Release markiert. Deshalb bleiben die seit dem initialen
-Commit vom 2. Juni 2026 zusammengefassten Änderungen bis zum ersten
-versionierten Release unter `[Unreleased]`. Git bleibt die maßgebliche Quelle
-für die Änderungshistorie auf Commit-Ebene; dieses Journal beschreibt die für
-Freigabe, Betrieb und Prüfung relevanten Auswirkungen.
+Die Paketversion `0.1.0` wurde am 21. August 2026 als erster freigegebener
+Signal-Stand abgeschlossen. Git bleibt die maßgebliche Quelle für die
+Änderungshistorie auf Commit-Ebene; dieses Journal beschreibt die für Freigabe,
+Betrieb und Prüfung relevanten Auswirkungen.
 
 Einträge, die den Prüfungsgegenstand der Engine betreffen (Katalog, Korpus,
 Normgraph, Trigger- und Embedding-Index, Analyse, `/v1`-Vertrag,
@@ -25,6 +23,34 @@ Release-Tag werden die Einträge aus `[Unreleased]` in einen Abschnitt
 Wirkung auch erforderliche Betriebs-, Migrations- oder Nachweisschritte.
 
 ## [Unreleased]
+
+Noch keine Änderungen.
+
+## [0.1.0] - 2026-08-21
+
+### Releaseabschluss
+
+- **[Scope]** Verwaltete Installationen enthalten eine selbstständige,
+  hash-geprüfte CPU-Laufzeit für Granite 4.1 8B und llama.cpp. Der Status weist
+  das tatsächliche Backend, fehlende Modell-/Engine-Artefakte, Slotbelegung und
+  CPU-Inferenz ausdrücklich als deutlichen Performance-Bottleneck aus.
+- **[Scope]** Der Embedding-Index lässt sich asynchron neu aufbauen und ein
+  laufender Build kontrolliert abbrechen. Generationen werden erst nach
+  vollständiger Verifikation atomar aktiviert; der Status trennt Index,
+  Embedding, Reranker und LLM voneinander.
+- **[Scope]** Windows kann Embeddings und Reranker auf unterstützten AMD-GPUs
+  über den hash-gepinnten ROCm-/PyTorch-Pfad ausführen. CPU bleibt der sichere
+  Fallback; der Reranker deaktiviert sich ohne GPU sichtbar statt einen
+  beschleunigten Betrieb vorzutäuschen.
+- **[Scope]** Verwaltete Images enthalten die hash-gepinnten Quantenlos-Extras
+  und bauen Korpus und Normgraph offline. Bereits exakt installierte,
+  manifestierte llama.cpp-Engines werden sicher wiederverwendet.
+- Der PII-Detektor ignoriert reine Formular-Feldbezeichnungen, damit fachlich
+  harmlose Labels keine Analyse oder Rücklieferung blockieren.
+- **[Scope]** Signal bleibt bewusst zustandslos und führt keine eigene
+  Audit-Chain. Es liefert deterministische Provenienz und `engine_status`; der
+  Host versieht jeden persistierten Audit-Eintrag mit seinem eigenen,
+  hash-gebundenen Ereigniszeitpunkt.
 
 ### Änderungswesen und Prüfungsnachweise
 

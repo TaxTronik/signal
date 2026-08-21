@@ -152,10 +152,12 @@ Block zusätzlich, ergänzt um die **effektiven Optionen dieses Laufs**: je
 Schicht `aktiv` + `grund` bei Degradation, Katalogversion, Graph- und
 Index-Fingerprint, `index_aktuell`, NER-Verfügbarkeit, LLM-`host:port` (kein
 Token). Der Block ist deterministisch (keine Zeitstempel/Zufallswerte) — er
-bricht weder Replay-Vergleiche noch Hash-Ketten. **Pflicht für den Host:**
-`engine_status` mit dem Ergebnis in der Audit-Chain ablegen — der
-Degradations-Nachweis je Analyse (ohne ihn ist einem archivierten Ergebnis
-nicht anzusehen, ob z. B. der Embedding-Index veraltet war).
+bricht weder Replay-Vergleiche noch Hash-Ketten. Signal erzeugt deshalb selbst
+bewusst **keinen** Audit-Zeitstempel. **Pflicht für den Host:** `engine_status`
+mit dem Ergebnis in der Audit-Chain ablegen und jeden Eintrag mit einem eigenen,
+im Hash gebundenen Ereigniszeitpunkt versehen — sonst fehlen sowohl zeitliche
+Einordnung als auch Degradations-Nachweis je Analyse (z. B. bei einem veralteten
+Embedding-Index).
 
 ---
 
@@ -270,7 +272,8 @@ die Lücke datenseitig:
   Job-/Planstate und regenerierbare Indexgenerationen.
   `health` · `status` · `analyse` · `katalog` · `katalog/definiere` ·
   `katalog/review` · `radar` · `normgraph/{aufloesen,suche}` ·
-  `embedding/{suche,status,refresh,schedule}` · `llm/status` · `llm/start`.
+  `embedding/{suche,status,refresh,cancel,schedule}` · `llm/status` ·
+  `llm/start`.
   Die mutierenden Embedding-Routen brauchen zusätzlich ein separates
   Operator-Secret. Stabile Zeichen-Offsets + `text_hash`,
   deterministische schnelle Phase (`mitLLM:false`). **LLM-Steuerung:** `POST /v1/llm/start`
@@ -287,6 +290,27 @@ die Lücke datenseitig:
   mussten CLI und Web ~17 `run()`-Defaults per Konvention synchron halten;
   CLI- und `/v1`-Ergebnisse konnten still divergieren. Wer einen Default
   ändert, ändert ihn an genau einer Stelle.
+
+### Betriebsprofile und Hardware
+
+- **CPU vollständig unterstützt:** Die verwaltete Laufzeit bringt das
+  hash-geprüfte Granite-4.1-8B-Modell und eine gepinnte llama.cpp-CPU-Engine
+  mit. Das LLM läuft explizit ohne GPU-Offload; `backend: cpu` und
+  `performance_bottleneck: true` machen sichtbar, dass eine Analyse mehrere
+  Minuten dauern kann. Queue und Slots stammen aus dem tatsächlich laufenden
+  Server.
+- **GPU dort, wo der Runtime-Vertrag sie absichert:** Unter Windows verwenden
+  unterstützte AMD-GPUs den hash-gepinnten ROCm-/PyTorch-Pfad auch für
+  Embeddings und Reranker. Andere Installationen bleiben ohne passenden,
+  autorisierten ML-Stack beim CPU-Embedding. Der Reranker ist GPU-only und
+  deaktiviert sich ohne GPU mit einem expliziten Degradationsgrund.
+- **Operativer Indexaufbau:** Refresh läuft asynchron, berichtet Fortschritt
+  und lässt sich per exakter Job-ID kontrolliert abbrechen. Erst eine komplett
+  gebaute und verifizierte Generation wird aktiviert.
+- **Reproduzierbarer Managed-Betrieb:** Korpus-/Graph-Builds funktionieren
+  offline, Quantenlos-Extras sind in den verwalteten Images hash-gepinnt
+  enthalten und eine bereits exakt installierte, manifestierte llama.cpp-
+  Engine wird ohne erneutes Entpacken sicher wiederverwendet.
 
 ---
 
@@ -308,7 +332,8 @@ die Lücke datenseitig:
 | Katalog-Schreibvorgang torn-read-frei | Berater-Store schreibt atomar (temp + `os.replace`) |
 | reproduzierbare Builds | `requirements-lock.txt` und `requirements-ner-lock.txt` (exakte `==`-Pins + sha256-Hashes, `pip --require-hashes --only-binary=:all:`) + per **Digest** gepinntes Basis-Image im Dockerfile — CI, Docker und Deploy-Skripte installieren denselben autorisierten Stand |
 
-**Tests:** `python -m pytest -q` → **478 grün** (deterministischer Kern,
+**Tests (Release 0.1.0):** `python -m pytest -q` → **1.245 bestanden,
+8 übersprungen** (deterministischer Kern,
 Parser-Gold-Sets, **`/v1`-Vertrag + Surface/Auth** inkl. `engine_status`/`/v1/status`,
 Engine-Analysevertrag + Persistenz, **`AnalyseOptionen`**, Graph, LLM-Mock +
 Norm-Vorschlag + **konzept-bewusster Dedup**, Muster/Streit, Trigger,
@@ -330,7 +355,9 @@ Nachweis-JSON **bit-genau nachrechenbar**. Ehrlichkeits-Rahmen: kein
 Rechenvorteil — der Quantenrechner liefert Frische, Dritt-Attestierung
 (IBM-Job-ID als „Entropie-Notar") und physikalische Entropie, NICHT die volle
 Aaronson-Zertifizierung gegen böswillige Hardware. Fallbacks ehrlich gelabelt
-(`simulator`, `csprng_fallback`, drand-Beacon). Extra: `pip install ".[quanten]"`.
+(`simulator`, `csprng_fallback`, drand-Beacon). Extra: `pip install ".[quanten]"`;
+in verwalteten Release-Images sind die Quantenlos-Abhängigkeiten bereits aus
+dem Hash-Lock installiert.
 
 ---
 
