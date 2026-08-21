@@ -155,9 +155,12 @@ Token). Der Block ist deterministisch (keine Zeitstempel/Zufallswerte) — er
 bricht weder Replay-Vergleiche noch Hash-Ketten. Signal erzeugt deshalb selbst
 bewusst **keinen** Audit-Zeitstempel. **Pflicht für den Host:** `engine_status`
 mit dem Ergebnis in der Audit-Chain ablegen und jeden Eintrag mit einem eigenen,
-im Hash gebundenen Ereigniszeitpunkt versehen — sonst fehlen sowohl zeitliche
-Einordnung als auch Degradations-Nachweis je Analyse (z. B. bei einem veralteten
-Embedding-Index).
+im Hash gebundenen Ereigniszeitpunkt versehen. Soll dieser Zeitpunkt gegenüber
+privilegierten Betreibern beweiskräftig sein, muss der Host zusätzlich einen
+externen Nachweis wie RFC 3161 an den Eintrag oder einen Ketten-Checkpoint
+binden; eine lokale Uhr genügt dafür nicht. Sonst fehlen sowohl belastbare
+zeitliche Einordnung als auch Degradations-Nachweis je Analyse (z. B. bei einem
+veralteten Embedding-Index).
 
 ---
 

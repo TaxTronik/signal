@@ -49,8 +49,9 @@ Noch keine Änderungen.
   harmlose Labels keine Analyse oder Rücklieferung blockieren.
 - **[Scope]** Signal bleibt bewusst zustandslos und führt keine eigene
   Audit-Chain. Es liefert deterministische Provenienz und `engine_status`; der
-  Host versieht jeden persistierten Audit-Eintrag mit seinem eigenen,
-  hash-gebundenen Ereigniszeitpunkt.
+  Host verantwortet Ereigniszeit, Hash-Chain und gegebenenfalls den externen
+  RFC-3161-Nachweis. Ein lediglich lokal erzeugter, hash-gebundener Zeitpunkt
+  ist noch kein vertrauenswürdiger Drittzeitstempel.
 
 ### Änderungswesen und Prüfungsnachweise
 
