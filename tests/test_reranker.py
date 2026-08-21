@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import pytest
 
 from risk_layer.reranker import (HF_MODELL_REVISIONEN, CrossEncoderReranker,
-                                 Qwen3Reranker, rerank_normen, rerank_schwelle)
+                                 Qwen3Reranker, baue_norm_doc_fn, rerank_normen,
+                                 rerank_schwelle)
 
 
 class _MockReranker:
@@ -40,6 +41,28 @@ def test_rerank_ohne_reranker_ist_einfach_top_k():
     # Einzelkandidaten OHNE Score ungeprüft passieren).
     einzel = rerank_normen(_MockReranker({}), "f", normen[:1], lambda x: x, k=5)
     assert einzel == [{"norm_id": "A", "rerank": 0.0}]
+
+
+def test_norm_doc_fn_nutzt_thread_sichere_graph_api():
+    class FakeGraph:
+        def __init__(self):
+            self.calls = []
+
+        @property
+        def con(self):
+            raise AssertionError("SQLite-Verbindung darf nicht direkt verwendet werden")
+
+        def node(self, node_id):
+            self.calls.append(node_id)
+            return {"titel": "Schätzung", "text": "Besteuerungsgrundlagen"}
+
+    graph = FakeGraph()
+    doc_fn = baue_norm_doc_fn([], graph)
+    assert doc_fn("norm:AO:162:1") == "Schätzung. Besteuerungsgrundlagen"
+    assert graph.calls == ["norm:AO:162"]
+    # Der Cache vermeidet auch unter dem sicheren API-Pfad weitere DB-Zugriffe.
+    assert doc_fn("norm:AO:162:2") == "Schätzung. Besteuerungsgrundlagen"
+    assert graph.calls == ["norm:AO:162"]
 
 
 def test_rerank_schwelle_default_und_env(monkeypatch):

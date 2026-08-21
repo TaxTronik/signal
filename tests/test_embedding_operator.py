@@ -78,6 +78,7 @@ def test_default_status_startet_keinen_plan_und_index_ist_aktuell(tmp_path):
     operator, graph, _runtime, _aktivierungen = _operator(tmp_path)
     try:
         status = operator.status()
+        assert status["device"] == "cpu"
         assert status["index"] == {
             "active": True,
             "current": True,

@@ -610,6 +610,7 @@ def test_engine_status_traegt_encoder_degradationsgrund(tmp_path, monkeypatch):
     app = Anwendung(None, str(tmp_path))
     st = app.engine_status()["schichten"]
     assert st["embedding"]["aktiv"] is False
+    assert st["embedding"]["device"] == "cuda"
     assert "kein torch" in st["embedding"]["grund"]
     # Index-Metadaten bleiben trotz Encoder-Ausfall erhalten: der Status belegt,
     # WELCHER Index benutzt worden wäre (Haftungsakte).
@@ -648,6 +649,40 @@ def test_hot_aktivierung_archiviert_composite_input_fingerprint(
         status = app.engine_status()["schichten"]["embedding"]
         assert status["index_input_fingerprint"] == "composite-input-test"
         assert status["index_input_fingerprint"] != FakeIdx.embedding_graph_fingerprint
+    finally:
+        app.close()
+
+
+def test_hot_aktivierung_zieht_gpu_reranker_nach(tmp_path, monkeypatch):
+    import risk_layer.embedding as emb
+    import risk_layer.reranker as rr
+
+    monkeypatch.setenv("RISK_LAYER_EMB_DEVICE", "cuda")
+    app = Anwendung(None, str(tmp_path), graph_pfad=str(tmp_path / "missing.sqlite"))
+
+    class FakeIdx:
+        encoder_name = "hash512"
+        encoder_revision = None
+        graph_fingerprint = None
+        input_fingerprint = None
+
+    class FakeEncoder:
+        revision = None
+
+    class FakeReranker:
+        revision = "reranker-test"
+
+    monkeypatch.setattr(emb, "pruefe_aktualitaet", lambda *_args: True)
+    monkeypatch.setattr(rr, "reranker_oeffnen", lambda **_kwargs: FakeReranker())
+    try:
+        app._activate_embedding(FakeIdx(), FakeEncoder())
+        status = app.engine_status()["schichten"]
+        assert status["reranker"] == {
+            "aktiv": True,
+            "revision": "reranker-test",
+            "grund": None,
+        }
+        assert status["embedding"]["device"] == "cuda"
     finally:
         app.close()
 

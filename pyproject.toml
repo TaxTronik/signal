@@ -20,7 +20,7 @@ dependencies = [
 # Stufe 0 (MVP) läuft ohne diese Extras. Sie gehören zu den Ausbaustufen.
 nlp = ["spacy>=3.7", "click>=8.1"]  # /LF50/ Lemmatisierung (de_core_news_lg) – optionaler Robustheitspfad
 llm = ["llama-cpp-python>=0.2"]  # Schicht 2 (Stufe 1) – Kandidatenerkennung
-embedding = ["sentence-transformers==5.6.0"]  # Produktion: zielsystemspezifischen CPU-Hashlock verwenden
+embedding = ["sentence-transformers==5.6.0"]  # Produktion: zielsystemspezifischen Hashlock verwenden
 quanten = ["qiskit==2.5.0", "qiskit-ibm-runtime==0.47.0", "qiskit-aer==0.17.2"]  # Produktion: Plattform-Hashlock verwenden
 dev = [
     "coverage>=7.6,<8",

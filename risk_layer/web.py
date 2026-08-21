@@ -247,6 +247,7 @@ class Anwendung:
         # Query-Encoder: GPU bevorzugt, fällt intern auf CPU zurück. Per
         # RISK_LAYER_EMB_DEVICE setzbar.
         _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
+        self.embedding_device = _emb_dev
         try:
             self.embedding_encoder = (
                 _enc_open(self.embedding.encoder_name, device=_emb_dev) if self.embedding else None)
@@ -308,6 +309,7 @@ class Anwendung:
                 "embedding": {
                     "aktiv": self.embedding is not None and self.embedding_encoder is not None,
                     "encoder": emb_encoder_name,
+                    "device": _emb_dev,
                     # Supply-Chain-Nachweis: Laufzeit-Pin und die beim Indexbau
                     # persistierte Revision werden getrennt ausgewiesen. Bei
                     # Alt-Indizes ist index_revision=None und revision_aktuell
@@ -414,6 +416,51 @@ class Anwendung:
                 "index_aktuell": aktuell,
                 "grund": None,
             })
+            self._ensure_reranker_for_active_embedding()
+
+    def _ensure_reranker_for_active_embedding(self) -> None:
+        """Aktiviert den GPU-Reranker auch nach Overlay-Recovery/Hot-Swap.
+
+        Beim Start kann der Basisindex fehlen und erst der EmbeddingOperator die
+        letzte verifizierte Generation aktivieren. Die einmalige Reranker-
+        Entscheidung im Konstruktor lag bisher davor und blieb dann dauerhaft
+        auf "ohne Embedding-Encoder" stehen.
+        """
+        if self.reranker is not None or self.embedding_encoder is None:
+            return
+        if "cuda" not in (self.embedding_device or ""):
+            return
+        reason: str | None = None
+        try:
+            from .reranker import reranker_oeffnen
+            self.reranker = reranker_oeffnen(device=self.embedding_device)
+            if self.reranker is None:
+                reason = "Cross-Encoder nicht verfügbar (sentence-transformers fehlt)"
+        except Exception as exc:  # noqa: BLE001 – optional/degradierend
+            _log.warning(
+                "Reranker nach Embedding-Aktivierung nicht ladbar (%s) — "
+                "Schicht 1.7 ohne Rerank.", exc,
+            )
+            reason = f"Reranker nicht ladbar: {exc}"
+            self.reranker = None
+
+        reranker_status = self._engine_status["schichten"]["reranker"]
+        reranker_status.update({
+            "aktiv": self.reranker is not None,
+            "revision": getattr(self.reranker, "revision", None),
+            "grund": reason,
+        })
+        embedding_status = self._engine_status["schichten"]["embedding"]
+        embedding_status.update({
+            "fusion": bool(
+                self.reranker is not None
+                and self.trigger is not None
+                and fusion_aktiviert()
+            ),
+            "sim_rettung": (
+                sim_rettung() if self.reranker is not None else None
+            ),
+        })
 
     def embedding_operator_status(self) -> dict[str, Any]:
         return self.embedding_operator.status()

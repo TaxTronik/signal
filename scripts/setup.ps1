@@ -8,7 +8,8 @@
 
 .PARAMETER WithEmbedding
   Zusaetzlich den semantischen BGE-M3-Index bauen (installiert den hash-gepinnten
-  Windows/Python-3.12-CPU-Stack und laedt das Modell beim ersten Build).
+  Windows/Python-3.12-Stack und laedt das Modell beim ersten Build). Auf einer
+  unterstuetzten AMD Radeon wird der offizielle ROCm/PyTorch-Pfad verwendet.
 .PARAMETER WithQuanten
   Quantenlos-Extras fuer /v1/los/* installieren (qiskit, qiskit-aer,
   qiskit-ibm-runtime).
@@ -155,6 +156,7 @@ function Detect-Implementation {
     return "cpu"
 }
 
+$script:EmbeddingRuntime = "cpu"
 function Apply-ImplementationChoice([string]$Choice) {
     $emb = "cpu"
     $label = "Auto"
@@ -165,8 +167,9 @@ function Apply-ImplementationChoice([string]$Choice) {
             break
         }
         { $_ -in @("2","amd","rocm","hip") } {
-            $script:Backend = "rocm"; $emb = "cpu"; $label = "AMD/ROCm"
-            Info "AMD: llama.cpp nutzt ROCm/HIP, wenn verfuegbar; Windows-PyTorch hat keinen ROCm-Pfad, Embeddings bleiben auf CPU."
+            $script:Backend = "rocm"; $emb = "cuda"; $label = "AMD/ROCm"
+            $script:EmbeddingRuntime = "amd"
+            Info "AMD: llama.cpp nutzt ROCm/HIP; Embeddings nutzen den offiziellen Windows-ROCm/PyTorch-Pfad."
             break
         }
         { $_ -in @("3","intel","vulkan") } {
@@ -327,13 +330,25 @@ if (-not $SkipDeps) {
     }
     if ($WithEmbedding) {
         if ($pv -ne "3.12") { throw "-WithEmbedding ist nur mit dem vorhandenen Windows/Python-3.12-Hashlock erlaubt (gefunden: $pv)." }
-        if (([string]$env:RISK_LAYER_EMB_DEVICE).Trim().ToLowerInvariant() -ne "cpu") {
-            throw "Der automatische Embedding-Bootstrap ist CPU-only. GPU-Torch separat auditiert bereitstellen und -SkipDeps nutzen."
+        $embeddingDevice = ([string]$env:RISK_LAYER_EMB_DEVICE).Trim().ToLowerInvariant()
+        if ($script:EmbeddingRuntime -eq "amd" -and $embeddingDevice -match '^cuda(?::[0-9]+)?$') {
+            $embeddingLock = "requirements-embedding-windows-amd-py312-lock.txt"
+            Info "Embedding+Reranker -> hash-gepinnter AMD-ROCm/PyTorch-Stack fuer Windows/Python 3.12"
+            & python -m pip install --no-build-isolation --require-hashes -r $embeddingLock
+            if ($LASTEXITCODE -ne 0) { throw "pip install (AMD-Embedding-Hashlock) fehlgeschlagen." }
+            & python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"
+            if ($LASTEXITCODE -ne 0) {
+                throw "AMD-Embedding-Runtime installiert, aber PyTorch erkennt keine GPU. Windows-11-/Treiber-Kompatibilitaet pruefen."
+            }
+            OkMsg "Abhaengigkeiten installiert (Runtime + sentence-transformers + AMD-ROCm/PyTorch)"
+        } elseif ($embeddingDevice -eq "cpu") {
+            Info "Embedding+Reranker -> hash-gepinnter Windows/Python-3.12-CPU-Lock"
+            & python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-windows-cpu-py312-lock.txt
+            if ($LASTEXITCODE -ne 0) { throw "pip install (Embedding-Hashlock) fehlgeschlagen." }
+            OkMsg "Abhaengigkeiten installiert (Runtime + sentence-transformers + CPU-Torch)"
+        } else {
+            throw "Fuer RISK_LAYER_EMB_DEVICE='$embeddingDevice' ist kein automatisch auditierter Windows-Embedding-Stack ausgewaehlt."
         }
-        Info "Embedding+Reranker -> hash-gepinnter Windows/Python-3.12-CPU-Lock"
-        & python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-windows-cpu-py312-lock.txt
-        if ($LASTEXITCODE -ne 0) { throw "pip install (Embedding-Hashlock) fehlgeschlagen." }
-        OkMsg "Abhaengigkeiten installiert (Runtime + sentence-transformers + CPU-Torch)"
     } else {
         OkMsg "Abhaengigkeiten installiert (PyYAML + numpy)"
     }

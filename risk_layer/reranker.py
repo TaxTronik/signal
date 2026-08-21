@@ -174,11 +174,17 @@ class Qwen3Reranker:
                         )
                         dev = self._device or ("cuda" if torch.cuda.is_available() else "cpu")
                         dtype = torch.float16 if "cuda" in str(dev) else torch.float32
-                        model = AutoModelForCausalLM.from_pretrained(
+                        # Die Transformers-Typen modellieren `.to(str)` hier
+                        # faelschlich als Decorator-Overload. Zur Laufzeit ist
+                        # das ein regulaeres PreTrainedModel; `Any` haelt den
+                        # optional installierten Torch-Stub aus dem Kern-Mypy-
+                        # Lauf heraus.
+                        model: Any = AutoModelForCausalLM.from_pretrained(
                             self._modell_name,
                             torch_dtype=dtype,
                             revision=self.revision,
-                        ).to(dev).eval()
+                        )
+                        model = model.to(dev).eval()
                     except Exception as exc:
                         # s. CrossEncoderReranker._laden: handelbare Meldung, kein
                         # halb-initialisierter Zustand, Retry beim naechsten Aufruf.
@@ -267,8 +273,11 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
     def doc_fn(norm_id: str) -> str:
         pid = para_level(norm_id)
         if pid not in cache:
-            r = graph.con.execute(
-                "SELECT titel, text FROM knoten WHERE id=?", (pid,)).fetchone()
+            # NormGraph.node() serialisiert den Zugriff über dessen SQLite-Lock.
+            # Ein direkter graph.con-Zugriff kollidierte bei einem langsamen
+            # Erstlauf mit dem HTTP-Retry in einem zweiten Server-Thread und
+            # endete in sqlite3.InterfaceError ("API misuse").
+            r = graph.node(pid)
             titel = (r["titel"] or "").strip() if r else ""
             text = (r["text"] or "")[:max_text] if r else ""
             doc = f"{titel}. {text}"

@@ -1,0 +1,18 @@
+# Optionale semantische Schicht fuer Windows 11 / Python 3.12 / AMD Radeon.
+#
+# ROCm/PyTorch fuer Windows wird von AMD fuer die Radeon RX 9000-Serie (inkl.
+# RX 9070 XT) als eigener, versionierter Wheel-Satz ausgeliefert. PyTorch nutzt
+# auch bei ROCm das `cuda`-Device-API; RISK_LAYER_EMB_DEVICE muss daher `cuda`
+# bzw. `cuda:0` sein.
+#
+# Quelle/Kompatibilitaet (ROCm 7.2.1, PyTorch 2.9.1, Python 3.12):
+# https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html
+# https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html
+-c requirements-runtime-lock.txt
+sentence-transformers==5.6.0
+rocm-sdk-core @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl
+rocm-sdk-devel @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl
+rocm-sdk-libraries-custom @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl
+torch @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
+torchvision @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
+torchaudio @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl

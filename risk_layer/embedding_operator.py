@@ -612,6 +612,7 @@ class EmbeddingOperator:
             available = self._available and not self._closing
             reason = self._unavailable_reason
         return {
+            "device": self.device,
             "index": self._index_status(),
             "job": job,
             "schedule": schedule,

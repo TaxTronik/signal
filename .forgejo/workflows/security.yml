@@ -51,6 +51,7 @@ jobs:
           # Da sie vollstaendig gepinnt und gehasht sind, kann pip-audit sie ohne
           # plattformabhaengige Aufloesung dennoch kontinuierlich pruefen.
           python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-cpu-py312-lock.txt --desc
+          python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-amd-py312-lock.txt --desc
           python -m pip_audit --no-deps --disable-pip -r requirements-quanten-windows-py312-lock.txt --desc
 
   secrets:

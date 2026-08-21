@@ -17,9 +17,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _kein_embedding(monkeypatch):
+def _kein_embedding(monkeypatch, tmp_path):
     monkeypatch.setattr("risk_layer.embedding.index_oeffnen",
                         lambda *a, **k: None)
+    # Auch das persistente Operator-Overlay isolieren. Sonst reaktiviert eine
+    # echte lokale `.signal/embedding`-Generation den gerade weggepatchten Index
+    # wieder und macht Tests vom Entwicklerzustand abhängig.
+    monkeypatch.setenv("RISK_LAYER_EMBEDDING_DIR", str(tmp_path / "embedding-operator"))
 
 
 @pytest.fixture(autouse=True)

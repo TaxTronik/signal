@@ -1,5 +1,7 @@
 # Optionale semantische Schicht fuer Windows x86_64 / Python 3.12 (CPU).
-# Native AMD-GPUs haben unter Windows keinen PyTorch-ROCm-Pfad.
+# Fallback fuer Hosts ohne unterstuetzte GPU. Fuer aktuelle AMD-Radeon-GPUs gibt
+# es den separaten, offiziellen ROCm-Pfad in
+# requirements-embedding-windows-amd-py312.in.
 --extra-index-url https://download.pytorch.org/whl/cpu
 -c requirements-runtime-lock.txt
 sentence-transformers==5.6.0

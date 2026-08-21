@@ -37,6 +37,7 @@ def test_produktionsinstaller_loesen_keine_ml_ranges_mehr_auf() -> None:
     assert "requirements-embedding-linux-cpu-py312-lock.txt" in linux
     assert "requirements-quanten-linux-py312-lock.txt" in linux
     assert "requirements-embedding-windows-cpu-py312-lock.txt" in windows
+    assert "requirements-embedding-windows-amd-py312-lock.txt" in windows
     assert "requirements-quanten-windows-py312-lock.txt" in windows
 
 
@@ -58,6 +59,13 @@ def test_optionale_locks_sind_zielsystemspezifisch_und_hashgepinnt() -> None:
         assert "nvidia-" not in lock
         assert "cuda-toolkit==" not in lock
         assert "triton==" not in lock
+
+    amd_lock = _text("requirements-embedding-windows-amd-py312-lock.txt").lower()
+    assert "sentence-transformers==5.6.0" in amd_lock
+    assert "rocm-rel-7.2.1" in amd_lock
+    assert "torch-2.9.1%2brocm7.2.1" in amd_lock
+    assert "--hash=sha256:" in amd_lock
+    assert "nvidia-" not in amd_lock
 
     for name in quanten_locks:
         lock = _text(name).lower()
@@ -90,6 +98,7 @@ def test_setuptools_vertrag_ist_in_quellen_und_locks_identisch() -> None:
         "requirements-ner-lock.txt",
         "requirements-embedding-linux-cpu-py312-lock.txt",
         "requirements-embedding-windows-cpu-py312-lock.txt",
+        "requirements-embedding-windows-amd-py312-lock.txt",
     ):
         setuptools_anforderungen = [
             zeile.split()[0]
@@ -124,6 +133,7 @@ def test_security_workflow_auditiert_alle_produktionslocks() -> None:
 
     for lock in (
         "requirements-embedding-windows-cpu-py312-lock.txt",
+        "requirements-embedding-windows-amd-py312-lock.txt",
         "requirements-quanten-windows-py312-lock.txt",
     ):
         assert f"pip_audit --no-deps --disable-pip -r {lock}" in workflow

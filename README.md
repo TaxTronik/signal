@@ -183,10 +183,13 @@ python -m risk_layer.web        # http://127.0.0.1:8000/v1/
 # (b) CLI: Sachverhalt analysieren → Konsolen-Zusammenfassung
 python -m risk_layer.cli analyse examples/beispiel_organschaft.txt
 
-# optional: semantische Vorschläge (BGE-M3), CPU/Python 3.12
+# optional: semantische Vorschläge (BGE-M3), Python 3.12
 # Linux:
 python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-linux-cpu-py312-lock.txt
-# Windows entsprechend: requirements-embedding-windows-cpu-py312-lock.txt
+# Windows ohne unterstützte GPU: requirements-embedding-windows-cpu-py312-lock.txt
+# Windows 11 + unterstützte AMD Radeon (ROCm 7.2.1):
+python -m pip install --no-build-isolation --require-hashes -r requirements-embedding-windows-amd-py312-lock.txt
+set RISK_LAYER_EMB_DEVICE=cuda
 risk-layer embedding build      # einmalig — baut den Korpus-Index (+ Paraphrasen-Anker)
 ```
 
@@ -194,8 +197,9 @@ Produktion und optionale Backends werden getrennt gelockt: der schlanke
 `requirements-runtime-lock.txt` enthält keine Testwerkzeuge; Embedding und
 Quanten besitzen je einen unter Linux beziehungsweise Windows/Python 3.12
 erzeugten Hash-Lock. Die Deploy-Skripte lösen keine ML-/Qiskit-Ranges mehr zur
-Installationszeit auf. Der automatische Embedding-Pfad ist CPU-only; GPU-Torch
-erfordert einen eigenen, für die konkrete CUDA-/ROCm-Zielmatrix auditierten Lock.
+Installationszeit auf. Unter Windows nutzt das Setup für offiziell unterstützte
+AMD-Radeon-GPUs den separaten ROCm-7.2.1/PyTorch-2.9.1-Lock; andere Hosts fallen
+auf den CPU-Lock zurück. PyTorch adressiert auch ROCm-Geräte über `cuda`.
 
 ### Sicherer Autostart
 
