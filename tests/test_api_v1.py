@@ -214,6 +214,25 @@ def test_review_pruefer_muss_internes_pii_freies_actor_tag_sein(app):
     assert eintrag.review_status == "entwurf" and eintrag.reviewer is None
 
 
+def test_review_pii_gate_prueft_actor_tag_ohne_strukturellen_feldnamen(app, monkeypatch):
+    """Ein installiertes NER darf nicht am internen Label ``Feld pruefer``
+    anschlagen und dadurch ausnahmslos jeden Review blockieren."""
+    eid = _geteilter_entwurf(app)
+    gesehen = []
+
+    def pruefe_rest_spy(text):
+        gesehen.append(text)
+        return []
+
+    monkeypatch.setattr("risk_layer.recherche.pruefe_rest", pruefe_rest_spy)
+    code, obj = dispatch(app, "POST", "/v1/katalog/review", {
+        "id": eid, "status": "geprüft", "pruefer": "tt_staff_abcdefghijklmnop",
+    }, {})
+
+    assert code == 200 and obj["ok"] is True
+    assert gesehen == ["tt_staff_abcdefghijklmnop"]
+
+
 def test_review_sprung_und_rueckwaerts_uebergang_400(app):
     """Nur der exakt nächste Schritt ist erlaubt: Entwurf → Freigabe und
     Freigabe → geprüft liefern jeweils 400 mit Fehlertext."""

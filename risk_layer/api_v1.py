@@ -60,13 +60,16 @@ _MAX_LOS_ROH_HEX_CHARS = 2_000_000
 def _pii_rest_fuer_felder(felder: list[tuple[str, str]]) -> list[dict[str, str]]:
     """Alle persistierten Freitexte gemeinsam durch das lokale PII-Gate schicken.
 
-    Feldnamen und harte Trenner verhindern, dass Inhalte beim Zusammenfuehren
-    ununterscheidbar werden. Ein gemeinsamer Lauf ist zudem deutlich billiger
-    als bis zu hundert einzelne NER-Aufrufe fuer ``norm_anker``.
+    Harte Trenner verhindern, dass Inhalte beim Zusammenfuehren ineinanderlaufen.
+    Die internen Feldnamen duerfen selbst NICHT in den Prueftext: statistische
+    NER-Modelle koennen Bezeichner wie ``Feld pruefer`` als Person erkennen und
+    damit jeden noch so sauberen Actor-Tag faelschlich ablehnen. Ein gemeinsamer
+    Lauf ist zudem deutlich billiger als bis zu hundert einzelne NER-Aufrufe
+    fuer ``norm_anker``.
     """
     from .recherche import pruefe_rest
 
-    text = "\n\n".join(f"Feld {name}:\n{wert}" for name, wert in felder if wert)
+    text = "\n\n---\n\n".join(wert for _name, wert in felder if wert)
     return pruefe_rest(text) if text else []
 
 
