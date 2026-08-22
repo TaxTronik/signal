@@ -30,6 +30,10 @@ Noch keine Änderungen.
 
 ### Releaseabschluss
 
+- **[Scope]** Das Forgejo-Release-Gate lädt bei Tag-Events das annotierte
+  Remote-Tag-Objekt explizit nach. Damit kann ein vom Checkout erzeugter
+  Commit-Ref die vorgeschriebene Prüfung auf geschützte, annotierte
+  `vMAJOR.MINOR.PATCH`-Tags nicht mehr fälschlich scheitern lassen.
 - **[Scope]** Verwaltete Installationen enthalten eine selbstständige,
   hash-geprüfte CPU-Laufzeit für Granite 4.1 8B und llama.cpp. Der Status weist
   das tatsächliche Backend, fehlende Modell-/Engine-Artefakte, Slotbelegung und

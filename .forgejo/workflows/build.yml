@@ -260,6 +260,12 @@ jobs:
             echo "Nur vMAJOR.MINOR.PATCH darf veröffentlicht werden: $tag" >&2
             exit 1
           }
+          # Forgejo Actions kann beim Checkout eines Tag-Events lokal zunächst
+          # nur einen gleichnamigen Commit-Ref anlegen. Den geschützten Remote-
+          # Tag deshalb explizit samt annotiertem Tag-Objekt nachladen, bevor
+          # Typ und Zielcommit geprüft werden.
+          git fetch --force --no-tags origin \
+            "refs/tags/$tag:refs/tags/$tag"
           [[ "$(git cat-file -t "$tag")" == "tag" ]] || {
             echo "Release-Tags müssen annotiert sein: $tag" >&2
             exit 1
