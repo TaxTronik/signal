@@ -77,11 +77,11 @@ def test_optionale_locks_sind_zielsystemspezifisch_und_hashgepinnt() -> None:
     runtime = _text("requirements-runtime-lock.txt").lower()
     assert "pytest==" not in runtime
     assert "numpy==2.2.6" in runtime
-    assert "setuptools==83.0.0" in runtime
+    assert "setuptools==84.1.0" in runtime
 
 
 def test_setuptools_vertrag_ist_in_quellen_und_locks_identisch() -> None:
-    erwartet = "setuptools==83.0.0"
+    erwartet = "setuptools==84.1.0"
     projekt = tomllib.loads(_text("pyproject.toml"))
     build_anforderungen = projekt["build-system"]["requires"]
     assert [
