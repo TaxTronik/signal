@@ -20,7 +20,9 @@ from tools import deploy_container_release as D
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REAL_PYTHON = Path(sys.executable).resolve(strict=True)
+# Windows-venvs verwenden einen Redirector im Checkout. Für das simulierte
+# Betriebsprofil den installierten Interpreter mit eigenem Vertrauenspfad testen.
+REAL_PYTHON = Path(sys._base_executable if os.name == "nt" else sys.executable).resolve(strict=True)
 TOKEN = "t" * 48
 
 
@@ -1290,6 +1292,7 @@ def test_native_profil_setzt_container_pfade_explizit_auf_null(
         tmp_path,
         mode="native",
         bootstrap_python=str(REAL_PYTHON),
+        prepare=False,
     )
     profile = O.load_profile(profile_path)
     assert profile.state_dir is None

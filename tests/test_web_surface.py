@@ -324,10 +324,12 @@ def test_fehlgeschlagene_auth_wird_geloggt(tmp_path, monkeypatch, caplog):
     try:
         with caplog.at_level(logging.WARNING, logger="risk_layer.web"):
             assert _get(f"{base}/v1/health", token="falscher-token-xyz")[0] == 401
+            assert _get(f"{base}/v1/privater-beispielpfad", token="falscher-token-xyz")[0] == 401
         meldungen = [r.getMessage() for r in caplog.records if "401" in r.getMessage()]
         assert meldungen, "401 muss geloggt werden"
         assert any("/v1/health" in m and "127.0.0.1" in m for m in meldungen)
         assert all("falscher-token-xyz" not in m for m in meldungen)  # kein Token-Leak
+        assert "privater-beispielpfad" not in caplog.text
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -473,7 +475,7 @@ def test_serve_belegter_port_exit_ungleich_null_und_tls_warnung(tmp_path, monkey
     assert "TLS" in err and "Reverse-Proxy" in err
 
 
-def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch):
+def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch, caplog):
     # Interner Fehler darf weder Mandantentext-Fragmente noch interne Pfade an den
     # Client geben (§ 203 / Info-Leak): generische Meldung + Fehlerklasse, kein exc-Text.
     import json as _json
@@ -498,6 +500,8 @@ def test_500_leakt_keinen_exception_text(tmp_path, monkeypatch):
         txt = body.decode("utf-8")
         assert "GEHEIM" not in txt and "Mandantentext" not in txt   # kein Leak
         assert _json.loads(txt)["typ"] == "RuntimeError"            # Fehlerklasse ok
+        assert "RuntimeError" in caplog.text
+        assert "GEHEIM-Mandantentext-xyz" not in caplog.text
     finally:
         httpd.shutdown()
         httpd.server_close()

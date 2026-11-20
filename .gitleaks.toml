@@ -1,0 +1,16 @@
+[extend]
+useDefault = true
+
+# These fields bind evaluation results to local source or tokenizer files.
+[[allowlists]]
+description = "Recorded SHA-256 file fingerprints in the research fixtures"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = [
+  '''(^|/)benchmarks/(gpu-pipeline-ab|quality-experiments|quality-recall)-2026-09-07\.json$''',
+  '''(^|/)(risk_layer/research_hybrid|tools/_research_hybrid_draft)\.py$''',
+]
+regexTarget = "line"
+regexes = [
+  '''^\s*"(?:((source-before|source-after)[\\/]+)?risk_layer[\\/]+api_v1\.py|tokens\.json|special_tokens_map\.json|tokenizer(_config)?\.json)":\s*"[0-9a-f]{64}",?\s*$''',
+]

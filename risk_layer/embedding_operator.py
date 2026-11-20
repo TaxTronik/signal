@@ -595,10 +595,9 @@ class EmbeddingOperator:
     def _graph_for_status(self) -> Any:
         """Nutzt den App-Graph aus dem Aktivitaetscheck ohne ihn neu zu oeffnen.
 
-        ``pruefe_aktualitaet`` braucht nur fingerprint(). Der beim App-Start
-        geladene Graph ist ueber den Index-Buildinput stabil; ein kleiner Proxy
-        vermeidet einen SQLite-Open pro GET. Der Fingerprint wird beim App-Start
-        ohnehin auf dem Graphobjekt memoisiert und dem Operator uebergeben.
+        Der beim App-Start geladene Graph ist ueber den Index-Buildinput stabil.
+        Der vollstaendige Graph erlaubt auch den Quelltextvergleich optionaler
+        Passagenevidenz, ohne pro GET eine SQLite-Verbindung neu zu oeffnen.
         """
         return getattr(self, "_status_graph", None)
 
@@ -760,11 +759,17 @@ class EmbeddingOperator:
             encoder = encoder_oeffnen(encoder_name, device=self.device)
             if cancelled():
                 raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
+            # Ein Refresh erhaelt die vorhandene Evidenzdarstellung. Ihre
+            # Aktivierung als Analyseprofil entscheidet weiterhin der Aufrufer.
+            # Beim Legacy-Pfad keinen neuen kwarg an bestehende Builder geben.
+            passage_options = ({"passagen": True}
+                               if getattr(index_alt, "passage_evidence", None) is not None else {})
             gebaut = EmbeddingIndex.build(
                 graph,
                 encoder,
                 katalog=self.katalog,
                 cancelled=cancelled,
+                **passage_options,
             )
             if cancelled():
                 raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
@@ -785,6 +790,12 @@ class EmbeddingOperator:
                 verifiziert, graph, self.katalog
             ):
                 raise RuntimeError("generated index verification failed")
+            # Nach einem atomaren Graph-Rebuild kann der Server noch die
+            # vorige SQLite-Datei lesen, während der Worker die neue öffnet.
+            if not pruefe_aktualitaet(verifiziert, self._graph_for_status(), self.katalog):
+                raise EmbeddingOperatorUnavailable(
+                    "Index passt nicht zum aktiven Normgraphen. Engine mit dem neuen Graphen starten."
+                )
             if cancelled():
                 raise EmbeddingBuildCancelled("Embedding-Build wurde abgebrochen")
             os.replace(tmp, final)

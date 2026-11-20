@@ -303,6 +303,8 @@ class AnalyseOptionen:
     # /LF50/: Lemma-Robustheitspfad (matcher.match_lemma, spaCy). Default False:
     # ohne das Flag ist der Lauf byte-identisch zum bisherigen Verhalten.
     lemma: bool = False
+    semantik_profil: str = "standard"       # experimentell: normpaket/kontext/kaskade
+    rechtsgebiete: tuple[str, ...] = ()      # expliziter Host-Kontext, nie geraten
 
 
 class Pipeline:
@@ -650,7 +652,14 @@ class Pipeline:
         # Hinweis und zur LLM-Erdung. Der Berufsträger entscheidet.
         # Das Modell liefert nur Vektoren; verglichen wird gegen die eingebetteten
         # Gesetzestexte (korpus-fundiert, kein Modellwissen als Norm).
-        if embedding is not None and embedding_encoder is not None:
+        from .semantic_search import passage_suggestions, validate_profile
+        validate_profile(opt.semantik_profil, opt.rechtsgebiete)
+        if opt.semantik_profil != "standard":
+            semantik_vorschlaege = passage_suggestions(
+                text, profile=opt.semantik_profil, laws=opt.rechtsgebiete,
+                index=embedding, encoder=embedding_encoder, reranker=reranker,
+                trigger=trigger, graph=graph, chains=self._ketten_nach_norm, catalog=self.katalog)
+        elif embedding is not None and embedding_encoder is not None:
             # Top-5 statt Top-3: Verfahrensnormen treten selten isoliert auf. Bei
             # "Geschäftsführer haftet persönlich" stehen die gesellschaftsrechtliche
             # (§ 43 GmbHG) UND die steuerliche Haftung (§ 69/34 AO) eng beieinander –
@@ -683,8 +692,12 @@ class Pipeline:
             rettung = sim_rettung()
             fusion = (rr_doc is not None and trigger is not None
                       and fusion_aktiviert())
+            # Ein leerer Dense-Pool darf die unabhaengige Trigger-Suche nicht
+            # verhindern. Erst der Reranker entscheidet ueber diese Kandidaten.
+            satz_optionen = {"auch_ohne_treffer": True} if fusion else {}
             for m in embedding.kandidaten_pro_satz(text, embedding_encoder,
-                                                   k=topn, min_sim=floor):
+                                                   k=topn, min_sim=floor,
+                                                   **satz_optionen):
                 normen = m["normen"]
                 if rr_doc is not None:
                     if fusion:
@@ -707,8 +720,13 @@ class Pipeline:
                 semantik_vorschlaege.append({
                     "start": m["start"], "end": m["end"], "satz": m["text"],
                     "normen": [{"zitat": n["zitat"], "id": n["norm_id"],
-                                "titel": n["titel"], "sim": n["sim"],
-                                "rerank": n.get("rerank"),
+                                "titel": n["titel"],
+                                # Nur die Anzeige runden; Auswahl und Ordnung
+                                # oben brauchen die ungerundeten Scores.
+                                "sim": (round(n["sim"], 3)
+                                        if n["sim"] is not None else None),
+                                "rerank": (round(n["rerank"], 3)
+                                           if n.get("rerank") is not None else None),
                                 "gestuetzt": True, "im_korpus": True,
                                 # volle Kaskade anhängen (Katalog-Lookup), damit der
                                 # Vorschlag die Folgeglieder zeigt, nicht nur die Spitze.

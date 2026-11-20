@@ -42,7 +42,9 @@ from .embedding_model import (
     validate_local_bge_m3_cached,
 )
 from .muster import saetze_mit_offset
+from .passages import NormPackage, PassageEvidence
 from .torch_compat import patch_rocm_dist
+from .zitate import knoten_zitat
 
 _log = logging.getLogger(__name__)
 
@@ -139,7 +141,7 @@ def embedding_graph_fingerprint_berechnen(
         return memo
     rows = graph.con.execute(
         "SELECT id, titel, law, para, text FROM knoten "
-        "WHERE absatz IS NULL AND nummer IS NULL ORDER BY id"
+        "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%' ORDER BY id"
     ).fetchall()
     paragraphen = [
         {
@@ -173,6 +175,7 @@ def embedding_input_fingerprint_berechnen(
     builder_version: str | None,
     encoder_name: str | None,
     encoder_revision: str | None,
+    passage_fingerprint: str | None = None,
 ) -> str:
     """Eindeutige Audit-Identitaet aller persistierten Embedding-Buildinputs."""
     roh = json.dumps(
@@ -184,6 +187,7 @@ def embedding_input_fingerprint_berechnen(
             "builder_version": builder_version,
             "encoder_name": encoder_name,
             "encoder_revision": encoder_revision,
+            **({"passage_fingerprint": passage_fingerprint} if passage_fingerprint else {}),
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -475,6 +479,14 @@ def encoder_oeffnen(name: str = "auto", *, dim: int = 512,
 
 # --- Index ------------------------------------------------------------------
 
+def _base_rows_sha256(vectors: np.ndarray, ids: list[str], zitate: list[str], titel: list[str]) -> str:
+    """Bind each base vector to the norm metadata printed for the same row."""
+    header = json.dumps([ids, zitate, titel], ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(header.encode("utf-8"))
+    digest.update(np.ascontiguousarray(vectors).reshape(-1).view(np.uint8).data)
+    return digest.hexdigest()
+
+
 class EmbeddingIndex:
     """Semantischer Korpus-Index: §-Vektoren + Metadaten."""
 
@@ -486,7 +498,8 @@ class EmbeddingIndex:
                  encoder_revision: str | None = None,
                  catalog_version: str | None = None,
                  catalog_fingerprint: str | None = None,
-                 builder_version: str | None = None):
+                 builder_version: str | None = None,
+                 passage_evidence: PassageEvidence | None = None):
         self.vectors = vectors
         self.ids = ids
         self.zitate = zitate
@@ -496,6 +509,7 @@ class EmbeddingIndex:
         self.catalog_version = catalog_version
         self.catalog_fingerprint = catalog_fingerprint
         self.builder_version = builder_version
+        self.passage_evidence = passage_evidence
         self.dim = int(vectors.shape[1]) if vectors.size else 0
         # Fingerprint des Quell-Graphen zur Staleness-Erkennung (Abgleich über
         # ``pruefe_aktualitaet``). None bei Alt-Indizes, die vor Einführung des
@@ -522,7 +536,8 @@ class EmbeddingIndex:
     @classmethod
     def build(cls, graph, encoder: Encoder, *, max_zeichen: int = 1500,
               katalog=None, extra_anker=None,
-              cancelled: Callable[[], bool] | None = None) -> "EmbeddingIndex":
+              cancelled: Callable[[], bool] | None = None,
+              passagen: bool = False) -> "EmbeddingIndex":
         """Bettet alle §-Knoten (Paragraph-Ebene) des Normgraphen ein.
 
         Ist ``katalog`` gesetzt, werden zusätzlich die kuratierten LAIEN-Paraphrasen
@@ -553,7 +568,7 @@ class EmbeddingIndex:
         )
         rows = graph.con.execute(
             "SELECT id, titel, law, para, text FROM knoten "
-            "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
+            "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%'").fetchall()
         ids, zitate, titel, texte = [], [], [], []
         para_meta: dict[str, tuple[str, str]] = {}   # node-id → (zitat, titel)
         for r in rows:
@@ -574,7 +589,7 @@ class EmbeddingIndex:
             # NICHT im semantischen Index (sonst verrauschen sie jede Suche).
             if not echter_titel:
                 continue
-            zitat = f"§ {r['para']} {r['law']}"
+            zitat = knoten_zitat(r["law"], r["para"])
             ids.append(r["id"])
             zitate.append(zitat)
             titel.append(echter_titel)
@@ -674,6 +689,10 @@ class EmbeddingIndex:
             katalog_fingerprint_berechnen(katalog) if katalog is not None else None
         )
         encoder_revision = getattr(encoder, "revision", None)
+        evidence = (PassageEvidence.build(
+            graph, encoder, katalog, catalog_fingerprint=catalog_fingerprint,
+            cancelled=cancelled) if passagen else None)
+        cancellation_point()
         input_fingerprint = embedding_input_fingerprint_berechnen(
             embedding_graph_fingerprint=embedding_fp,
             catalog_version=catalog_version,
@@ -681,6 +700,7 @@ class EmbeddingIndex:
             builder_version=EMBEDDING_BUILDER_VERSION,
             encoder_name=encoder.name,
             encoder_revision=encoder_revision,
+            passage_fingerprint=evidence.fingerprint if evidence else None,
         )
         idx = cls(
             vecs.astype(np.float32),
@@ -695,6 +715,7 @@ class EmbeddingIndex:
             catalog_version=catalog_version,
             catalog_fingerprint=catalog_fingerprint,
             builder_version=EMBEDDING_BUILDER_VERSION,
+            passage_evidence=evidence,
         )
         idx.n_paraphrase_anker = n_anker
         idx.verlorene_anker = verlorene_anker
@@ -704,7 +725,18 @@ class EmbeddingIndex:
     def save(self, verzeichnis: str | Path = DEFAULT_DIR) -> None:
         d = Path(verzeichnis)
         d.mkdir(parents=True, exist_ok=True)
-        np.save(d / "vectors.npy", self.vectors)
+        evidence_meta = {}
+        vectors = self.vectors
+        if self.passage_evidence is not None:
+            payload, evidence_vectors = self.passage_evidence.storage()
+            evidence_meta = {"passage_evidence": payload, "base_rows": len(self.ids)}
+            if not vectors.size:
+                vectors = np.zeros((0, self.passage_evidence.dim), dtype=np.float32)
+            if vectors.dtype != np.dtype("float32"):
+                raise ValueError("Passage index base vectors must be float32")
+            evidence_meta["base_sha256"] = _base_rows_sha256(vectors, self.ids, self.zitate, self.titel)
+            vectors = np.vstack([vectors, evidence_vectors])
+        np.save(d / "vectors.npy", vectors)
         (d / "meta.json").write_text(json.dumps({
             "encoder": self.encoder_name, "dim": self.dim,
             "encoder_revision": self.encoder_revision,
@@ -725,16 +757,55 @@ class EmbeddingIndex:
             # Reine Code-Aenderungen waeren aus Graph/Katalog/Modell sonst nicht
             # erkennbar und koennten einen frischeren Release-Index verdraengen.
             "builder_version": self.builder_version,
+            **evidence_meta,
         }, ensure_ascii=False), encoding="utf-8")
 
     @classmethod
     def load(cls, verzeichnis: str | Path = DEFAULT_DIR) -> "EmbeddingIndex | None":
         d = Path(verzeichnis)
         vp, mp = d / "vectors.npy", d / "meta.json"
-        if not vp.exists() or not mp.exists():
+        if not mp.exists():
             return None
         meta = json.loads(mp.read_text(encoding="utf-8"))
-        return cls(np.load(vp), meta["ids"], meta["zitate"], meta["titel"], meta["encoder"],
+        if not vp.exists():
+            if "passage_evidence" in meta or "base_rows" in meta or "base_sha256" in meta:
+                raise ValueError("Declared passage index is missing vectors.npy")
+            return None
+        vectors = np.load(vp, allow_pickle=False)
+        evidence = None
+        if "passage_evidence" in meta:
+            base_rows = meta.get("base_rows")
+            if (type(base_rows) is not int or base_rows < 0 or vectors.ndim != 2
+                    or any(len(meta[key]) != base_rows for key in ("ids", "zitate", "titel"))
+                    or not np.isfinite(vectors).all()):
+                raise ValueError("Invalid passage index base vector/metadata counts")
+            # Earlier generations only hashed passage data. Keep them readable,
+            # and verify both vector and label data in newly written indices.
+            if "base_sha256" in meta and meta["base_sha256"] != _base_rows_sha256(
+                    vectors[:base_rows], meta["ids"], meta["zitate"], meta["titel"]):
+                raise ValueError("Passage index base row checksum mismatch")
+            evidence = PassageEvidence(meta["passage_evidence"], vectors[base_rows:])
+            if not evidence.matches_identity(meta["encoder"], meta.get("encoder_revision"),
+                                             meta.get("catalog_fingerprint")):
+                raise ValueError("Passage evidence encoder/catalog identity mismatch")
+            expected_input = embedding_input_fingerprint_berechnen(
+                embedding_graph_fingerprint=meta.get("embedding_graph_fingerprint"),
+                catalog_version=meta.get("catalog_version"),
+                catalog_fingerprint=meta.get("catalog_fingerprint"),
+                builder_version=meta.get("builder_version"), encoder_name=meta["encoder"],
+                encoder_revision=meta.get("encoder_revision"),
+                passage_fingerprint=evidence.fingerprint)
+            if meta.get("input_fingerprint") != expected_input:
+                raise ValueError("Passage index composite fingerprint mismatch")
+            vectors = vectors[:base_rows]
+            if meta.get("dim") != (int(vectors.shape[1]) if vectors.size else 0):
+                raise ValueError("Passage index base dimension mismatch")
+        elif "base_rows" in meta or "base_sha256" in meta:
+            raise ValueError("Declared passage index is missing passage evidence")
+        elif (vectors.ndim != 2
+              or any(len(meta[key]) != vectors.shape[0] for key in ("ids", "zitate", "titel"))):
+            raise ValueError("Embedding index vector/metadata counts do not match")
+        return cls(vectors, meta["ids"], meta["zitate"], meta["titel"], meta["encoder"],
                    # tolerant via .get: Alt-Indizes (vor dem Feld gebaut) laden
                    # weiter – graph_fingerprint bleibt dann None.
                    graph_fingerprint=meta.get("graph_fingerprint"),
@@ -750,7 +821,8 @@ class EmbeddingIndex:
                    # fehlende Katalog-Metadaten jedoch als erneuerungsbeduerftig.
                    catalog_version=meta.get("catalog_version"),
                    catalog_fingerprint=meta.get("catalog_fingerprint"),
-                   builder_version=meta.get("builder_version"))
+                   builder_version=meta.get("builder_version"),
+                   passage_evidence=evidence)
 
     # -- Laufzeit -----------------------------------------------------------
     def _encoder_pruefen(self, encoder: Encoder, qdim: int) -> None:
@@ -797,8 +869,10 @@ class EmbeddingIndex:
             if nid in gesehen:
                 continue
             gesehen.add(nid)
+            # Der Score steuert spaeter die sim-Rettung. Erst bei der Anzeige
+            # runden, sonst wird z. B. 0.5496 faelschlich zu >= 0.55.
             out.append({"norm_id": nid, "zitat": self.zitate[i],
-                        "titel": self.titel[i], "sim": round(s, 3)})
+                        "titel": self.titel[i], "sim": s})
         return out
 
     def _topk(self, qvec: np.ndarray, k: int, min_sim: float) -> list[dict[str, Any]]:
@@ -830,14 +904,53 @@ class EmbeddingIndex:
         self._encoder_pruefen(encoder, int(qvec.shape[0]))
         return self._topk(qvec, k, min_sim)
 
+    def query_vector(self, text: str, encoder: Encoder) -> np.ndarray:
+        """Encode once for hybrid retrieval and query-specific evidence selection."""
+        vector = encoder.encode([text])[0]
+        self._encoder_pruefen(encoder, int(vector.shape[0]))
+        if self.passage_evidence is not None:
+            self.passage_evidence._query(vector)
+        return vector
+
+    def hybrid_topk(self, qvec: np.ndarray, *, k: int = 20,
+                    min_sim: float = .35) -> list[dict[str, Any]]:
+        """Explicit hybrid mode: union base/passages, best score per norm before Top-k."""
+        if k <= 0:
+            return []
+        base = self._topk(qvec, k, min_sim)
+        if self.passage_evidence is None:
+            return base
+        additional = self.passage_evidence.candidates(qvec, k=k, min_sim=min_sim)
+        merged = {n["norm_id"]: n for n in base}
+        for candidate in additional:
+            nid = candidate["norm_id"]
+            if nid not in merged or candidate["sim"] > merged[nid]["sim"]:
+                merged[nid] = candidate
+        return sorted(merged.values(), key=lambda n: (-n["sim"], n["norm_id"]))[:k]
+
+    def hybrid_suche(self, text: str, encoder: Encoder, *, k: int = 20,
+                     min_sim: float = .35) -> list[dict[str, Any]]:
+        return self.hybrid_topk(self.query_vector(text, encoder), k=k, min_sim=min_sim)
+
+    def norm_package(self, norm_id: str, qvec: np.ndarray, *,
+                     strategy: str = "ranked") -> NormPackage | None:
+        """Optional source-first package; default query ranking stays unchanged."""
+        if self.passage_evidence is None:
+            return None
+        return self.passage_evidence.norm_package(norm_id, qvec, strategy=strategy)
+
     def kandidaten_pro_satz(self, text: str, encoder: Encoder, *, k: int = 3,
-                            min_sim: float = 0.55) -> list[dict[str, Any]]:
+                            min_sim: float = 0.55,
+                            auch_ohne_treffer: bool = False) -> list[dict[str, Any]]:
         """Je Satz die semantisch nächsten §§ – für satzgenaue Erdung/Marken.
 
         Liefert pro Satz mit Treffern: Span (Originaloffsets) + Kandidaten-Normen.
         Bewusst nur überschwellige Treffer; lieber nichts als themenfremdes Rauschen.
+        ``auch_ohne_treffer`` erhält zusätzlich Sätze mit leerem Kandidatenpool,
+        damit die RRF-Fusion dort eigenständig Trigger-Kandidaten prüfen kann.
         """
-        saetze = [s for s in saetze_mit_offset(text) if len(s.text.strip()) >= 12]
+        saetze = [s for s in saetze_mit_offset(text)
+                  if len(s.text.strip()) >= 12 and any(c.isalpha() for c in s.text)]
         if not saetze:
             return []
         qv = encoder.encode([s.text for s in saetze])
@@ -845,7 +958,7 @@ class EmbeddingIndex:
         out: list[dict[str, Any]] = []
         for s, v in zip(saetze, qv):
             treffer = self._topk(v, k, min_sim)
-            if not treffer:
+            if not treffer and not auch_ohne_treffer:
                 continue
             # Offsets auf den getrimmten Satz ziehen, damit text[start:end] == text gilt.
             links = len(s.text) - len(s.text.lstrip())
@@ -975,6 +1088,16 @@ def pruefe_aktualitaet(index: EmbeddingIndex | None, graph, katalog=None) -> boo
                 EMBEDDING_BUILDER_VERSION,
             )
         return False
+    evidence = getattr(index, "passage_evidence", None)
+    if evidence is not None:
+        try:
+            valid_evidence = (evidence.matches_graph(graph) and evidence.matches_identity(
+                index.encoder_name, index.encoder_revision, index.catalog_fingerprint))
+        except Exception:
+            valid_evidence = False
+        if not valid_evidence:
+            _log.warning("Embedding-Passagen sind VERALTET: Quelltext oder Buildidentitaet weicht ab.")
+            return False
     erwarteter_input_fp = embedding_input_fingerprint_berechnen(
         embedding_graph_fingerprint=embedding_fp_graph,
         catalog_version=getattr(index, "catalog_version", None),
@@ -982,6 +1105,7 @@ def pruefe_aktualitaet(index: EmbeddingIndex | None, graph, katalog=None) -> boo
         builder_version=EMBEDDING_BUILDER_VERSION,
         encoder_name=getattr(index, "encoder_name", None),
         encoder_revision=getattr(index, "encoder_revision", None),
+        passage_fingerprint=evidence.fingerprint if evidence else None,
     )
     if getattr(index, "input_fingerprint", None) != erwarteter_input_fp:
         if not getattr(index, "_input_hinweis_geloggt", False):

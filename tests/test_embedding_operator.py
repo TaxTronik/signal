@@ -172,6 +172,61 @@ def test_force_build_publiziert_generation_und_verschiebt_plan(tmp_path):
         graph.close()
 
 
+def test_rebuild_erhaelt_passagenevidenz_und_bleibt_aktuell(tmp_path):
+    operator, graph, runtime, aktivierungen = _operator(tmp_path)
+    try:
+        vorher = EmbeddingIndex.build(
+            graph, runtime[1], katalog=operator.katalog, passagen=True)
+        runtime[0] = vorher
+        assert operator.status()["index"]["current"] is True
+
+        accepted = operator.trigger(force=True)
+        operator.wait_for_job()
+        assert operator.status()["job"]["state"] == "succeeded"
+        neu = runtime[0]
+        assert neu is not vorher and aktivierungen == [neu]
+        assert neu.passage_evidence is not None
+        assert neu.passage_evidence.fingerprint == vorher.passage_evidence.fingerprint
+        assert neu.input_fingerprint == vorher.input_fingerprint
+        generation = operator.generations / accepted["job_id"]
+        assert {p.name for p in generation.iterdir()} == {"vectors.npy", "meta.json"}
+        gespeichert = EmbeddingIndex.load(generation)
+        assert gespeichert is not None and gespeichert.passage_evidence is not None
+        assert gespeichert.input_fingerprint == neu.input_fingerprint
+        assert operator.status()["index"]["current"] is True
+
+        # Ein Evidenzindex darf nicht wegen eines Baseline-Composite-Vergleichs
+        # bei jedem Folgecheck erneut als stale gebaut werden.
+        operator.trigger(force=False)
+        operator.wait_for_job()
+        assert operator.status()["job"]["state"] == "skipped"
+        assert aktivierungen == [neu]
+    finally:
+        operator.close()
+        graph.close()
+
+
+def test_refresh_publiziert_keinen_index_fuer_anderen_laufenden_graphen(tmp_path):
+    operator, graph, runtime, aktivierungen = _operator(tmp_path)
+    try:
+        vorher = runtime[0]
+        # Modelliert unabhängig von Windows-Dateisperren zwei Graphgenerationen.
+        neuer_pfad = tmp_path / "neuer-graph.sqlite"
+        NormGraph.build([], neuer_pfad).close()
+        operator.graph_path = neuer_pfad
+        operator.trigger(force=True)
+        operator.wait_for_job()
+        job = operator.status()["job"]
+        assert job["state"] == "failed"
+        assert "aktiven Normgraphen" in job["error"]
+        assert runtime[0] is vorher and aktivierungen == []
+        assert not operator.pointer_path.exists()
+        assert not list(operator.generations.iterdir())
+    finally:
+        operator.close()
+        graph.close()
+
+
 def test_publish_fsynct_private_und_generations_verzeichnis(
     tmp_path, monkeypatch
 ):

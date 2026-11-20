@@ -1,0 +1,205 @@
+{
+  "format": "quality_recall_stage_aggregate/1",
+  "status": "pass",
+  "comparison": "frozen_structural_r2_package20_vs_historical_kaskade",
+  "evidence_kind": "previously_examined_development_cases_and_exact_frozen_cpu_replay",
+  "current_live_measurement": false,
+  "private_report_sha256": "d6b724f52ed9fc69213de648a25acc8fddaedc3adfe26a4f8bde29b0900bd3c1",
+  "stage_producer_sha256": "1382ded0a386a5ed6951bc48abb396d03e9114cafec902e1f573d263042f61c1",
+  "aggregate_publisher_sha256": "7a4ed3b7777b36351e0691ec9ee7575a6226db44d5d22a8de38e0b78b9f5c0ba",
+  "structural_r2_report_sha256": "07569c17533f230a1d504e8790bf56db2b78ccf6d7a0616b245fa662e0b5891d",
+  "historical_kaskade_report_sha256": "91ee80cd07f192a34d9701c3be1a97fd64d42e8fb5e0dc10cd2dd9bef1c2886c",
+  "historical_stage_analysis_sha256": "e9d945ab0b934887a2f9fb7a618170968de9f85cc960d16544a4e34781824fb3",
+  "package20_config": {
+    "context": "sentence",
+    "pool": 200,
+    "hybrid": true,
+    "rerank_threshold": 0.5,
+    "sim_rescue": 0.0,
+    "cascade": true,
+    "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+    "passage_rerank": true,
+    "passage_shortlist": "package",
+    "shortlist": 20
+  },
+  "audit": {
+    "exact_frozen_runtime_outputs": 162,
+    "exact_source_passage_spans": 1568,
+    "bound_files": 195,
+    "torch_imported": false,
+    "independent_read_only_review": "pass",
+    "trace_groups": 304,
+    "recorded_bge_package_scores": 58013,
+    "recorded_qwen_scores": 6066
+  },
+  "datasets": {
+    "main": {
+      "metrics": {
+        "kaskade": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 11,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null,
+          "historical_target_case_pairs": 176,
+          "matched_target_case_pairs": 84,
+          "micro_historical_target_coverage": 0.4772727272727273,
+          "full_target_coverage_cases": 42,
+          "partially_covered_cases": 26
+        },
+        "package20": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 50,
+          "hit5_cases": 80,
+          "negative_with_suggestion": 11,
+          "positive_entries": 741,
+          "positive_unique_case_norm_pairs": 671,
+          "negative_entries": 30,
+          "negative_unique_case_norm_pairs": 30,
+          "historical_target_matching_entries": 127,
+          "unadjudicated_non_target_entries": 614,
+          "mrr_best_sentence": 0.6093137254901961,
+          "mean_target_coverage": 0.6313725490196079,
+          "suggestion_precision": null,
+          "full_legal_recall": null,
+          "historical_target_case_pairs": 176,
+          "matched_target_case_pairs": 99,
+          "micro_historical_target_coverage": 0.5625,
+          "full_target_coverage_cases": 49,
+          "partially_covered_cases": 31
+        }
+      },
+      "paired_change_counts": {
+        "positive_hit_wins": 12,
+        "positive_hit_losses": 0,
+        "negative_case_wins": 2,
+        "negative_case_losses": 2,
+        "negative_norm_pairs_added": 9,
+        "negative_norm_pairs_removed": 8
+      },
+      "historical_target_pair_gains": 16,
+      "historical_target_pair_losses": 1,
+      "package20_target_outcomes": {
+        "hit": 99,
+        "retrieval": 21,
+        "qwen_threshold": 28,
+        "top5": 3,
+        "bge_shortlist": 24,
+        "fusion_pool_cap": 1
+      },
+      "kaskade_target_outcomes": {
+        "hit": 84,
+        "retrieval": 21,
+        "qwen_threshold": 42,
+        "top5": 2,
+        "bge_shortlist": 26,
+        "fusion_pool_cap": 1
+      },
+      "package20_complete_misses": 22,
+      "complete_miss_partition_most_advanced_target": {
+        "qwen_threshold": 10,
+        "bge_shortlist": 8,
+        "retrieval": 3,
+        "top5": 1
+      },
+      "unknown_target_stages": 0
+    },
+    "additional": {
+      "metrics": {
+        "kaskade": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 47,
+          "positive_unique_case_norm_pairs": 47,
+          "negative_entries": 11,
+          "negative_unique_case_norm_pairs": 11,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 29,
+          "mrr_best_sentence": 0.8,
+          "mean_target_coverage": 0.7444444444444444,
+          "suggestion_precision": null,
+          "full_legal_recall": null,
+          "historical_target_case_pairs": 27,
+          "matched_target_case_pairs": 18,
+          "micro_historical_target_coverage": 0.6666666666666666,
+          "full_target_coverage_cases": 10,
+          "partially_covered_cases": 3
+        },
+        "package20": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 7,
+          "positive_entries": 49,
+          "positive_unique_case_norm_pairs": 49,
+          "negative_entries": 14,
+          "negative_unique_case_norm_pairs": 14,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 31,
+          "mrr_best_sentence": 0.8333333333333334,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null,
+          "historical_target_case_pairs": 27,
+          "matched_target_case_pairs": 18,
+          "micro_historical_target_coverage": 0.6666666666666666,
+          "full_target_coverage_cases": 10,
+          "partially_covered_cases": 3
+        }
+      },
+      "paired_change_counts": {
+        "positive_hit_wins": 0,
+        "positive_hit_losses": 0,
+        "negative_case_wins": 1,
+        "negative_case_losses": 0,
+        "negative_norm_pairs_added": 8,
+        "negative_norm_pairs_removed": 5
+      },
+      "historical_target_pair_gains": 1,
+      "historical_target_pair_losses": 1,
+      "package20_target_outcomes": {
+        "hit": 18,
+        "retrieval": 5,
+        "bge_shortlist": 2,
+        "qwen_threshold": 1,
+        "top5": 1
+      },
+      "kaskade_target_outcomes": {
+        "hit": 18,
+        "retrieval": 5,
+        "bge_shortlist": 3,
+        "qwen_threshold": 1
+      },
+      "package20_complete_misses": 2,
+      "complete_miss_partition_most_advanced_target": {
+        "qwen_threshold": 1,
+        "bge_shortlist": 1
+      },
+      "unknown_target_stages": 0
+    }
+  },
+  "notes": [
+    "Alle 162 Fälle waren bereits untersuchte Entwicklungs- oder historische Fälle; kein unabhängiger Blindtest.",
+    "Die Zahlen stammen aus dem eingefrorenen strukturellen R2-Lauf und seinem exakten CPU-Replay; sie sind keine aktuelle Live-Messung.",
+    "Historische Zielabdeckung ist keine vollständige fachliche Trefferquote. Nicht gelistete Normen positiver Fälle bleiben ungeprüft.",
+    "Negative Fall-Norm-Paare werden je Fall dedupliziert und folgen den ausdrücklichen Abstentionslabels.",
+    "Die Fallpartition betrachtet das am weitesten gelangte historische Ziel; sie ist ausschließlich eine Engpassdiagnose.",
+    "Der Gesamtvergleich umfasst englische Relevanzinstruktion und neue Passagenauswahl; er isoliert keinen einzelnen Faktor.",
+    "Keine neuen Modelle, Labels, Schwellen oder unbekannten Rohscores wurden für diese Diagnose erzeugt."
+  ]
+}

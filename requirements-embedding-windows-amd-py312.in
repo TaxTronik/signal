@@ -1,18 +1,28 @@
-# Optionale semantische Schicht fuer Windows 11 / Python 3.12 / AMD Radeon.
-#
-# ROCm/PyTorch fuer Windows wird von AMD fuer die Radeon RX 9000-Serie (inkl.
-# RX 9070 XT) als eigener, versionierter Wheel-Satz ausgeliefert. PyTorch nutzt
-# auch bei ROCm das `cuda`-Device-API; RISK_LAYER_EMB_DEVICE muss daher `cuda`
-# bzw. `cuda:0` sein.
-#
-# Quelle/Kompatibilitaet (ROCm 7.2.1, PyTorch 2.9.1, Python 3.12):
-# https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/compatibility/compatibilityrad/windows/windows_compatibility.html
-# https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installrad/windows/install-pytorch.html
+# Optionales Embedding-Profil fuer CPython 3.12 unter Windows (AMD Radeon).
+# AMD validiert ROCm 10.2.0 mit Windows 11 25H2 und Adrenalin 26.11.2.
+# Die vier Geraeteziele entsprechen dem bisherigen Windows-Radeon-Profil.
+# https://rocm.docs.amd.com/en/docs-10.2.0/compatibility/compatibility-matrix.html
+# https://rocm.docs.amd.com/projects/ai-ecosystem/en/latest/frameworks/pytorch/install.html
 -c requirements-runtime-lock.txt
 sentence-transformers==5.6.0
-rocm-sdk-core @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl
-rocm-sdk-devel @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl
-rocm-sdk-libraries-custom @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl
-torch @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
-torchvision @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchvision-0.24.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
-torchaudio @ https://repo.radeon.com/rocm/windows/rocm-rel-7.2.1/torchaudio-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx1100 @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx1101 @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx1101/amd_torch_device_gfx1101-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx110x @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx110x/amd_torch_device_gfx110x-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx12-0 @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx12-0/amd_torch_device_gfx12_0-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx1200 @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx1200/amd_torch_device_gfx1200-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torch-device-gfx1201 @ https://stable.repo.amd.com/rocm/whl-next/amd-torch-device-gfx1201/amd_torch_device_gfx1201-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+amd-torchvision-device-gfx1100 @ https://stable.repo.amd.com/rocm/whl-next/amd-torchvision-device-gfx1100/amd_torchvision_device_gfx1100-0.29.2%2Brocm10.2.0-py3-none-win_amd64.whl
+amd-torchvision-device-gfx1101 @ https://stable.repo.amd.com/rocm/whl-next/amd-torchvision-device-gfx1101/amd_torchvision_device_gfx1101-0.29.2%2Brocm10.2.0-py3-none-win_amd64.whl
+amd-torchvision-device-gfx1200 @ https://stable.repo.amd.com/rocm/whl-next/amd-torchvision-device-gfx1200/amd_torchvision_device_gfx1200-0.29.2%2Brocm10.2.0-py3-none-win_amd64.whl
+amd-torchvision-device-gfx1201 @ https://stable.repo.amd.com/rocm/whl-next/amd-torchvision-device-gfx1201/amd_torchvision_device_gfx1201-0.29.2%2Brocm10.2.0-py3-none-win_amd64.whl
+rocm @ https://stable.repo.amd.com/rocm/whl-next/rocm/rocm-10.2.0.tar.gz
+rocm-bootstrap @ https://stable.repo.amd.com/rocm/whl-next/rocm-bootstrap/rocm_bootstrap-0.3.0-py3-none-any.whl
+rocm-sdk-core @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-core/rocm_sdk_core-10.2.0-py3-none-win_amd64.whl
+rocm-sdk-device-gfx1100 @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-device-gfx1100/rocm_sdk_device_gfx1100-10.2.0-py3-none-win_amd64.whl
+rocm-sdk-device-gfx1101 @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-device-gfx1101/rocm_sdk_device_gfx1101-10.2.0-py3-none-win_amd64.whl
+rocm-sdk-device-gfx1200 @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-device-gfx1200/rocm_sdk_device_gfx1200-10.2.0-py3-none-win_amd64.whl
+rocm-sdk-device-gfx1201 @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-device-gfx1201/rocm_sdk_device_gfx1201-10.2.0-py3-none-win_amd64.whl
+rocm-sdk-libraries @ https://stable.repo.amd.com/rocm/whl-next/rocm-sdk-libraries/rocm_sdk_libraries-10.2.0-py3-none-win_amd64.whl
+torch[device-gfx1100,device-gfx1101,device-gfx1200,device-gfx1201] @ https://stable.repo.amd.com/rocm/whl-next/torch/torch-2.15.0%2Brocm10.2.0-cp312-cp312-win_amd64.whl
+torchaudio @ https://stable.repo.amd.com/rocm/whl-next/torchaudio/torchaudio-2.11.1%2Brocm10.2.0-py3-none-win_amd64.whl
+torchvision[device-gfx1100,device-gfx1101,device-gfx1200,device-gfx1201] @ https://stable.repo.amd.com/rocm/whl-next/torchvision/torchvision-0.29.2%2Brocm10.2.0-py3-none-win_amd64.whl

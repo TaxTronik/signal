@@ -1,0 +1,75 @@
+{
+  "format": "grounded_signal_posthoc_output_budget_v1",
+  "method": {
+    "cap": 3,
+    "first_occurrence_top3": "First three distinct norm IDs in unchanged suggestion and norm list order.",
+    "limitations": "Post-hoc sensitivity analysis, not the unchanged public profile or equal actual output volume. Scores across sentence foci are not calibrated. No new inference, threshold tuning, label-based selection or measured latency saving. Hard anchors excluded. Unknown extra norms are not automatically false positives.",
+    "max_recorded_rerank_top3": "Maximum stored 3-decimal rerank score across sentence foci; descending score, norm ID ascending for ties.",
+    "unit": "Unique semantic norm IDs per case, after all original inference."
+  },
+  "provenance": {
+    "baseline_audit_sha256": "4459a4d3fddb3d4078ca605a17a41feb9a2058d54a434075d88b9bcd2a713567",
+    "baseline_report_sha256": "f4b47009d542d514e91e6d3524823b8d12db948f2ec3702779c4d4e28fcaa9bf",
+    "cases_sha256": "94e9e50216e10b456cddc96c8099402539b9175ef2bead7631e4ef7515e0aa76",
+    "producer_sha256": "518859b5e4c7b0845d8c793a6a84c711fd422b5f0b90577fd98c00607deb2c39"
+  },
+  "results": {
+    "first_occurrence_top3": {
+      "all": {
+        "clear_negative_cases": 3,
+        "clear_negative_cases_with_output": 3,
+        "clear_negative_output_pairs": 9,
+        "context_only_cases": 1,
+        "context_only_output_pairs": 2,
+        "explicit_no_hint_output_pairs": 3,
+        "explicit_no_hint_pairs": 27,
+        "output_norm_pairs": 47,
+        "planned_cases": 16,
+        "target_norm_hits": 10,
+        "target_norm_pairs": 14
+      },
+      "evaluation": {
+        "clear_negative_cases": 2,
+        "clear_negative_cases_with_output": 2,
+        "clear_negative_output_pairs": 6,
+        "context_only_cases": 0,
+        "context_only_output_pairs": 0,
+        "explicit_no_hint_output_pairs": 2,
+        "explicit_no_hint_pairs": 15,
+        "output_norm_pairs": 24,
+        "planned_cases": 8,
+        "target_norm_hits": 3,
+        "target_norm_pairs": 6
+      }
+    },
+    "max_recorded_rerank_top3": {
+      "all": {
+        "clear_negative_cases": 3,
+        "clear_negative_cases_with_output": 3,
+        "clear_negative_output_pairs": 9,
+        "context_only_cases": 1,
+        "context_only_output_pairs": 2,
+        "explicit_no_hint_output_pairs": 3,
+        "explicit_no_hint_pairs": 27,
+        "output_norm_pairs": 47,
+        "planned_cases": 16,
+        "target_norm_hits": 11,
+        "target_norm_pairs": 14
+      },
+      "evaluation": {
+        "clear_negative_cases": 2,
+        "clear_negative_cases_with_output": 2,
+        "clear_negative_output_pairs": 6,
+        "context_only_cases": 0,
+        "context_only_output_pairs": 0,
+        "explicit_no_hint_output_pairs": 2,
+        "explicit_no_hint_pairs": 15,
+        "output_norm_pairs": 24,
+        "planned_cases": 8,
+        "target_norm_hits": 4,
+        "target_norm_pairs": 6
+      }
+    }
+  },
+  "status": "complete"
+}

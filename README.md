@@ -25,12 +25,19 @@ fängt Paraphrasen, und Fundstellen werden als **Normketten** (Kaskaden) geführ
 
 ---
 
-## Aktueller Architekturstand: Scope-aware Retrieval
+## Aktueller Architekturstand: Standard und optionale Semantikprofile
 
-Der semantische Teil des Risk-Layers ist **nicht** als globaler Flat-Index gedacht.
+**`standard` bleibt das voreingestellte Semantikprofil.** Die neuen Profile
+`normpaket`, `kontext`, `kaskade`, `praezision`, `dokument` und `treffer` sind ausdrücklich
+wählbare Experimente.
+Sie kombinieren Normpakete, Gesetzespassagen und teilweise Nachbarsätze oder
+eine zweistufige Reranker-Auswahl. Die bisherigen Vergleiche zeigen auch im
+zusätzlichen Satz aus 30 historischen Fällen echte Gewinne und Verluste;
+eine allgemeine Überlegenheit ist damit nicht belegt.
+
 Eval-Läufe haben gezeigt: Werden alle Paraphrasen-Anker ungefiltert in denselben
-Kandidatenraum gelegt, entstehen cross-law- und intra-law-Verdrängungen. Der
-produktive Zielpfad ist deshalb:
+Kandidatenraum gelegt, entstehen Verdrängungen zwischen Gesetzen und innerhalb
+eines Gesetzes. Ein expliziter Scope bleibt deshalb ein möglicher Zielpfad:
 
 ```text
 Scope / Rechtsraum
@@ -39,14 +46,14 @@ Scope / Rechtsraum
 → Norm-Aggregation
 ```
 
-**Freeze-Stand:** Innerhalb des Scopes rerankt ein **Normpaket** je Norm (Norm-Titel +
-§-Textauszug + Top-k Cards) statt einzelner Anker. Das repariert intra-law-Geschwister-
-kollisionen und signalverteilte Normen — **kann aber scharfe Einzelanker verwässern**
-(gemessen netto positiv, Precision-Trade-off offen dokumentiert, s. [FEATURES.md](FEATURES.md)).
-Der **Flat-Index** ist nur Baseline/Diagnose, **nicht** der finale Produktivpfad.
-
-Der Scope kann produktiv aus dem Host-Workflow bzw. aus Beraterauswahl stammen.
-Open-World-Scope-Schätzung aus bloßem Text bleibt ein Fallback-/Forschungsthema.
+Die optionalen Profile bauen je Kandidat ein **Normpaket** aus dem Normtitel,
+zur Anfrage passenden Gesetzespassagen und vorhandenen Katalogankern.
+Das kann verteilte Signale zusammenführen, aber scharfe Einzelanker verwässern.
+Ein Scope wird ausschließlich durch `rechtsgebiete` aus dem Host-Workflow oder
+der Beraterauswahl vorgegeben; ohne diese Option erfolgt keine Gesetzeseinschränkung.
+Eine automatische Scope-Schätzung aus bloßem Text ist nicht Teil dieser Profile.
+Voraussetzungen und getrennte CLI-Beispiele stehen unter
+[Experimentelle Semantikprofile](#experimentelle-semantikprofile).
 
 Kuratierte Cards sind keine Rechtsentscheidung. Sie liefern **Evidenz für eine Norm**.
 Bewertet, freigegeben und produktiv übernommen werden sie erst nach fachlicher
@@ -187,7 +194,7 @@ python -m risk_layer.cli analyse examples/beispiel_organschaft.txt
 # Linux:
 python -m pip install --require-hashes --only-binary=:all: -r requirements-embedding-linux-cpu-py312-lock.txt
 # Windows ohne unterstützte GPU: requirements-embedding-windows-cpu-py312-lock.txt
-# Windows 11 + unterstützte AMD Radeon (ROCm 7.2.1):
+# Windows 11 + unterstützte AMD Radeon (ROCm 10.2.0, Adrenalin 26.11.2):
 python -m pip install --no-build-isolation --require-hashes -r requirements-embedding-windows-amd-py312-lock.txt
 set RISK_LAYER_EMB_DEVICE=cuda
 risk-layer embedding build      # einmalig — baut den Korpus-Index (+ Paraphrasen-Anker)
@@ -198,8 +205,11 @@ Produktion und optionale Backends werden getrennt gelockt: der schlanke
 Quanten besitzen je einen unter Linux beziehungsweise Windows/Python 3.12
 erzeugten Hash-Lock. Die Deploy-Skripte lösen keine ML-/Qiskit-Ranges mehr zur
 Installationszeit auf. Unter Windows nutzt das Setup für offiziell unterstützte
-AMD-Radeon-GPUs den separaten ROCm-7.2.1/PyTorch-2.9.1-Lock; andere Hosts fallen
-auf den CPU-Lock zurück. PyTorch adressiert auch ROCm-Geräte über `cuda`.
+AMD-Radeon-GPUs den separaten Lock mit ROCm 10.2.0 und PyTorch 2.15.0. Er enthält
+die Gerätemodule für gfx1100, gfx1101, gfx1200 und gfx1201. AMD validiert dafür
+Windows 11 25H2 mit dem Adrenalin-Treiber 26.11.2. Der Treiber wird separat
+installiert. Innerhalb von PyTorch werden ROCm-Geräte mit `cuda` angesprochen.
+[AMD-Kompatibilitätsmatrix](https://rocm.docs.amd.com/en/docs-10.2.0/compatibility/compatibility-matrix.html)
 
 ### Sicherer Autostart
 
@@ -261,7 +271,7 @@ for karte in report.luecken:
     print("Lücke:", karte.rechercheauftrag)
 ```
 
-### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.4.0`)
+### `/v1`-Endpunkte (der Integrationsvertrag, Engine-Version `1.5.0`)
 
 `GET /v1/health` · `GET /v1/status` · `POST /v1/analyse` · `GET /v1/katalog` ·
 `POST /v1/katalog/definiere` · `POST /v1/katalog/review` · `GET /v1/radar` ·
@@ -302,6 +312,9 @@ manifestierter `corpus/embedding` bleibt der Legacy-Fallback),
 `RISK_LAYER_WEBHOOK_ALLOW` (Host[:Port]-Allowlist für den Recherche-Webhook;
 außerhalb von Loopback ist HTTPS Pflicht, SSRF-/DNS-Rebinding-Schutz),
 `RISK_LAYER_EMB_DEVICE` (Embedding-Encoder-Gerät, Default `cuda`),
+`RISK_LAYER_RERANKER` (Reranker-Auswahl der Engine, ohne Vorgabe weiterhin BGE;
+`bge-qwen3-reranker-4b` stellt zusätzlich die BGE-Vorauswahl für die expliziten
+Profile `kaskade`, `praezision`, `dokument` und `treffer` bereit, wählt das Profil aber nicht selbst),
 `RISK_LAYER_NER` (`aus` ⇒ Anonymisierung rein regex-basiert, ohne spaCy-NER),
 `RISK_LAYER_RERANK_SCHWELLE` (Abstention-Schwelle des Rerankers, Default `0.10`),
 `RISK_LAYER_LLM_BACKEND` (`auto|cpu|gpu`; `cpu` erzwingt `-ngl 0` und meldet
@@ -419,11 +432,10 @@ Bestand diffuse Verdrängung erzeugen; für breite Schema-Normen sind deshalb
 tatbestand- bzw. absatznahe Cards vorzuziehen. Das Modell liefert nur Vektoren;
 verglichen wird gegen den Korpus — nie Modellgedächtnis.
 
-**Scope+Rerank.** Der Reranker ist nicht als Reparatur eines beliebig großen
-Flat-Index gedacht. Der Zielpfad ist scope-aware: Rechtsraum bestimmen, Kandidaten
-im Scope bilden, dann Reranker und Norm-Aggregation. Oracle-Scope-Läufe zeigen
-deutlich bessere Stabilität gegen cross-law-Verdrängung; deploybare Scope-Quellen
-sind Host-Workflow, Beraterauswahl oder später ein lokaler Klassifikator.
+**Scope+Rerank.** Die optionalen Profile können Kandidaten auf explizit ausgewählte
+Gesetze einschränken, bevor Normpakete gerankt werden. Historische Oracle-Scope-Läufe
+motivieren diesen Ansatz; sie belegen keine automatische Scope-Erkennung.
+Der bisherige Standardpfad und seine Voreinstellung bleiben bestehen.
 
 ```bash
 risk-layer embedding build               # baut den Index (+ Katalog-Paraphrasen-Anker)
@@ -458,6 +470,226 @@ als `index_aktuell` im `engine_status`) — Abhilfe: `embedding build` erneut.
 > Schema-Normen rollen per `para_level` auf ihre §-Zielnorm hoch (📌 s.
 > [FEATURES.md](FEATURES.md) §3). Ein **lautes Audit** meldet beim Build jeden
 > *toten Anker* (Paraphrase ohne Index-Ziel).
+
+### Experimentelle Semantikprofile
+
+Die Profilwahl betrifft ausschließlich semantische Normvorschläge. Harte
+Markierungen behalten ihren bisherigen Prüfungsgegenstand. Die neuen Profile
+bleiben optional. Im vorhandenen Entwicklungsset erreicht die gewählte
+Kaskadenregel 68/102 positive Zieltreffer bei Fehlvorschlägen auf 11/30 neutralen
+Fällen (Standard: 41/102 und 13/30). Auf den zusätzlichen 30 historischen Fällen
+fällt die Gegenprobe jedoch in beiden Maßen schlechter aus: 13/15 positive
+Zieltreffer statt 15/15 und Fehlvorschläge auf 8/15 neutralen Fällen statt 6/15.
+Diese Fälle sind kein neues Blindset. Deshalb bleibt der Standard voreingestellt.
+Eine großzügigere experimentelle Qwen-Regel
+erreicht 80/102, verursacht aber auf 21/30 neutralen Fällen Fehlvorschläge.
+Diese Variante wird deshalb nicht als Profilregel übernommen. Versuchsaufbau,
+zusätzliche historische Fälle und Grenzen stehen im
+[Qualitätsbericht](benchmarks/quality-experiments-2026-09-07.md).
+
+| Profil | Kandidaten und Reranking |
+|---|---|
+| `standard` | Bisherige Suche je Satz; Standardwert, auch mit vorhandenen Indizes nutzbar. |
+| `normpaket` | Bis zu 20 Kandidaten je Satz; Reranking mit zur Anfrage passenden Normpaketen. |
+| `kontext` | Einbeziehung von Nachbarsätzen; kombinierte Basis-/Passagensuche mit bis zu 60 Kandidaten. |
+| `kaskade` | Kombinierte Basis-/Passagensuche je Satz mit bis zu 200 Kandidaten; BGE wählt 20 für Qwen3-Reranker-4B vor. Ausgabe erst ab Qwen-Wert `0.50`, ohne Ähnlichkeitsrettung. |
+| `treffer` | Bis zu 200 Normkandidaten je Satz. BGE wählt aus höchstens acht Quellfenstern je Norm bis zu zwei passende Passagen und bewertet anschließend das vollständige Normpaket mit vorhandenen Katalogankern. Die besten 20 Pakete gehen mit englischer Relevanzinstruktion und 2048 Token Budget an Qwen3-Reranker-4B; Ausgabe ab `0.50`. |
+| `praezision` | Bis zu 200 Kandidaten, BGE-Vorauswahl von 20, darin BGE-Mindestbewertung vor Qwen. Normpakete enthalten zur Anfrage passende Quellpassagen und vorhandene Kataloganker. |
+| `dokument` | BGE-Vorauswahl von 50 und dieselbe Mindestbewertung vor Qwen. Normpakete enthalten die erste lebende Quellpassage und eine zur Anfrage passende weitere Passage. Bis zu zwei tatsächliche Nachbarsätze je Seite innerhalb desselben Absatzes; Kontextbudget 900 Zeichen. Vorschläge zeigen Kontextrelevanz, keine bestätigte Anwendbarkeit am einzelnen Satz. |
+
+Die neuen Profile liefern höchstens fünf Normen je Bezugssatz. Bei `normpaket`
+und `kontext` verlangt die Ähnlichkeitsrettung zusätzlich einen Rerankerwert
+von mindestens `0.01`: `rerank >= 0.10` oder (`sim >= 0.55` und `rerank >= 0.01`).
+`kaskade` und `treffer` verwenden die vorab deklarierte Regel `rerank >= 0.50` ohne
+Ähnlichkeitsrettung. Die bisherige Rettungsregel von `standard` bleibt unverändert.
+`praezision` und `dokument` filtern innerhalb ihrer BGE-Vorauswahl von 20 beziehungsweise 50 auf
+`BGE >= 0.10` oder (`sim >= 0.55` und `BGE >= 0.01`). Nur diese Kandidaten gehen
+an Qwen; entfernte Plätze werden nicht aufgefüllt. Die Ausgabe verlangt danach
+`Qwen >= 0.50`. Alle Schwellen verwenden Rohwerte.
+Bei `dokument` ist der erste Quellausschnitt eine Auswahl nach Originalposition, keine
+generierte Zusammenfassung. Überschneidender Quelltext wird nicht doppelt
+verwendet; das Normpaket bleibt auf 2200 Zeichen begrenzt.
+Vergleiche der Paketwahl, Vorauswahl und Gegenprüfungen stehen im
+[Präzisionsversuch](benchmarks/quality-precision-2026-09-07.md). Die verwendeten
+Fälle sind bereits betrachtete Entwicklungsdaten; Treffer einer erwarteten
+Norm in den Top5 sind keine Messung der Richtigkeit jedes Vorschlags.
+
+`treffer` ergänzt eine Modellbewertung der Quellpassagen vor der Bewertung
+des gesamten Normpakets. Innerhalb des Paketbudgets von 2200 Zeichen bleiben
+bis zu zwei vorhandene Kataloganker erhalten, um Alltagssprache mit dem
+Gesetzeswortlaut zu verbinden.
+Die abschließende Qwen-Instruktion ist Englisch; Sachverhalte und Quellen
+bleiben unverändert deutsch. Das Profil liefert weiterhin Normvorschläge,
+keine Bestätigung eines Rechtsverstoßes. Vollständige Vergleiche einschließlich
+verworfener Varianten stehen im [Trefferversuch](benchmarks/quality-recall-2026-09-07.md).
+Eine [Reproduktionsanleitung](benchmarks/recall-reproduction.md) beschreibt die
+GPU-Läufe und die unabhängige Nachprüfung der Rohartefakte.
+Die [Fehlerstufenanalyse](benchmarks/recall-error-stages-2026-09-07.md) zeigt
+getrennt, welche erwarteten Normen bei Suche, Vorauswahl oder Endbewertung
+verloren gehen und wie viele Ziele innerhalb eines getroffenen Falls fehlen.
+
+Der vollständige frische GPU-Lauf von `treffer` bestätigt **80/102** Hauptfälle
+gegenüber **68/102** bei der bisherigen `kaskade`; zwölf Fälle werden zusätzlich
+getroffen, keiner der bisherigen Trefferfälle geht verloren. Im Zusatzsatz
+bleiben es **13/15**. Die erreichten historischen Einzelnormen steigen im
+Hauptsatz von **84 auf 99 von 176**, im Zusatzsatz bleiben es **18/27**.
+Negativfälle mit Vorschlag liegen bei **11/30** beziehungsweise **7/15**
+(vorher 11/30 und 8/15). Die unterschiedlichen negativen Fall-Norm-Paare steigen
+jedoch von **29 auf 30** und **11 auf 14**. Der Gewinn an Falltreffern belegt
+damit keine durchgängige Verbesserung der Vorschlagspräzision.
+
+Der vollständige Qwen3-Reranker-8B-Vergleich mit den ursprünglichen Normpaketen
+erreicht bei Top20 wie Top50 nur **75/102** Hauptfälle und **12/15** Zusatzfälle.
+Im Zusatzsatz verursacht er zudem mehr Fehlvorschläge. Die englische
+4B-Kontrolle auf denselben Top20 erreicht 77/102 und 13/15. Das größere Modell
+wird für `treffer` deshalb nicht eingesetzt. Auch die erprobten Anfragefilter
+und das Mittel mehrerer Instruktionsscores werden wegen Trefferverlusten,
+zusätzlicher Fehlvorschläge oder Wirkungslosigkeit nicht aktiviert.
+
+Für diese zweite Frage gibt es einen [Bewertungsworkflow](benchmarks/adjudication-workflow.md):
+`tools/quality_adjudication.py` exportiert unveränderte Vorschläge mit leeren
+Fachlabels, berechnet Kennzahlen ausschließlich auf ausdrücklich bewerteten
+Einträgen und bereitet getrennte Trainingspaare vor. Unbekannte oder fehlende
+Labels werden dabei nicht zu negativen Beispielen gemacht.
+
+`tools/quality_norm_check_probe.py` erprobt eine zusätzliche generative
+Gegenprüfung mit einem bereits laufenden lokalen JSON-LLM-Server. Sie verlangt
+wörtliche Belege aus tatsächlichem Sachverhaltskontext und Originalnormpassagen;
+Kataloganker sind keine Belege. Die Quellprüfung bestätigt Textvorkommen,
+kein Fachurteil. Diese Gegenprüfung ist kein Bestandteil der Benutzerprofile.
+Im vollständigen Granite-Versuch fiel Hit@5 im Hauptset von 67/102 auf 46/102,
+während Negativfälle mit Vorschlag nur von 12/30 auf 10/30 sanken. Diese
+Verschlechterung ist im Präzisionsbericht enthalten.
+Der Versuch mit zwei binären Fragen an den Qwen-Reranker ist ebenfalls getrennt
+ausgewiesen und wegen unbrauchbarer Widerspruchsantworten nicht aktiviert.
+Eine [Reproduktionsanleitung](benchmarks/precision-reproduction.md) beschreibt
+den vollständigen Ablauf mit den veröffentlichten Prüfwerkzeugen.
+
+**Gemessene Pipeline-Laufzeit.** In einem einzelnen lokalen Durchlauf auf der
+RX 9070 XT mit 162 Fällen pro Profil betrug der Median nach Laden und Aufwärmen
+der Modelle `0,330 s` für `normpaket`, `0,460 s` für `kontext` und `2,605 s`
+für `kaskade`. Bei `kaskade` lagen das 95. Perzentil bei `11,215 s` und der
+langsamste Fall bei `25,984 s`. Modellladezeit und Aufwärmläufe sind separat
+erfasst; Messaufbau und Abweichungen stehen im
+[Qualitätsbericht](benchmarks/quality-experiments-2026-09-07.md).
+
+Im separaten frischen GPU-Lauf der endgültigen Profile lag der Median bei
+`1,602 s` für `praezision` und `1,099 s` für `dokument`; das 95. Perzentil bei
+`5,194 s` bzw. `8,525 s`. Auch hier sind Laden und Aufwärmen ausgeschlossen,
+NER und Lemma ausgeschaltet. Zwei Normlisten wichen vom Replay mit gespeicherten
+Scores ab, ohne Änderung der historischen Fallmetriken. Die vollständigen
+Vergleiche stehen im [Präzisionsbericht](benchmarks/quality-precision-2026-09-07.md).
+
+Im frischen `treffer`-Lauf mit allen 162 Fällen lag der Median bei **5,386 s**,
+das 95. Perzentil bei **24,275 s** und das Maximum bei **53,623 s**. Laden und
+Aufwärmen sind ausgeschlossen; NER und Lemma sind ausgeschaltet. Drei Normlisten
+und drei Rangfolgen wichen vom gespeicherten Strukturversuch ab, ohne Änderung
+der historischen Kennzahlen. Zusätzliche Normketten der vollständigen Pipeline
+und kleinere Scoreabweichungen werden getrennt ausgewiesen. Alle 1567 tatsächlich
+ausgegebenen Quellpassagen bestanden die Prüfung ihrer Originaloffsets;
+harte Markierungen blieben gleich. Die Messung steht im
+[Trefferversuch](benchmarks/quality-recall-2026-09-07.md).
+
+**Separaten Index bauen und lokal ausprobieren.** Alle Passagenprofile
+benötigen einen mit `--passagen` gebauten BGE-M3-Index, den dazugehörigen Normgraphen,
+Encoder und Reranker. Ein vorhandener Basisindex genügt dafür nicht. Ausgehend
+vom vorhandenen `corpus/graph.sqlite` bauen diese Befehle ein eigenes Verzeichnis
+und verwenden es nur für den angegebenen CLI-Lauf:
+
+```bash
+python -m risk_layer.cli embedding build --graph-db corpus/graph.sqlite --dir out/embedding-passagen --encoder bge-m3 --device cuda --passagen
+python -m risk_layer.cli analyse examples/beispiel_organschaft.txt --no-schicht2 --graph corpus/graph.sqlite --embedding-dir out/embedding-passagen --semantik-profil normpaket --reranker bge-reranker-v2-m3
+python -m risk_layer.cli analyse examples/beispiel_organschaft.txt --no-schicht2 --graph corpus/graph.sqlite --embedding-dir out/embedding-passagen --semantik-profil kontext --reranker bge-reranker-v2-m3
+```
+
+Die Befehle setzen ein eingerichtetes Embedding-/GPU-Backend voraus;
+`RISK_LAYER_EMB_DEVICE` muss für diese Analysepfade auf `cuda` bzw. `cuda:0`
+stehen. Der Build erweitert die gespeicherten Vektoren um Gesetzespassagen und
+Ankerevidenz und bindet sie über Fingerprints an Graph, Katalog und Encoder.
+`--embedding-dir` gilt nur für den lokalen Analyseaufruf. Weder dieser Build
+noch die Analyse stellen den aktiven Index oder den laufenden API-Dienst um.
+
+Für den separaten Kaskadenvergleich werden zusätzlich die lokalen Modelle
+BGE-Reranker-v2-M3 und Qwen3-Reranker-4B benötigt:
+
+```bash
+python -m risk_layer.cli analyse examples/beispiel_organschaft.txt --no-schicht2 --graph corpus/graph.sqlite --embedding-dir out/embedding-passagen --semantik-profil kaskade --reranker bge-qwen3-reranker-4b
+python -m risk_layer.cli analyse examples/beispiel_organschaft.txt --no-schicht2 --graph corpus/graph.sqlite --embedding-dir out/embedding-passagen --semantik-profil praezision --reranker bge-qwen3-reranker-4b
+python -m risk_layer.cli analyse examples/beispiel_organschaft.txt --no-schicht2 --graph corpus/graph.sqlite --embedding-dir out/embedding-passagen --semantik-profil treffer --reranker bge-qwen3-reranker-4b
+```
+
+Die Engine kann denselben Reranker über
+`RISK_LAYER_RERANKER=bge-qwen3-reranker-4b` auswählen. Diese Einstellung betrifft
+den Reranker der gesamten Engine; die Profile `kaskade`, `praezision`,
+`dokument` und `treffer` aktivieren die Auswahl mit BGE und Qwen. `--reranker` überschreibt die Umgebungswahl für einen
+CLI-Lauf. Ein Wechsel des Rerankers ist kein automatischer Wechsel des Profils.
+
+**Experimenteller Rechercheagent.** `tools/research_local.py` ergänzt einen
+separaten lokalen Pfad: Ein generatives Modell liest den ganzen Sachverhalt,
+formuliert eigene Suchanfragen, liest Originalquellen und folgt Verweisen.
+Thinking und Quellenwerkzeuge besitzen getrennte Budgets. Das Modell wählt
+Belegkennungen; Signal übernimmt deren unveränderten Originalwortlaut und
+prüft die tatsächlichen Quellpositionen. Optional verbindet `--retrieval hybrid`
+die Wortsuche mit einem persistenten BGE-M3-Encoder auf der CPU und hält so den
+VRAM für den Generator frei. `--catalog catalog/begriffe.yaml` ergänzt begrenzte
+Begriffs- und Normhinweise aus dem Katalog; die semantische Auswahl verwendet
+denselben CPU-Suchvektor. Solche Hinweise ersetzen keine gelesenen Originalbelege.
+Ein 35B-MoE-Modell wurde mit teilweise auf CPU gehaltenen Experten auf der
+16-GB-GPU erprobt. Die [Pilotmessungen](benchmarks/research-model-pilot-2026-09-08.md)
+und der [Vergleich aller 30 Zusatzfälle](benchmarks/research-additional-2026-09-08.md)
+trennen bekannte Zieltreffer, Negativausgaben und Belegfehler. Die zusätzliche
+[Modellnachprüfung](benchmarks/research-model-review-2026-09-08.md) und der
+[gezielte Kontextversuch](benchmarks/research-source-context-2026-09-08.md)
+belegen noch keinen weiteren Qualitätsgewinn. Ein vollständiger Qualitätsvergleich
+aller 162 Entwicklungsfälle steht noch aus. Einstieg und reproduzierbare Befehle stehen unter
+[Lokale Recherche](benchmarks/research-reproduction.md), die Architektur und
+Versuchsbedingungen im [Rechercheprotokoll](benchmarks/research-agent-protocol.md).
+
+**API und Rechtsgebiete.** Bei einem bereits mit den passenden Ressourcen
+konfigurierten Dienst nimmt `POST /v1/analyse` beispielsweise folgenden Body an:
+
+```json
+{
+  "text": "Die Buchführung weist erhebliche Mängel auf.",
+  "mitLLM": false,
+  "optionen": {
+    "semantik_profil": "kontext",
+    "rechtsgebiete": ["AO", "EStG"]
+  }
+}
+```
+
+`rechtsgebiete` ist optional und begrenzt nur die semantischen Kandidaten auf
+die genannten Gesetz-IDs. In der CLI entspricht das etwa
+`--rechtsgebiet AO --rechtsgebiet EStG`. Erlaubt sind höchstens 32 IDs gemäß
+`[A-Za-z][A-Za-z0-9_-]{0,63}`. Der Default ist eine leere Liste ohne
+Gesetzeseinschränkung; ein nichtleerer Scope ist nur mit `normpaket`, `kontext`,
+`kaskade`, `praezision`, `dokument` oder `treffer` zulässig. Die API wählt keinen Indexpfad oder Reranker pro Anfrage.
+
+Ungültige Typen (auch `null`) und `standard` mit nichtleerem Scope ergeben
+HTTP `400`, unbekannte Profile oder ungültige ID-Formate `422`, überschrittene
+Listen-/ID-Längen `413`. Nicht konfigurierte Profilressourcen und erkannte
+Inkonsistenzen zwischen Index, Graph und Katalog ergeben `503` (CLI: Exitcode
+`2`), ohne auf `standard` zurückzufallen. Fehler beim späteren Modellladen oder
+bei der Ausführung sind davon getrennt: Ein `RuntimeError`, etwa durch fehlende
+Modellgewichte, ergibt HTTP `500` beziehungsweise CLI-Exitcode `1` mit Traceback.
+`engine_status.optionen` ergänzt das gewählte Profil nur bei
+Abweichung von `standard` und die Rechtsgebiete nur bei nichtleerem Scope.
+
+Vorschläge der neuen Profile enthalten zusätzlich `profil`, den verwendeten
+`kontext` mit Originaloffsets sowie je Norm `evidenz` mit Fingerprint,
+Gesetzespassagen, deren Quelloffsets und Katalogankern. Nachbarsätze erklären
+den Suchkontext; sie sind keine Aussage, dass jede vorgeschlagene Norm auf
+jeden einzelnen Bezugssatz anwendbar ist.
+
+Text- und HTML-Berichte der CLI zeigen diese semantischen Vorschläge jetzt
+ebenfalls an. Identische Normlisten für denselben Suchkontext erscheinen
+gemeinsam mit ihren Bezugstextstellen. Originalpassagen und vorhandene
+Kataloganker bleiben getrennt; im HTML lassen sich die Belege je Norm
+aufklappen. Der vollständige API-Vertrag steht in der
+[TaxTronik-Integration](INTEGRATION_TAXTRONIK.md).
+
+### Normketten
 
 **Normketten — Fundstellen als Kaskaden.** Eine Fundstelle ist oft eine Kette
 (*„§ 14 KStG iVm § 2 Abs. 2 GewStG"*). Treffer und Vorschläge liefern die **ganze

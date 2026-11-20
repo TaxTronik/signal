@@ -111,6 +111,9 @@ class Katalogeintrag:
     # Schicht 1b – Beschreibungs-/Negativbefund-Muster (Ko-Okkurrenz je Satz).
     # Jede Spec: {"gruppen": [[glied, ...], ...]}; trifft, wenn aus JEDER Gruppe
     # mindestens ein Glied im selben Satz vorkommt. Rein deterministisch.
+    # Optional: "ausschlusswoerter": [wortpraefix, ...] ignoriert Glied-Funde,
+    # die dort beginnen. Explizite Phrasen davor und andere Satzsignale bleiben.
+    # "verneinbare_nomen" benennt Wortformen für lokale Verneinungen wie "ohne Mängel".
     ausloeser: tuple[Mapping[str, Any], ...] = ()
     # Schicht 1.7 – kuratierte LAIEN-Umschreibungen für den Embedding-Index. Werden
     # MIT den Norm-Ankern eingebettet, damit alltagssprachliche Sachverhalte den

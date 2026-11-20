@@ -34,7 +34,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .anonymize import ner_status
 from . import __version__
-from .api_v1 import V1_VERSION, dispatch
+from .api_v1 import V1_VERSION, bekannter_pfad, dispatch
 from .berater import BeraterFehler, BeraterStore
 from .catalog import lade_katalog
 from .graph import DEFAULT_DB, graph_oeffnen
@@ -543,25 +543,29 @@ class Anwendung:
 
     def analyse(self, text: str, *, unknown: bool, berater: bool, nutzer: str | None,
                 schicht2: bool = False, llm_url: str | None = None,
-                abweichung: bool = False, lemma: bool = False) -> dict[str, Any]:
+                abweichung: bool = False, lemma: bool = False,
+                semantik_profil: str = "standard",
+                rechtsgebiete: tuple[str, ...] = ()) -> dict[str, Any]:
         store = self._berater() if berater else None
         # Lauf-Optionen gebündelt über AnalyseOptionen (Single Source of Truth der
         # Defaults in pipeline.py); Ressourcen-Objekte bleiben Einzel-Parameter.
         # Trigger-Detektor + Streit-Verstärker sind in /v1 immer aktiv.
         with self._embedding_runtime_lock:
             embedding, embedding_encoder = self._embedding_runtime
+            reranker = self.reranker
             engine_status = copy.deepcopy(self._engine_status)
         report = self.pipeline.run(
             text,
             optionen=AnalyseOptionen(unknown=unknown, nutzer=nutzer,
                                      abweichung=abweichung,
                                      detektor=True, streit=True,
-                                     lemma=lemma),
+                                     lemma=lemma, semantik_profil=semantik_profil,
+                                     rechtsgebiete=rechtsgebiete),
             berater=store, graph=self.graph,
             provider=self._provider(schicht2, llm_url), trigger=self.trigger,
             embedding=embedding,
             embedding_encoder=embedding_encoder,
-            reranker=self.reranker)
+            reranker=reranker)
         res = antwort_json(report, text)
         # Degradations-Nachweis JE Analyse (Haftungsakte): der Startup-Status
         # (welche Schichten KONNTEN laufen) plus die effektiven Lauf-Optionen
@@ -573,6 +577,14 @@ class Anwendung:
             "optionen": {"unknown": unknown, "berater": berater,
                          "abweichung": abweichung, "mit_llm": schicht2},
         }
+        # Neue Optionen nur bei expliziter Abweichung ergaenzen; der bestehende
+        # Default-Status bleibt exakt erhalten, inklusive seiner Feldmenge.
+        if lemma:
+            res["engine_status"]["optionen"]["lemma"] = True
+        if semantik_profil != "standard":
+            res["engine_status"]["optionen"]["semantik_profil"] = semantik_profil
+        if rechtsgebiete:
+            res["engine_status"]["optionen"]["rechtsgebiete"] = list(rechtsgebiete)
         return res
 
     def definiere(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1114,12 +1126,16 @@ def make_handler(app: Anwendung):
                 extra = {"Allow": str(obj["allow"])}
             self._json(code, obj, extra)
 
+        def _log_pfad(self) -> str:
+            pfad = self.path.partition("?")[0]
+            return pfad if bekannter_pfad(pfad) else "<unbekannter Pfad>"
+
         def _401(self):
             # Fehlgeschlagene Auth SICHTBAR machen (Betreiber-Log): Quell-IP +
             # Pfad – NIE Token-Inhalte. Erfolgreiche Requests bleiben bewusst
             # still (log_message oben).
             _log.warning("401 unauthorized: %s %s von %s", self.command,
-                         urlparse(self.path).path, self.client_address[0])
+                         self._log_pfad(), self.client_address[0])
             self._json(401, {"error": "unauthorized"})
 
         def _operator_auth_ok(self) -> bool:
@@ -1135,7 +1151,7 @@ def make_handler(app: Anwendung):
             _log.warning(
                 "Operatorzugriff verweigert: %s %s von %s",
                 self.command,
-                urlparse(self.path).path,
+                self._log_pfad(),
                 self.client_address[0],
             )
             if not operator_configured:
@@ -1247,15 +1263,14 @@ def make_handler(app: Anwendung):
 
         def _403_herkunft(self) -> None:
             _log.warning("403 untrusted browser origin/host: %s %s von %s",
-                         self.command, urlparse(self.path).path,
+                         self.command, self._log_pfad(),
                          self.client_address[0])
             self._json(403, {"error": "unzulässige Request-Herkunft"})
 
         def _fehler_500(self, exc: Exception) -> None:
-            # § 203 / Info-Leak: roher Exception-Text kann Mandantentext-Fragmente
-            # oder interne Pfade enthalten → NICHT an den Client. Server-seitig voll
-            # loggen (Betreiber-Log), dem Client nur die Fehlerklasse melden.
-            _log.exception("Unbehandelter /v1-Fehler bei %s %s", self.command, urlparse(self.path).path)
+            # Modell- und Parserfehler können Eingabetext oder Credentials enthalten.
+            _log.error("Unbehandelter /v1-Fehler bei %s %s (%s)",
+                       self.command, self._log_pfad(), type(exc).__name__)
             self._json(500, {"error": "interner Fehler", "typ": type(exc).__name__})
 
         # -- Routen (ausschließlich /v1) --------------------------------
@@ -1289,12 +1304,12 @@ def make_handler(app: Anwendung):
                     return
                 if not self._auth_ok():
                     _log.warning("401 unauthorized: %s %s von %s", self.command,
-                                 _p.path, self.client_address[0])
+                                 self._log_pfad(), self.client_address[0])
                     self._json(401, {"error": "unauthorized"}, write_body=False)
                     return
                 if not self._herkunft_ok():
                     _log.warning("403 untrusted browser origin/host: %s %s von %s",
-                                 self.command, _p.path, self.client_address[0])
+                                 self.command, self._log_pfad(), self.client_address[0])
                     self._json(403, {"error": "unzulässige Request-Herkunft"},
                                write_body=False)
                     return

@@ -81,10 +81,11 @@ def test_release_tools_zipapp_verifier_faellt_ohne_manifest_laut(tmp_path):
         cwd=tmp_path,
         capture_output=True,
         check=False,
-        text=True,
     )
     assert result.returncode != 0
-    assert "Deployment-Manifest abgelehnt" in result.stderr
+    # -I ignoriert PYTHONUTF8. Der ASCII-Präfix ist auch dann
+    # lesbar, wenn Eltern- und Kindprozess verschiedene Codepages nutzen.
+    assert b"Deployment-Manifest abgelehnt" in result.stderr
 
 
 def test_release_tools_zipapp_enthaelt_container_deployer(tmp_path):

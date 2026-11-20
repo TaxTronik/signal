@@ -143,7 +143,7 @@ def lade_paragraph_texte(graph_pfad: Path) -> list[tuple[str, str]]:
     try:
         rows = con.execute(
             "SELECT id, text FROM knoten "
-            "WHERE absatz IS NULL AND nummer IS NULL ORDER BY id").fetchall()
+            "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%' ORDER BY id").fetchall()
     finally:
         con.close()
     return [(r[0], r[1] or "") for r in rows]

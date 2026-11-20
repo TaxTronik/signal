@@ -23,6 +23,7 @@ from typing import Any
 
 from .berater import REVIEW_REIHENFOLGE
 from .models import GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN
+from .semantic_search import SemanticResourcesUnavailable
 
 # 1.1.0: additiv – neue Route POST /v1/katalog/review (Review-Lebenszyklus des
 # geteilten Festwissens läuft jetzt durch /v1, damit der Host die Freigabe in
@@ -43,7 +44,8 @@ from .models import GUELTIGE_GOVERNANCE, GUELTIGE_SCHADEN
 # und fail-closed Prüfung manipulierter bzw. nur teilweise belegter Nachweise.
 # 1.4.0: additive, getrennt operator-authentisierte Embedding-Status-, Refresh-
 # und Schedule-Routen. Analyse-/Suchvertraege bleiben unveraendert.
-V1_VERSION = "1.4.0"
+# 1.5.0: explizite Semantikprofile und Rechtsgebiete für /v1/analyse.
+V1_VERSION = "1.5.0"
 
 _MAX_FESTWISSEN_BEGRIFF = 512
 _MAX_FESTWISSEN_TEXT = 100_000
@@ -55,6 +57,10 @@ _MAX_DATUM_CHARS = 64
 _MAX_LOS_JOB_ID_CHARS = 512
 _MAX_IBM_TOKEN_CHARS = 16_384
 _MAX_LOS_ROH_HEX_CHARS = 2_000_000
+_SEMANTIK_PROFILE = ("standard", "normpaket", "kontext", "kaskade", "praezision", "dokument", "treffer")
+_MAX_RECHTSGEBIETE = 32
+_MAX_RECHTSGEBIET_CHARS = 64
+_RECHTSGEBIET_ID = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 
 
 def _pii_rest_fuer_felder(felder: list[tuple[str, str]]) -> list[dict[str, str]]:
@@ -86,7 +92,8 @@ def _bool_feld(obj: dict[str, Any], feld: str) -> tuple[bool, str | None]:
 def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     """POST /v1/analyse – zustandsloser Lauf über einen Text.
 
-    Body:  {text, mitLLM?: bool, optionen?: {unknown?, berater?, abweichung?, lemma?}}
+    Body: {text, mitLLM?: bool, optionen?: {unknown?, berater?, abweichung?,
+           lemma?, semantik_profil?, rechtsgebiete?}}
     mitLLM steuert Schicht 2 (LLM). false ⇒ schnell/deterministisch (empfohlen für
     den ersten, synchronen Aufruf; den LLM-Lauf optional asynchron nachholen).
 
@@ -124,22 +131,47 @@ def _analyse(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         if fehler:
             return 400, {"error": f"Feld 'optionen.{feld}' muss true oder false sein"}
         optionen[feld] = wert
-    res = app.analyse(
-        text,
-        unknown=optionen["unknown"],
-        berater=False,                  # zustandslos: keine Berater-Store-Defs einmischen
-        nutzer=None,
-        schicht2=mit_llm,
-        # Bewusst KEIN client-geliefertes llm_url: auf der netz-exponierten
-        # Maschinen-API wäre das eine (blinde) SSRF – die Engine würde ihre
-        # LLM-Calls auf ein vom Aufrufer gewähltes Ziel lenken. Es gilt strikt
-        # der server-konfigurierte llama-server (self.llm_url).
-        llm_url=None,
-        abweichung=optionen["abweichung"],
-        # /LF50/: optionaler Lemma-Robustheitspfad (flektierte Katalogformen).
-        # Default False – Bestands-Clients erhalten byte-identische Antworten.
-        lemma=optionen["lemma"],
-    )
+    semantik_profil = opt.get("semantik_profil", "standard")
+    if not isinstance(semantik_profil, str):
+        return 400, {"error": "Feld 'optionen.semantik_profil' muss ein String sein"}
+    if semantik_profil not in _SEMANTIK_PROFILE:
+        return 422, {"error": "Feld 'optionen.semantik_profil' muss "
+                               "standard|normpaket|kontext|kaskade|praezision|dokument|treffer sein"}
+    rechtsgebiete = opt.get("rechtsgebiete", [])
+    if (not isinstance(rechtsgebiete, list)
+            or not all(isinstance(gesetz, str) for gesetz in rechtsgebiete)):
+        return 400, {"error": "Feld 'optionen.rechtsgebiete' muss eine Liste von Strings sein"}
+    if (len(rechtsgebiete) > _MAX_RECHTSGEBIETE
+            or any(len(gesetz) > _MAX_RECHTSGEBIET_CHARS for gesetz in rechtsgebiete)):
+        return 413, {"error": "Feld 'optionen.rechtsgebiete' erlaubt maximal "
+                               "32 Gesetz-IDs mit je 64 Zeichen"}
+    if any(_RECHTSGEBIET_ID.fullmatch(gesetz) is None for gesetz in rechtsgebiete):
+        return 422, {"error": "Feld 'optionen.rechtsgebiete' braucht Gesetz-IDs "
+                               "wie EStG oder AO (Buchstaben, Ziffern, _ und -)"}
+    if semantik_profil == "standard" and rechtsgebiete:
+        return 400, {"error": "optionen.rechtsgebiete erfordert ein Semantikprofil "
+                               "normpaket, kontext, kaskade, praezision, dokument oder treffer"}
+    try:
+        res = app.analyse(
+            text,
+            unknown=optionen["unknown"],
+            berater=False,                  # zustandslos: keine Berater-Store-Defs einmischen
+            nutzer=None,
+            schicht2=mit_llm,
+            # Bewusst KEIN client-geliefertes llm_url: auf der netz-exponierten
+            # Maschinen-API wäre das eine (blinde) SSRF – die Engine würde ihre
+            # LLM-Calls auf ein vom Aufrufer gewähltes Ziel lenken. Es gilt strikt
+            # der server-konfigurierte llama-server (self.llm_url).
+            llm_url=None,
+            abweichung=optionen["abweichung"],
+            # /LF50/: optionaler Lemma-Robustheitspfad (flektierte Katalogformen).
+            # Default False – Bestands-Clients erhalten byte-identische Antworten.
+            lemma=optionen["lemma"],
+            semantik_profil=semantik_profil,
+            rechtsgebiete=tuple(rechtsgebiete),
+        )
+    except SemanticResourcesUnavailable as exc:
+        return 503, {"error": str(exc)}
     res["engineVersion"] = V1_VERSION
     return 200, res
 
@@ -386,7 +418,9 @@ def _embedding_suche(app, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]
         return 200, {"treffer": [], "grund": "kein Embedding-Index",
                      "engineVersion": V1_VERSION}
     hits = embedding.suche(text, embedding_encoder, k=k, min_sim=0.0)
-    return 200, {"treffer": hits, "engineVersion": V1_VERSION}
+    # Suche/Ranking verwenden volle Präzision; nur die HTTP-Ausgabe runden.
+    return 200, {"treffer": [{**h, "sim": round(h["sim"], 3)} for h in hits],
+                 "engineVersion": V1_VERSION}
 
 
 def _embedding_status(app) -> tuple[int, dict[str, Any]]:
@@ -734,6 +768,10 @@ _POST_PFADE = frozenset({"/v1/analyse", "/v1/katalog/definiere", "/v1/katalog/no
                          "/v1/embedding/schedule",
                          "/v1/los/ziehen", "/v1/los/abholen", "/v1/los/pruefen",
                          "/v1/llm/start", "/v1/llm/stop"})
+
+
+def bekannter_pfad(pfad: str) -> bool:
+    return pfad in _GET_PFADE or pfad in _POST_PFADE
 
 
 def dispatch(app, method: str, pfad: str, payload: dict[str, Any],

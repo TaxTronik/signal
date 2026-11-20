@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools
 import re
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from .idschema import NormID, Quellentyp, UrteilID, VerwID
@@ -32,25 +32,47 @@ KONFIDENZ_STUFEN: tuple[Konfidenz, ...] = ("niedrig", "mittel", "hoch")
 _SCAN_PATTERN_CACHE: "weakref.WeakKeyDictionary[LawMap, re.Pattern[str]]" = (
     weakref.WeakKeyDictionary())
 
+# Ausgeschriebene Namen der Korpusgesetze, wie sie im laufenden Normtext stehen.
+_LANGNAMEN = {
+    "Abgabenordnung": "AO", "Aktiengesetz": "AktG", "Außensteuergesetz": "AStG",
+    "Bewertungsgesetz": "BewG", "Einkommensteuergesetz": "EStG",
+    "Erbschaftsteuer- und Schenkungsteuergesetz": "ErbStG",
+    "Finanzgerichtsordnung": "FGO", "Gewerbesteuergesetz": "GewStG",
+    "Grunderwerbsteuergesetz": "GrEStG", "Grundsteuergesetz": "GrStG",
+    "Grundgesetz": "GG", "Handelsgesetzbuch": "HGB", "Investmentsteuergesetz": "InvStG",
+    "Körperschaftsteuergesetz": "KStG", "Solidaritätszuschlaggesetz": "SolzG",
+    "Steuerberatungsgesetz": "StBerG", "Umsatzsteuergesetz": "UStG",
+    "Umwandlungsgesetz": "UmwG", "Umwandlungssteuergesetz": "UmwStG",
+    "Gesetz betreffend die Gesellschaften mit beschränkter Haftung": "GmbHG",
+    "Gesetzes betreffend die Gesellschaften mit beschränkter Haftung": "GmbHG",
+    "Gesetz über die Besteuerung bei Auslandsbeziehungen": "AStG",
+    "Gesetzes über die Besteuerung bei Auslandsbeziehungen": "AStG",
+    "Einkommensteuer-Durchführungsverordnung": "EStDV",
+    "Erbschaftsteuer-Durchführungsverordnung": "ErbStDV",
+    "Gewerbesteuer-Durchführungsverordnung": "GewStDV",
+    "Körperschaftsteuer-Durchführungsverordnung": "KStDV",
+    "Lohnsteuer-Durchführungsverordnung": "LStDV",
+    "Umsatzsteuer-Durchführungsverordnung": "UStDV",
+}
+for _name, _law in list(_LANGNAMEN.items()):
+    if _name.endswith(("gesetz", "gesetzbuch")):
+        _LANGNAMEN[_name + "es"] = _law
+    if _name.endswith("gesetzbuch"):
+        _LANGNAMEN[_name + "s"] = _law
+_LANGNAME_AM_ENDE = re.compile(r"\b(" + "|".join(
+    re.escape(name) for name in sorted(_LANGNAMEN, key=len, reverse=True)) + r")$")
+
 
 def _scan_pattern(lawmap: LawMap) -> re.Pattern[str]:
     pat = _SCAN_PATTERN_CACHE.get(lawmap)
     if pat is None:
-        law_alt = "|".join(re.escape(a) for a in lawmap.alle_aliase())
-        # {0,80}? statt *?: echte Zitate zwischen §-Nummer und Gesetz sind kurz
-        # (laengste Kette < 60 Zeichen). Die Begrenzung verhindert einen polynomialen
-        # Lazy-Scan auf gecraftetem Nutzertext ("§1 " + langer Nicht-Gesetz-Schwanz),
-        # da finde_normzitate im mitLLM-Pfad ueber den GANZEN Text laeuft.
-        # Der (?!…)-Wächter stoppt am SATZENDE (Punkt + Whitespace + Großbuchstabe):
-        # „… § 17 Abs. 2. Die AO regelt …" darf NICHT zu norm:AO:17:abs2 werden –
-        # das Gesetz gehört zum Folgesatz. Abkürzungspunkte in echten Zitaten
-        # („Abs. 2", „S. 1") folgt immer eine Ziffer, die bleiben erlaubt.
-        # Bewusster Verzicht: Ordinalformen („2. Halbsatz AO") werden dadurch
-        # nicht gescannt – die parste auch _DEPTH_RE nie (kein Recall-Verlust).
+        namen = sorted(set(lawmap.alle_aliase()) | _LANGNAMEN.keys(), key=len, reverse=True)
+        law_alt = "|".join(re.escape(a) for a in namen)
+        # Zwischen der Nummer und dem Gesetz dürfen nur Bestandteile eines
+        # Zitats stehen. Ein später im Satz genanntes Gesetz gehört sonst
+        # fälschlich zu einem vorangehenden relativen Verweis.
         pat = re.compile(
-            rf"(?:§§?|\bArt\.)\s*\d+"
-            rf"(?:(?!\.\s+[A-ZÄÖÜ])[\w.\s,–\-]){{0,80}}?"
-            rf"\b(?:{law_alt})\b")
+            rf"{_ZITAT_MIT_ZUSAETZEN}(?:\s+(?:des|der))?\s*\b(?P<quelle>{law_alt})\b(?![-\w])")
         _SCAN_PATTERN_CACHE[lawmap] = pat
     return pat
 
@@ -66,17 +88,23 @@ _TIEFE_KINDS = r"Absatz|Abs|Nummer|Nr|Satz|S|Buchstabe|Buchst|lit|Halbsatz|Halbs
 # Wert: Zahl mit optionalem Buchstabensuffix („8c") ODER reiner Buchstabe („a").
 _TIEFE_WERT = r"\d+[a-z]?|[a-z]"
 
-_DEPTH_RE = re.compile(
-    rf"(?P<kind>{_TIEFE_KINDS})\.?\s*"
-    rf"(?P<v1>{_TIEFE_WERT})"
-    rf"(?:\s*(?:bis|–|—|-)\s*(?P<v2>{_TIEFE_WERT})"
-    # „Satz 1 und 2" / „Nr. 2, 3 und 5": Aufzählung von Tiefenwerten (Spez. 2.2,
-    # Listen-Expansion). (?!\w) verhindert, dass der Einzelbuchstaben-Wert das
-    # erste Zeichen eines Folgeworts frisst („Satz 1 und folgende").
-    rf"|(?P<liste>(?:\s*(?:,|und)\s*(?:{_TIEFE_WERT})(?!\w))+))?"
-)
-
+_BEREICHS_TRENNER = r"(?:bis\b|[–—-])"
+_LISTENTRENNER = rf"(?:,|und\b|{_BEREICHS_TRENNER})"
 _PARA_NUM = re.compile(r"\d+[a-z]*")
+_PARA_KETTE = rf"{_PARA_NUM.pattern}(?:\s*{_LISTENTRENNER}\s*{_PARA_NUM.pattern})*"
+_TIEFEN_NUM = re.compile(rf"(?<![a-z])(?:{_TIEFE_WERT})(?!\w)")
+_TIEFEN_WERT = rf"(?:{_TIEFE_WERT})(?!\w)"
+_DEPTH_RE = re.compile(
+    rf"(?P<kind>{_TIEFE_KINDS})\.?\s*(?P<folge>{_TIEFEN_WERT}(?:\s*{_LISTENTRENNER}\s*{_TIEFEN_WERT})*)"
+)
+_NORMZEICHEN = r"(?:§§?|\bArt(?:ikel|\.)?)"
+_ZITATKERN = rf"{_NORMZEICHEN}\s*{_PARA_KETTE}(?:\s*{_DEPTH_RE.pattern})*"
+_ZITAT_MIT_ZUSAETZEN = rf"{_ZITATKERN}(?:(?<=[a-z])\.)?(?:\s+ff?\.)?"
+_MAX_ANKER_PRO_ZITAT = 4096
+
+
+class _ExpansionZuGross(ValueError):
+    """Die angegebene Liste kann nicht vollständig expandiert werden."""
 
 
 @dataclass(frozen=True)
@@ -116,8 +144,12 @@ def _label(kind: str) -> str:
 def _expand_range(v1: str, v2: str) -> list[str]:
     """Inklusiver Bereich für numerische oder einbuchstabige Grenzen."""
     if v1.isdigit() and v2.isdigit():
+        if max(len(v1), len(v2)) > 10:
+            raise _ExpansionZuGross
         a, b = int(v1), int(v2)
         if a <= b:
+            if b - a + 1 > _MAX_ANKER_PRO_ZITAT:
+                raise _ExpansionZuGross
             return [str(x) for x in range(a, b + 1)]
     if len(v1) == 1 and len(v2) == 1 and v1.isalpha() and v2.isalpha():
         a, b = ord(v1), ord(v2)
@@ -126,45 +158,38 @@ def _expand_range(v1: str, v2: str) -> list[str]:
     return [v1, v2]
 
 
-# Bereichsmarker zwischen §-Nummern: „bis", Gedankenstriche – und der einfache
-# Bindestrich, aber NUR zwischen zwei Nummern(-Suffixen) („14-17", „64a-65").
-# Der Lookahead auf eine Ziffer schützt Wortkopplungen („§ 6b-Rücklage") davor,
-# als Bereich gelesen zu werden.
-_PARA_BEREICH = re.compile(r"\bbis\b|–|—|[0-9a-z]\s*-\s*(?=\d)")
+def _expand_werte(text: str, muster: re.Pattern[str]) -> tuple[list[str], bool]:
+    """Expandiert nur benachbarte Werte mit einem ausdrücklichen Bereichstrenner."""
+    teile: list[str] = []
+    vorher: re.Match[str] | None = None
+    expandiert = False
+    for nummer in muster.finditer(text):
+        if vorher and re.fullmatch(_BEREICHS_TRENNER, text[vorher.end():nummer.start()].strip()):
+            teile.extend(_expand_range(vorher.group(), nummer.group())[1:])
+        else:
+            teile.append(nummer.group())
+        if len(teile) > _MAX_ANKER_PRO_ZITAT:
+            raise _ExpansionZuGross
+        expandiert = vorher is not None
+        vorher = nummer
+    return list(dict.fromkeys(teile)), expandiert
 
 
-def _expand_paras(para_part: str) -> tuple[list[str], bool]:
-    """Expandiert die §-Nummern (Liste/Bereich). Returns (paras, expandiert?)."""
-    nums = _PARA_NUM.findall(para_part)
-    if not nums:
-        return [], False
-    if _PARA_BEREICH.search(para_part) and len(nums) >= 2:
-        return _expand_range(nums[0], nums[-1]), True
-    if len(nums) > 1:                       # Liste: "14, 17"
-        return nums, True
-    return [nums[0]], False
-
-
-def _parse_depth(depth_part: str) -> tuple[list[tuple[tuple[str, str], ...]], bool]:
+def _parse_depth(depth_part: str, anzahl_paras: int) -> tuple[list[tuple[tuple[str, str], ...]], bool]:
     """Parst Tiefenmarker, kartesisch über Bereiche/Listen expandiert.
 
     Returns (Liste von Tiefen-Tupeln, expandiert?).
     """
     achsen: list[list[tuple[str, str]]] = []
     expandiert = False
+    kombinationen = anzahl_paras
     for m in _DEPTH_RE.finditer(depth_part):
         label = _label(m.group("kind"))
-        if m.group("v2"):
-            expandiert = True
-            werte = _expand_range(m.group("v1"), m.group("v2"))
-        elif m.group("liste"):
-            # „Satz 1 und 2" → s1, s2; „Nr. 2, 3 und 5" → nr2, nr3, nr5.
-            # findall mit Gruppe holt nur die Werte, nicht die Trenner.
-            expandiert = True
-            werte = [m.group("v1")] + re.findall(
-                rf"(?:,|und)\s*({_TIEFE_WERT})", m.group("liste"))
-        else:
-            werte = [m.group("v1")]
+        werte, erweitert = _expand_werte(m.group("folge"), _TIEFEN_NUM)
+        expandiert |= erweitert
+        kombinationen *= len(werte)
+        if kombinationen > _MAX_ANKER_PRO_ZITAT:
+            raise _ExpansionZuGross
         achsen.append([(label, w) for w in werte])
     if not achsen:
         return [()], False
@@ -183,6 +208,9 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     if treffer:
         law, alias = treffer
         s = s[: len(s) - len(alias)].strip()
+    elif langname := _LANGNAME_AM_ENDE.search(s):
+        law = _LANGNAMEN[langname[1]]
+        s = s[:langname.start()].strip()
 
     # 2) "ff."/"f." → offener Bereich. AUSNAHME: direkt hinter einem Buchstaben-
     # Marker ist „f." ein lit-WERT („§ 33 Abs. 1 Buchst. f. EStG") und bleibt
@@ -198,7 +226,7 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     # 3) Modus: Art. vs § vs (impliziter §, z. B. „162 AO") vs relativ
     artikel_mode = bool(re.match(r"^(Art\.?|Artikel)\b", s))
     if artikel_mode:
-        s = re.sub(r"^(Art\.?|Artikel)\s*", "", s).strip()
+        s = re.sub(r"^(Artikel|Art\.?)\s*", "", s).strip()
     elif s.startswith("§"):
         s = re.sub(r"^§+\s*", "", s).strip()
     elif re.match(r"^\d", s):
@@ -214,8 +242,11 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     else:
         para_part, depth_part = s, ""
 
-    paras, p_exp = _expand_paras(para_part)
-    tiefen, t_exp = _parse_depth(depth_part)
+    try:
+        paras, p_exp = _expand_werte(para_part, _PARA_NUM)
+        tiefen, t_exp = _parse_depth(depth_part, max(1, len(paras)))
+    except _ExpansionZuGross:
+        return [GeparsterAnker(norm_id=None, roh=roh, konfidenz="niedrig", relativ=law is None)]
     expandiert = p_exp or t_exp
 
     if not paras and not artikel_mode:
@@ -247,12 +278,30 @@ def parse_normzitat(zitat: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
 # Aus DERSELBEN Tiefenmarker-Grammatik gebaut wie _DEPTH_RE (keine zweite,
 # divergierende Definition mehr). (?!\w) nach dem Wert verhindert, dass der
 # Einzelbuchstaben-Wert ins Folgewort läuft („… Alt e‹rnative›"). Bewusst OHNE
-# „und"-Aufzählungen: im Fließtext wäre „Satz 1 und 2 weitere Personen" sonst
-# falsch als Listen-Zitat gelesen – die Listen-Expansion macht parse_normzitat.
+# „und"-Aufzählungen bei Verweisen ohne Gesetzesnamen: „Satz 1 und 2 weitere
+# Personen" kann laufender Text sein. Ein nachfolgendes explizites Gesetz
+# verankert hingegen die gesamte Kette über _scan_pattern.
 _ZITAT_SPAN = re.compile(
-    rf"§§?\s*\d+[a-z]*"
+    rf"(?:§§\s*{_PARA_KETTE}|(?:§|\bArt(?:ikel|\.)?)\s*{_PARA_NUM.pattern})"
     rf"(?:\s+(?:{_TIEFE_KINDS})\.?"
     rf"\s*(?:{_TIEFE_WERT})(?!\w)(?:\s*(?:bis|–|—|-)\s*(?:{_TIEFE_WERT})(?!\w))?)*"
+)
+
+# Ein explizit genanntes Fremdgesetz ohne registrierte Kennung lässt sich
+# nicht als Eigenverweis auswerten. Nur unmittelbar anschließende Namen prüfen.
+_FREMDE_QUELLE = re.compile(
+    rf"{_ZITAT_MIT_ZUSAETZEN}\s+(?:(?:des|der)\s+)?"
+    r"(?:(?:[A-ZÄÖÜ][\w-]*\s+){0,3}(?:[A-ZÄÖÜ][\w-]*?)?"
+    r"(?i:gesetz(?:buch)?(?:e?s)?|verordnung|ordnung|richtlinie|übereinkommen(?:s)?)"
+    r"|Zollkodex(?:es)?\s+der\s+Union|[A-Z][A-Za-z0-9]*(?:GB|DV|RL|VO|G|O))\b"
+)
+# Unmittelbar koordinierte Zitate können einen einzigen nachgestellten
+# Gesetzesnamen teilen („§ 72a Abs. 4 und § 93c Abs. 4 der Abgabenordnung“).
+# Das nächste Normzeichen muss wirklich folgen. Punkte und laufender Text
+# dürfen den Geltungsbereich einer Quellenangabe nicht ausweiten.
+_KETTENGLIED = re.compile(
+    rf"(?P<glied>{_ZITATKERN}(?:\s+ff?\.)?)(?:\s*,\s*|\s+(?:und|oder|sowie)\s+)"
+    rf"(?=(?P<weiter>{_NORMZEICHEN})\s*\d)"
 )
 
 
@@ -261,27 +310,35 @@ def extrahiere_anker(
 ) -> list[GeparsterAnker]:
     """Extrahiert Norm-Anker aus Fließtext – inkl. intra-law-Verweisen.
 
-    Steht hinter einem „§…"-Zitat ein bekanntes Gesetzeskürzel, wird cross-law
-    aufgelöst; fehlt es, wird ``default_law`` angenommen (typisch in Gesetzestexten,
-    die intern „§ 15" ohne Gesetzesnamen zitieren). Damit entstehen die
-    ``verweist_auf``-Kanten des Normgraphen.
+    Ein bekannter Gesetzesname oder ein Kürzel kann für mehrere koordinierte
+    Zitate gelten. Ein ausdrücklicher Verweis auf eine unbekannte Quelle bleibt
+    unaufgelöst. Ohne Quellenangabe gilt ``default_law`` (typisch für interne
+    Verweise wie „§ 15“). Damit entstehen die ``verweist_auf``-Kanten des Graphen.
     """
     out: list[GeparsterAnker] = []
+    offen: list[str] = []
+    mit_gesetz = _scan_pattern(lawmap)
     for m in _ZITAT_SPAN.finditer(text):
-        zitat = m.group(0)
-        nach = text[m.end(): m.end() + 40]
-        law_m = re.match(r"\s+([A-ZÄÖÜ][A-Za-zÄÖÜ0-9]+)", nach)
-        law = lawmap.resolve(law_m.group(1)) if law_m else None
-        if law and law_m is not None:
-            out.extend(parse_normzitat(f"{zitat} {law_m.group(1)}", lawmap))
-        elif default_law:
-            for a in parse_normzitat(zitat, lawmap):
-                if a.norm_id:
-                    nid = NormID(
-                        law=default_law, para=a.norm_id.para, artikel=a.norm_id.artikel,
-                        tiefe=a.norm_id.tiefe, offener_bereich=a.norm_id.offener_bereich,
-                    )
-                    out.append(GeparsterAnker(norm_id=nid, roh=a.roh, konfidenz="mittel", relativ=False))
+        direkt: list[GeparsterAnker] = []
+        explizit = mit_gesetz.match(text, m.start())
+        if explizit:
+            direkt = parse_normzitat(explizit.group(), lawmap)
+            quelle = explizit["quelle"]
+            gesetz = lawmap.resolve(quelle) or _LANGNAMEN.get(quelle)
+        else:
+            glied = _KETTENGLIED.match(text, m.start())
+            if glied and m[0].startswith("§") == glied["weiter"].startswith("§"):
+                offen.append(glied["glied"])
+                continue
+            offen.append(m[0])
+            gesetz = default_law if default_law and not _FREMDE_QUELLE.match(text, m.start()) else None
+        if gesetz:
+            for zitat in offen:
+                for a in parse_normzitat(zitat, lawmap):
+                    if a.norm_id:
+                        out.append(GeparsterAnker(replace(a.norm_id, law=gesetz), a.roh, "mittel"))
+        offen.clear()
+        out.extend(direkt)
     return out
 
 
@@ -292,11 +349,7 @@ def finde_normzitate(text: str, lawmap: LawMap = DEFAULT_LAWMAP) -> list[Geparst
     erwartet) findet diese Funktion Zitate inmitten von Fließtext – nötig für die
     Norm-Nähe des Unknown-Gates und später für den Kantenaufbau im Graphen.
     """
-    pat = _scan_pattern(lawmap)
-    anker: list[GeparsterAnker] = []
-    for m in pat.finditer(text):
-        anker.extend(parse_normzitat(m.group(0), lawmap))
-    return anker
+    return extrahiere_anker(text, lawmap=lawmap)
 
 
 # --- Rekonstruktion (Round-Trip /T10/) --------------------------------------
@@ -310,6 +363,15 @@ def norm_zu_zitat(nid: NormID) -> str:
     teile = [f"{_TIEFE_WORT[label]} {wert}" for label, wert in nid.tiefe]
     ff = " ff." if nid.offener_bereich else ""
     return " ".join([kopf, *teile]).strip() + ff + f" {nid.law}"
+
+
+def knoten_zitat(law: str, para: str, *, absatz: str | None = None,
+                 nummer: str | None = None) -> str:
+    """Lesbares Zitat für die im Graph gespeicherten Kopf- und Tiefenfelder."""
+    tiefe = tuple((stufe, wert) for stufe, wert in (("abs", absatz), ("nr", nummer)) if wert)
+    if para.startswith("art"):
+        return norm_zu_zitat(NormID(law=law, artikel=para[3:], tiefe=tiefe))
+    return norm_zu_zitat(NormID(law=law, para=para, tiefe=tiefe))
 
 
 # --- Entscheidungszitat-Parser (Spez. 3) ------------------------------------
@@ -408,10 +470,14 @@ def kanonisiere_fundstelle(typ: str, fundstelle: str) -> str | None:
     (z. B. BMF-Schreiben ohne eigenes Schema). Niemals geraten.
     """
     text = fundstelle.strip()
-    if re.match(r"^\s*(§|Art\.?|Artikel)\b", text):
-        anker = parse_normzitat(text)
-        if anker and anker[0].norm_id:
+    norm = _scan_pattern(DEFAULT_LAWMAP).match(text)
+    if norm:
+        # Das Feld trägt genau eine ID. Eine Erläuterung in Klammern ist
+        # zulässig, mehrere zitierte Normen haben keine eindeutige Einzel-ID.
+        anker = parse_normzitat(norm.group())
+        if len(anker) == 1 and anker[0].norm_id and not _ZITAT_SPAN.search(text, norm.end()):
             return anker[0].norm_id.to_id()
+        return None
     if _GERICHT_RE.match(text):
         uid = parse_entscheidung(text)
         if uid:

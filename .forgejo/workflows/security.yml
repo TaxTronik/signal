@@ -36,23 +36,9 @@ jobs:
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r requirements-security-lock.txt
 
-      # Exakte autorisierte Versionen statt neu aufgeloester >=-Ranges. Der
-      # NER-Lock gehoert zum Default-Produktionsimage und muss deshalb ebenfalls
-      # geprueft werden (direkte Modell-Wheels koennen vom Auditor uebersprungen
-      # werden; ihr Artefakt-Hash bleibt trotzdem im Lock erzwungen).
       - name: Audit locked dependencies
         run: |
-          python -m pip_audit -r requirements-lock.txt --desc
-          python -m pip_audit -r requirements-runtime-lock.txt --desc
-          python -m pip_audit -r requirements-ner-lock.txt --desc
-          python -m pip_audit -r requirements-embedding-linux-cpu-py312-lock.txt --desc
-          python -m pip_audit -r requirements-quanten-linux-py312-lock.txt --desc
-          # Die Windows-Locks lassen sich auf dem Linux-Runner nicht installieren.
-          # Da sie vollstaendig gepinnt und gehasht sind, kann pip-audit sie ohne
-          # plattformabhaengige Aufloesung dennoch kontinuierlich pruefen.
-          python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-cpu-py312-lock.txt --desc
-          python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-amd-py312-lock.txt --desc
-          python -m pip_audit --no-deps --disable-pip -r requirements-quanten-windows-py312-lock.txt --desc
+          python tools/audit_locks.py
 
   secrets:
     name: Secret Scan

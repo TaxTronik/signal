@@ -6,6 +6,8 @@ hält (kein § 257-/Unterstützungskasse-Fehlgriff), und der AO-Edge-Case liefer
 genau die fachlich erwarteten Begriffe samt Norm-Ankern.
 """
 
+import pytest
+
 from risk_layer.catalog import lade_katalog
 from risk_layer.muster import (MusterMatcher, StreitDetektor, _glied_funde,
                                saetze_mit_offset)
@@ -77,6 +79,25 @@ def test_abkuerzungen_zerreissen_satz_nicht():
     assert len(saetze_mit_offset("Unternehmer i. S. d. § 2 UStG ist der Wirt.")) == 1
 
 
+def test_abzgl_vor_betrag_ist_keine_satzgrenze():
+    # Im echten GPU-Klausurlauf erzeugte „abzgl. 1 % Nebenkosten“ sonst ein
+    # isoliertes Fragment mit sachfremden semantischen Vorschlägen.
+    text = "Veräußerung für 45 EUR je Stück abzgl. 1 % Nebenkosten."
+    saetze = saetze_mit_offset(text)
+    assert len(saetze) == 1
+    assert text[saetze[0].start:saetze[0].end] == text.rstrip(".")
+    report = Pipeline(lade_katalog()).run(
+        "Die Belege über 100 EUR abzgl. 10 EUR Rabatt fehlen.")
+    assert {k.eintrag.id for k in report.karten} == {"ao_buchfuehrungs_kassenmangel"}
+
+
+def test_geb_vor_jahreszahl_ist_keine_satzgrenze():
+    text = "Die Belege für das Kind (geb. 2007) fehlen."
+    assert len(saetze_mit_offset(text)) == 1
+    report = Pipeline(lade_katalog()).run(text)
+    assert {k.eintrag.id for k in report.karten} == {"ao_buchfuehrungs_kassenmangel"}
+
+
 def test_echte_satzgrenzen_trennen_weiterhin():
     text = "Die Belege fehlen vollständig. Der Bescheid wurde aufgehoben."
     assert len(saetze_mit_offset(text)) == 2
@@ -84,6 +105,39 @@ def test_echte_satzgrenzen_trennen_weiterhin():
     assert len(saetze_mit_offset("Die Belege fehlen.\nder nächste beginnt klein")) == 2
     # harte Trenner (!?;:) trennen wie bisher immer
     assert len(saetze_mit_offset("Belege fehlen; die Kasse stimmt nicht")) == 2
+
+
+@pytest.mark.parametrize("text", [
+    "Alle Belege sind vorhanden. 2025 fehlten nur die Bürostühle.",
+    "„Alle Belege sind vorhanden.“ Fehlende Stühle wurden nachbestellt.",
+    '"Alle Belege sind vorhanden." Fehlende Stühle wurden nachbestellt.',
+    "(Alle Belege sind vorhanden.) Fehlende Stühle wurden nachbestellt.",
+    "Die Belege reichen bis zum 1. Jan. Fehlende Stühle wurden nachbestellt.",
+    "Die Belege reichen bis zum 1. 3. Fehlende Stühle wurden nachbestellt.",
+])
+def test_getrennte_saetze_erzeugen_keinen_kassenmangel(text):
+    # Objekt und Mangel gehören zu verschiedenen Aussagen. Jahreszahlen und
+    # schließende Anführungszeichen dürfen die Satzgrenze nicht verschlucken.
+    saetze = saetze_mit_offset(text)
+    assert len(saetze) == 2
+    assert all(text[s.start:s.end] == s.text for s in saetze)
+    assert not Pipeline(lade_katalog()).run(text).karten
+
+
+@pytest.mark.parametrize("datum", [
+    "1. März", "12. September 2025", "1. Jan. 2025",
+    "01.03.2025", "1. 3. 2025", "1. 3.", "1. Jan.",
+])
+def test_datum_zerreisst_beschreibungsmuster_nicht(datum):
+    text = f"Die Belege sind am {datum} nicht nachvollziehbar. Danach endet die Prüfung."
+    saetze = saetze_mit_offset(text)
+    assert len(saetze) == 2
+    assert all(text[s.start:s.end] == s.text for s in saetze)
+    karten = Pipeline(lade_katalog()).run(text).karten
+    assert {k.eintrag.id for k in karten} == {"ao_buchfuehrungs_kassenmangel"}
+    for karte in karten:
+        t = karte.treffer
+        assert text[t.start:t.end] == t.matched_text
 
 
 def test_kassenmangel_feuert_trotz_gem_abkuerzung():

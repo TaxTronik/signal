@@ -27,7 +27,7 @@ from typing import Any, Callable, Iterable, Iterator
 from .corpus import art_fuer, source_rank
 from .idschema import para_level
 from .llm import _finde_span, _hole_json, _kandidaten_aus_text, server_verfuegbar
-from .zitate import parse_normzitat
+from .zitate import knoten_zitat, parse_normzitat
 
 # --- Vokabular (Contract v2.1) ----------------------------------------------
 TYP = ("begriff", "paraphrase", "cross_ref", "normrelation")
@@ -372,7 +372,7 @@ def _absatz_knoten(graph, pid: str, law: str, para: str, titel: str,
             continue
         out.append({
             "id": r["id"], "law": law,
-            "zitat": f"§ {para} Abs. {r['absatz']} {law}", "titel": titel,
+            "zitat": knoten_zitat(law, para, absatz=r["absatz"]), "titel": titel,
             "stand": r["gueltig_ab"],
             "text": text[:max_zeichen] if max_zeichen else text,
         })
@@ -390,7 +390,7 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None,
     Default aus (der A/B-Export läuft bewusst auf ganzen §, eingefroren)."""
     rows = graph.con.execute(
         "SELECT id, titel, law, para, text, gueltig_ab FROM knoten "
-        "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
+        "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%'").fetchall()
     for r in rows:
         titel = (r["titel"] or "").strip()
         text = (r["text"] or "").strip()
@@ -408,7 +408,7 @@ def iter_paragraphen(graph, *, max_zeichen: int | None = None,
                 yield from kinder
                 continue
         yield {
-            "id": r["id"], "law": r["law"], "zitat": f"§ {r['para']} {r['law']}",
+            "id": r["id"], "law": r["law"], "zitat": knoten_zitat(r["law"], r["para"]),
             "titel": echter_titel, "stand": r["gueltig_ab"],
             "text": text[:max_zeichen] if max_zeichen else text,
         }

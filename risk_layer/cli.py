@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from .catalog import KatalogFehler, lade_katalog
 from .graph import graph_oeffnen
 from .pipeline import AnalyseOptionen, Pipeline
 from .report import report_html, report_text
+from .semantic_search import SemanticResourcesUnavailable
 from .zitate import parse_entscheidung, parse_normzitat
 
 
@@ -28,7 +30,21 @@ def _lies_text(quelle: str) -> str:
     return Path(quelle).read_text(encoding="utf-8")
 
 
+def _rechtsgebiet_id(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,63}", value) is None:
+        raise argparse.ArgumentTypeError(
+            "Gesetz-ID mit maximal 64 Zeichen erwartet, z. B. EStG oder AO")
+    return value
+
+
 def _cmd_analyse(args: argparse.Namespace) -> int:
+    if len(args.rechtsgebiet) > 32:
+        print("Optionsfehler: maximal 32 --rechtsgebiet-Werte erlaubt.", file=sys.stderr)
+        return 2
+    if args.rechtsgebiet and args.semantik_profil == "standard":
+        print("Optionsfehler: --rechtsgebiet erfordert --semantik-profil "
+              "normpaket, kontext, kaskade, praezision, dokument oder treffer.", file=sys.stderr)
+        return 2
     try:
         katalog = lade_katalog(args.katalog)
     except KatalogFehler as exc:
@@ -57,10 +73,21 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     # denselben Text dasselbe Ergebnis (Konsistenz-Zusage in api_v1._analyse).
     from .embedding import (encoder_oeffnen as _enc_open, index_oeffnen as _emb_open,
                             pruefe_aktualitaet as _emb_aktuell)
-    embedding = _emb_open()
+    if args.embedding_dir is not None:
+        try:
+            embedding = _emb_open(args.embedding_dir)
+        except (OSError, ValueError, KeyError, TypeError, EOFError) as exc:
+            print(f"Embedding-Index in {args.embedding_dir!r} nicht lesbar: {exc}",
+                  file=sys.stderr)
+            return 2
+        if embedding is None:
+            print(f"Kein Embedding-Index in {args.embedding_dir!r}.", file=sys.stderr)
+            return 2
+    else:
+        embedding = _emb_open()
     # Staleness-Check einmalig pro Lauf (wie web.Anwendung.__init__): warnt laut
     # im Log, wenn der Index nicht mehr zum Normgraphen passt. Wirft nie.
-    _emb_aktuell(embedding, graph)
+    _emb_aktuell(embedding, graph, katalog)
     embedding_encoder = None
     reranker = None
     _emb_dev = os.environ.get("RISK_LAYER_EMB_DEVICE", "cuda")
@@ -68,15 +95,27 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
         try:
             embedding_encoder = _enc_open(embedding.encoder_name, device=_emb_dev)
         except Exception as exc:  # noqa: BLE001 – Schicht 1.7 ist optional, nie Show-Stopper
+            if args.embedding_dir is not None:
+                print(f"Embedding-Encoder für {args.embedding_dir!r} nicht ladbar: {exc}",
+                      file=sys.stderr)
+                return 2
             print(f"Hinweis: Embedding-Encoder nicht ladbar ({exc}) – Lauf ohne Schicht 1.7.",
                   file=sys.stderr)
             embedding = embedding_encoder = None
     if embedding_encoder is not None and "cuda" in (_emb_dev or ""):
         try:
             from .reranker import reranker_oeffnen
-            reranker = reranker_oeffnen(device=_emb_dev)
-        except Exception:  # noqa: BLE001 – Rerank ist optional, nie Show-Stopper
+            reranker = (reranker_oeffnen(args.reranker, device=_emb_dev)
+                        if args.reranker else reranker_oeffnen(device=_emb_dev))
+        except Exception as exc:  # noqa: BLE001 – Standard-Rerank darf degradieren
+            if args.reranker:
+                print(f"Reranker-Fehler: {exc}", file=sys.stderr)
+                return 2
             reranker = None
+    if reranker is None and args.reranker not in (None, "auto", "aus", "none", "off"):
+        print(f"Reranker {args.reranker!r} benötigt einen geladenen Embedding-Encoder "
+              "und ein konfiguriertes CUDA-Gerät.", file=sys.stderr)
+        return 2
 
     try:
         text = _lies_text(args.eingabe)
@@ -86,29 +125,35 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     except UnicodeDecodeError as exc:
         print(f"Eingabefehler: {args.eingabe} ist kein UTF-8-Text ({exc})", file=sys.stderr)
         return 2
-    report = Pipeline(katalog).run(
-        text,
-        # Lauf-Optionen gebündelt (Single Source of Truth der Defaults in
-        # pipeline.AnalyseOptionen); Ressourcen bleiben Einzel-Parameter.
-        # /v1-Semantik (web.Anwendung.analyse): Trigger-Detektor + Streit-
-        # Verstärker sind dort immer aktiv – die CLI zieht gleich.
-        optionen=AnalyseOptionen(
-            erzeugt_am=args.zeitstempel,
-            unknown=args.unknown,
-            nutzer=args.nutzer,
-            abweichung=args.abweichung,
-            detektor=True,
-            streit=True,
-            lemma=args.lemma,
-        ),
-        berater=berater,
-        graph=graph,
-        provider=provider,
-        trigger=trigger,
-        embedding=embedding,
-        embedding_encoder=embedding_encoder,
-        reranker=reranker,
-    )
+    try:
+        report = Pipeline(katalog).run(
+            text,
+            # Lauf-Optionen gebündelt (Single Source of Truth der Defaults in
+            # pipeline.AnalyseOptionen); Ressourcen bleiben Einzel-Parameter.
+            # /v1-Semantik (web.Anwendung.analyse): Trigger-Detektor + Streit-
+            # Verstärker sind dort immer aktiv – die CLI zieht gleich.
+            optionen=AnalyseOptionen(
+                erzeugt_am=args.zeitstempel,
+                unknown=args.unknown,
+                nutzer=args.nutzer,
+                abweichung=args.abweichung,
+                detektor=True,
+                streit=True,
+                lemma=args.lemma,
+                semantik_profil=args.semantik_profil,
+                rechtsgebiete=tuple(args.rechtsgebiet),
+            ),
+            berater=berater,
+            graph=graph,
+            provider=provider,
+            trigger=trigger,
+            embedding=embedding,
+            embedding_encoder=embedding_encoder,
+            reranker=reranker,
+        )
+    except SemanticResourcesUnavailable as exc:
+        print(f"Semantik-Ressourcenfehler: {exc}", file=sys.stderr)
+        return 2
 
     # Konsolen-Zusammenfassung
     print(report_text(report))
@@ -190,7 +235,11 @@ def _cmd_graph(args: argparse.Namespace) -> int:
             except (OverflowError, OSError, ValueError):
                 print("SOURCE_DATE_EPOCH liegt außerhalb des Zeitbereichs.", file=sys.stderr)
                 return 2
-        knoten = gii.parse_verzeichnis(Path(args.dir) / "gii")
+        try:
+            knoten = gii.parse_verzeichnis(Path(args.dir) / "gii", streng=True)
+        except ValueError as exc:
+            print(f"Graph-Neubau abgebrochen: {exc}", file=sys.stderr)
+            return 1
         if not knoten:
             print(f"Keine XML in {args.dir}/gii – erst 'korpus fetch' ausführen.", file=sys.stderr)
             return 1
@@ -635,7 +684,10 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
         enc = encoder_oeffnen(args.encoder, device=dev, model_path=args.model)
         kat = lade_katalog(getattr(args, "katalog", None))
         print(f"Baue Embedding-Index mit Encoder '{enc.name}' (+ Katalog-Paraphrasen) ...")
-        gebauter_index = EmbeddingIndex.build(g, enc, katalog=kat)
+        if args.passagen:
+            gebauter_index = EmbeddingIndex.build(g, enc, katalog=kat, passagen=True)
+        else:
+            gebauter_index = EmbeddingIndex.build(g, enc, katalog=kat)
         gebauter_index.save(args.dir)
         anker = getattr(gebauter_index, "n_paraphrase_anker", 0)
         print(f"Embedding-Index gebaut: {args.dir} | {len(gebauter_index.ids)} Vektoren "
@@ -658,7 +710,7 @@ def _cmd_embedding(args: argparse.Namespace) -> int:
     elif args.aktion == "suche":
         enc = encoder_oeffnen(index.encoder_name, model_path=args.model)
         for h in index.suche(" ".join(args.text or []), enc, k=args.limit, min_sim=0.0):
-            print(f"  {h['zitat']:14} sim={h['sim']:6}  {h['titel'][:50]}")
+            print(f"  {h['zitat']:14} sim={h['sim']:6.3f}  {h['titel'][:50]}")
     return 0
 
 
@@ -825,6 +877,13 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--lemma", action="store_true",
                    help="Lemma-Robustheitspfad /LF50/: flektierte Katalogformen "
                         "über spaCy-Lemmatisierung (wie /v1/analyse optionen.lemma)")
+    a.add_argument("--semantik-profil", default="standard",
+                   choices=["standard", "normpaket", "kontext", "kaskade", "praezision", "dokument", "treffer"],
+                   help="Semantische Suche: Standard oder explizites Qualitaetsprofil")
+    a.add_argument("--rechtsgebiet", action="append", default=[], type=_rechtsgebiet_id,
+                   help="Semantische Suche auf Gesetz-ID begrenzen (z. B. EStG); wiederholbar")
+    a.add_argument("--embedding-dir", help="Alternatives Embedding-Index-Verzeichnis")
+    a.add_argument("--reranker", help="Reranker-Name fuer diesen lokalen Lauf (Default: auto)")
     a.add_argument(
         "--fail-on-luecke",
         action="store_true",
@@ -860,6 +919,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Torch-Gerät explizit wählen (z. B. cpu, cuda, cuda:0)",
     )
     em.add_argument("--limit", type=int, default=8)
+    em.add_argument("--passagen", action="store_true",
+                    help="Bei build zusaetzliche Gesetzespassagen indexieren")
     em.set_defaults(func=_cmd_embedding)
 
     ab = sub.add_parser("abgleich", help="Neue BFH/BMF-Veröffentlichungen gegen den Katalog prüfen")

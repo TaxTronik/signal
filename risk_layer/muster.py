@@ -37,12 +37,27 @@ _SATZ_TRENNER = re.compile(r"[.!?;:]+")
 # nie auf ein alleinstehendes Zeichen).
 _ABK_VOR_PUNKT = re.compile(
     r"(?:\b(?:gem|Abs|Nr|Buchst|Satz|Art|Tz|Rz|Rn|Anm|Az|vgl|Vgl|bzw|ggf|Ggf|"
-    r"sog|inkl|zzgl|ca|evtl|etc|Co)"
+    r"sog|inkl|zzgl|abzgl|geb|ca|evtl|etc|Co)"
     r"|(?<![0-9A-Za-zÄÖÜäöüß])[A-Za-zÄÖÜäöü])$"
 )
-# plausibler Satzanfang nach dem Punkt: Whitespace + Großbuchstabe (ggf. nach
-# öffnendem Anführungszeichen/Klammer) – oder Zeilen-/Textende.
-_SATZ_ANFANG_DANACH = re.compile(r"\s+[„\"‚'(]?[A-ZÄÖÜ]")
+# Ein Satz kann mit einer Zahl beginnen, und sein Vorgänger kann in einem
+# Zitat/einer Klammer enden. Beides muss trennen, sonst entsteht beispielsweise
+# aus „Belege vorhanden. 2025 fehlten Stühle.“ eine falsche Ko-Okkurrenz.
+_SATZ_ANFANG_DANACH = re.compile(r"[“”\"'»›)\]]*\s+[„“\"‚'«‹(\[]*[A-ZÄÖÜ0-9§]")
+_NUR_LEERRAUM_BIS_ENDE = re.compile(r"\s*\Z")
+
+# Datumspunkte sind keine Satzgrenzen: „Belege sind am 1. März unvollständig“
+# muss zusammenbleiben. Numerische Daten dürfen auch Extraktionsspatien tragen.
+# Das Muster erkennt Datumsformen, es validiert keine Kalenderdaten.
+_DATUM = re.compile(
+    r"\b(?:0?[1-9]|[12][0-9]|3[01])\.\s*(?:"
+    r"(?:0?[1-9]|1[0-2])\.(?:\s*(?:[0-9]{4}|[0-9]{2})(?!\w))?"
+    r"|(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|"
+    r"November|Dezember|Jan\.|Feb\.|Mär\.|Mrz\.|Apr\.|Jun\.|Jul\.|Aug\.|"
+    r"Sept?\.|Okt\.|Nov\.|Dez\.)(?!\w)"
+    r"(?:\s+(?:[0-9]{4}|[0-9]{2})(?!\w))?)",
+    re.IGNORECASE,
+)
 
 
 def _ist_satzgrenze(text: str, m: re.Match) -> bool:
@@ -53,11 +68,19 @@ def _ist_satzgrenze(text: str, m: re.Match) -> bool:
     # (längste Kurzform 6 Zeichen); Lookbehind/\b sehen trotz pos das Zeichen davor.
     if _ABK_VOR_PUNKT.search(text, max(0, m.start() - 8), m.start()):
         return False
-    rest = text[m.end():]
-    # Zeilen-/Textende oder Whitespace+Großbuchstabe ⇒ Grenze; alles andere
+    # Konstantes lokales Fenster statt Suche im gesamten Dokument je Punkt.
+    # Es reicht für beide Punkte eines numerischen Datums und Monatskürzel.
+    # Nur innere Datumspunkte schützen. Der letzte Punkt von „1. Jan.“
+    # oder „1. 3.“ kann zugleich den Satz beenden; dann gilt die normale
+    # Satzanfangsprüfung. Mit anschließender Jahreszahl liegt er wieder innen.
+    if any(d.start() <= m.start() and m.end() < d.end()
+           for d in _DATUM.finditer(text, max(0, m.start() - 16), m.end() + 30)):
+        return False
+    # Zeilen-/Textende oder plausibler Satzanfang ⇒ Grenze; alles andere
     # (z. B. „§ 146", „Abs. 1", Kleinbuchstabe) bleibt im Satz (recall-first).
-    return not rest or rest.startswith("\n") or not rest.strip() \
-        or bool(_SATZ_ANFANG_DANACH.match(rest))
+    ende = m.end()
+    return (text.startswith("\n", ende) or _NUR_LEERRAUM_BIS_ENDE.match(text, ende) is not None
+            or _SATZ_ANFANG_DANACH.match(text, ende) is not None)
 
 
 @dataclass(frozen=True)
@@ -132,14 +155,24 @@ def _glied_funde(satz: str, glied: str) -> list[tuple[int, int]]:
     return [(m.start(), m.end()) for m in rx.finditer(satz)]
 
 
+def _verneinte_nomen(woerter: list[str]) -> re.Pattern[str]:
+    # Nur die ausdrücklich aufgeführten Substantivformen und ihre unmittelbare
+    # Verneinung unterdrücken. Andere Befunde im selben Satz bleiben erhalten.
+    nomen = "|".join(re.escape(wort) for wort in woerter)
+    return re.compile(
+        r"\b(?:kein(?:e[mnrs]?)?|keinerlei|ohne|frei\s+von)\s+"
+        r"(?:(?:erkennbar|wesentlich|feststellbar|nennenswert)(?:e[mnrs]?)?\s+)?"
+        rf"(?:{nomen})\b", re.IGNORECASE)
+
+
 class MusterMatcher:
     """Findet Beschreibungs-/Negativbefund-Muster aus dem Katalog (Schicht 1b)."""
 
     def __init__(self, katalog):
-        # (begriff_id, [gruppen]) – nur Begriffe mit ausloeser. Die Glied-Muster
-        # werden HIER einmal vorkompiliert (statt pro match()-Aufruf neu gebaut
-        # und dem re-Modul-Cache überlassen).
-        self._regeln: list[tuple[str, list[list[re.Pattern[str]]]]] = []
+        # (begriff_id, [gruppen], ausschlusswoerter) – nur Begriffe mit ausloeser.
+        # Die Glied-Muster werden HIER einmal vorkompiliert (statt pro match()-
+        # Aufruf neu gebaut und dem re-Modul-Cache überlassen).
+        self._regeln: list[tuple[str, list[list[re.Pattern[str]]], list[re.Pattern[str]]]] = []
         for b in katalog:
             for spec in getattr(b, "ausloeser", []) or []:
                 gruppen = spec.get("gruppen") if isinstance(spec, dict) else spec
@@ -148,17 +181,36 @@ class MusterMatcher:
                         [rx for glied in gruppe if (rx := _glied_pattern(str(glied))) is not None]
                         for gruppe in gruppen
                     ]
-                    self._regeln.append((b.id, kompiliert))
+                    ausschlusswoerter = spec.get("ausschlusswoerter", []) \
+                        if isinstance(spec, dict) else []
+                    ausgeschlossen = [
+                        rx for wort in ausschlusswoerter
+                        if (rx := _glied_pattern(wort)) is not None
+                    ]
+                    if isinstance(spec, dict) and spec.get("verneinbare_nomen"):
+                        ausgeschlossen.append(_verneinte_nomen(spec["verneinbare_nomen"]))
+                    self._regeln.append((b.id, kompiliert, ausgeschlossen))
 
     def match(self, text: str) -> list["MusterTreffer"]:
         treffer: list[MusterTreffer] = []
         for satz in saetze_mit_offset(text):
-            for begriff_id, gruppen in self._regeln:
+            for begriff_id, gruppen, ausgeschlossen in self._regeln:
+                # Lexikalische Ausnahmen gelten nur für die betroffenen Wörter:
+                # "fehlerfrei" darf nicht über "fehl" auslösen, ein zusätzliches
+                # "Belege fehlen" im selben Satz bleibt aber ein gültiges Signal.
+                # Explizite Phrasen wie "nicht fehlerfrei" beginnen davor und
+                # bleiben deshalb trotz des darin enthaltenen Ausschlussworts gültig.
+                gesperrt = bytearray(len(satz.text)) if ausgeschlossen else None
+                if gesperrt is not None:
+                    for rx in ausgeschlossen:
+                        for m in rx.finditer(satz.text):
+                            gesperrt[m.start():m.end()] = b"\x01" * (m.end() - m.start())
                 spans: list[tuple[int, int]] = []
                 ok = True
                 for gruppe in gruppen:
                     funde = [(m.start(), m.end())
-                             for rx in gruppe for m in rx.finditer(satz.text)]
+                             for rx in gruppe for m in rx.finditer(satz.text)
+                             if gesperrt is None or not gesperrt[m.start()]]
                     if not funde:
                         ok = False
                         break

@@ -21,7 +21,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .gii import NormKnoten
-from .zitate import KONFIDENZ_STUFEN, Konfidenz, extrahiere_anker
+from .persistenz import sqlite_neubau
+from .zitate import KONFIDENZ_STUFEN, Konfidenz, extrahiere_anker, knoten_zitat
 
 # Rang je Konfidenz (niedrig < mittel < hoch) – für „höchste Konfidenz gewinnt"
 # beim Kantenbau. Skala kommt zentral aus zitate (eine Quelle der Wahrheit).
@@ -65,16 +66,18 @@ class NormGraph:
     @classmethod
     def build(cls, knoten: Iterable[NormKnoten], db_path: str | Path = DEFAULT_DB) -> "NormGraph":
         db_path = Path(db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        if db_path.exists():
-            db_path.unlink()
-        con = sqlite3.connect(str(db_path))
+        with sqlite_neubau(db_path) as con:
+            cls._befuellen(con, knoten)
+        return cls(db_path)
+
+    @staticmethod
+    def _befuellen(con: sqlite3.Connection, knoten: Iterable[NormKnoten]) -> None:
         con.executescript(_SCHEMA)
 
         knoten = list(knoten)
         ids = {k.id for k in knoten}
         con.executemany(
-            "INSERT OR REPLACE INTO knoten VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO knoten VALUES (?,?,?,?,?,?,?,?,?,?)",
             [(k.id, k.law, k.para, k.absatz, k.nummer, k.titel, k.text,
               k.quellentyp, k.gueltig_ab, k.gueltig_bis) for k in knoten],
         )
@@ -101,9 +104,6 @@ class NormGraph:
             "INSERT OR REPLACE INTO kanten VALUES (?,?,?,?,?)",
             [(s, d, t, konf, vorh) for (s, d, t), (konf, vorh) in kanten.items()],
         )
-        con.commit()
-        con.close()
-        return cls(db_path)
 
     # -- Abfragen -------------------------------------------------------
     def node(self, node_id: str) -> dict[str, Any] | None:
@@ -194,12 +194,12 @@ class NormGraph:
                 return
             rows = self.con.execute(
                 "SELECT id, titel, law, para, text FROM knoten "
-                "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
+                "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%'").fetchall()
             nodes: list[dict[str, Any]] = []
             index: dict[str, set[int]] = defaultdict(set)
             for i, r in enumerate(rows):
                 nodes.append({"id": r["id"], "titel": r["titel"] or "",
-                              "zitat": f"§ {r['para']} {r['law']}"})
+                              "zitat": knoten_zitat(r["law"], r["para"])})
                 blob = ((r["titel"] or "") + " " + (r["text"] or "")[:1500]).lower()
                 for w in set(re.findall(r"[a-zäöüß]{5,}", blob)):
                     index[w].add(i)
@@ -223,12 +223,14 @@ class NormGraph:
         if not qwords or not self._vt_nodes:
             return []
         grenze = max(25, int(len(self._vt_nodes) * 0.03))
-        score: defaultdict[int, float] = defaultdict(float)
+        # Ganze Fünftel vermeiden Rundungsfehler an der Aufnahmeschwelle
+        # (zehn häufige Wörter ergeben exakt zwei Punkte).
+        score: defaultdict[int, int] = defaultdict(int)
         for w in qwords:
             treffer = self._vt_index.get(w)
             if not treffer:
                 continue
-            gewicht = 1.0 if len(treffer) <= grenze else 0.2
+            gewicht = 5 if len(treffer) <= grenze else 1
             for idx in treffer:
                 score[idx] += gewicht
         # Ein ``set`` liefert die Query-Woerter pro Prozess in anderer Reihenfolge.
@@ -236,10 +238,10 @@ class NormGraph:
         # reihenfolge und machte Retrieval damit hash-seed-abhaengig. Die Knoten-ID
         # ist ein stabiler, fachlich neutraler Tie-Breaker.
         top = sorted(
-            ((i, s) for i, s in score.items() if s >= min_score),
+            ((i, s) for i, s in score.items() if s / 5 >= min_score),
             key=lambda paar: (-paar[1], self._vt_nodes[paar[0]]["id"]),
         )[:k]
-        return [self._vt_nodes[i] for i, _ in top]
+        return [dict(self._vt_nodes[i]) for i, _ in top]
 
     def dangling(self, limit: int = 1000) -> list[dict[str, Any]]:
         """Verweise auf nicht vorhandene Knoten (/T50/)."""

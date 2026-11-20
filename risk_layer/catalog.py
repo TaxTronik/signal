@@ -69,7 +69,7 @@ def _as_tuple(value: Any) -> tuple[str, ...]:
 
 
 def _parse_ausloeser(raw: Any, *, begriff_id: str) -> tuple[dict[str, Any], ...]:
-    """Normalisiert die Beschreibungs-Muster (Schicht 1b) zu {'gruppen': [[...]]}."""
+    """Normalisiert Gruppen und optionale wortbezogene Ausschlüsse (Schicht 1b)."""
     if not raw:
         return ()
     if isinstance(raw, str) or not isinstance(raw, (list, tuple)):
@@ -86,11 +86,25 @@ def _parse_ausloeser(raw: Any, *, begriff_id: str) -> tuple[dict[str, Any], ...]
             # jede Gruppe MUSS eine Liste von Strings sein – ein blanker String
             # würde sonst zeichenweise zerlegt und das Muster matchte jeden Satz.
             if isinstance(gruppe, str) or not isinstance(gruppe, (list, tuple)) \
-                    or not gruppe or not all(gruppe):
+                    or not gruppe or not all(isinstance(wort, str) and wort.strip() for wort in gruppe):
                 raise KatalogFehler(
                     f"[{begriff_id}] jede ausloeser-Gruppe muss eine nicht-leere "
                     f"LISTE von Strings sein (kein blanker String): {gruppe!r}")
-        specs.append({"gruppen": [[str(g) for g in gruppe] for gruppe in gruppen]})
+        normalisiert: dict[str, Any] = {
+            "gruppen": [list(gruppe) for gruppe in gruppen]}
+        for feld in ("ausschlusswoerter", "verneinbare_nomen"):
+            if not isinstance(spec, dict) or feld not in spec:
+                continue
+            woerter = spec[feld]
+            if not isinstance(woerter, (list, tuple)) or any(
+                not isinstance(wort, str) or len(wort.split()) != 1
+                for wort in woerter
+            ):
+                raise KatalogFehler(
+                    f"[{begriff_id}] {feld} muss eine Liste einzelner "
+                    f"nicht-leerer Wörter sein: {woerter!r}")
+            normalisiert[feld] = [wort.strip() for wort in woerter]
+        specs.append(normalisiert)
     return tuple(specs)
 
 

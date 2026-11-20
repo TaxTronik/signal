@@ -44,3 +44,15 @@ def test_graph_build_verwirft_ungueltiges_source_date_epoch(
 
     assert main(["graph", "build", "--dir", str(corpus), "--db", str(database)]) == 2
     assert not database.exists()
+
+
+def test_fehlerhafte_xml_erhaelt_graph_und_vergleichsstand(tmp_path):
+    corpus = _mini_korpus(tmp_path)
+    graph = corpus / "graph.sqlite"
+    args = ["graph", "build", "--dir", str(corpus), "--db", str(graph)]
+    assert main(args) == 0
+    before = {p: p.read_bytes() for p in (graph, corpus / "norm_manifest.json")}
+    (corpus / "gii" / "AO.xml").write_text("<dokumente>", encoding="utf-8")
+    assert main(args) == 1
+    assert before == {p: p.read_bytes() for p in before}
+    assert not (corpus / "norm_manifest.vorher.json").exists()

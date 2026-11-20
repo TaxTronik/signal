@@ -59,6 +59,27 @@ def test_steuernummer_und_iban():
     assert "steuernr" in typen and "iban" in typen
 
 
+@pytest.mark.parametrize("konto", [
+    "DE89 3704 0044 0532 0130 00", "de89370400440532013000",
+    "DE89\u202f3704\u202f0044\u202f0532\u202f0130\u202f00",
+])
+def test_iban_mit_schlussgruppe_und_iso_datum(konto):
+    ergebnis = anonymisiere(f"Am 2026-03-19 auf {konto} 123 EUR zahlen.")
+    assert ergebnis.abstrahiert == "Am [Datum A] auf [Konto A] [Betrag A] zahlen."
+    assert [e.original for e in ergebnis.ersetzungen if e.typ == "iban"] == [konto]
+
+
+def test_ner_fehler_loggt_keinen_eingabetext(monkeypatch, caplog):
+    def defektes_modell(text):
+        raise ValueError(f"Unlesbarer Text {text}")
+
+    monkeypatch.setattr(anonymize, "_lade_nlp", lambda: defektes_modell)
+    ergebnis = anonymisiere("Vertraulicher Beispielinhalt")
+    assert not ergebnis.ner_verwendet
+    assert "ValueError" in caplog.text
+    assert "Beispielinhalt" not in caplog.text
+
+
 def test_email_und_telefon_werden_ersetzt():
     # § 203: E-Mail/Telefon sind identifizierende Angaben und muessen geschwaerzt werden.
     r = anonymisiere("Kontakt: max.mustermann@example.com oder 0151 23456789.")

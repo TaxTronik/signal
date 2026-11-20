@@ -1,0 +1,2604 @@
+{
+  "format": "quality_recall_comparison/1",
+  "status": "complete",
+  "generator_sha256": "dfe3686acf8c51e8bcfb03a111346b4102529acc94bc620671f86b6f6b589651",
+  "generator_dependencies": {
+    "tools/_quality_recall_mean.py": "b5b1a33f2c8ad1eec074da427e9cb69b3ab6afe63bed689c2ab681a4e8f1b743",
+    "tools/_quality_recall_qwen8b.py": "db8db3454b15470ae5b8464b03dcef6aaaba561e49f16d2d3d93b165a7fd1f72",
+    "tools/_quality_recall_classifiers.py": "5551cd3199185504a8675c00562a85f0a331680d10201d111173285fd194fed2"
+  },
+  "datasets": {
+    "main": {
+      "positive": 102,
+      "negative": 30
+    },
+    "additional": {
+      "positive": 15,
+      "negative": 15
+    }
+  },
+  "notes": [
+    "All 162 cases were previously examined; this is development exploration.",
+    "Unlisted norms in positive cases are unadjudicated, not negative labels.",
+    "Suggestion precision and full legal recall remain unavailable without adjudication.",
+    "Negative unique pairs count each (case ID, norm ID) once regardless of focus multiplicity."
+  ],
+  "reports": {
+    "baseline": {
+      "sha256": "91ee80cd07f192a34d9701c3be1a97fd64d42e8fb5e0dc10cd2dd9bef1c2886c",
+      "format": "quality_precision_probe/1",
+      "audit": null,
+      "configuration": {
+        "variants": {
+          "kaskade": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true
+          },
+          "source20": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first"
+          },
+          "source50": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first",
+            "shortlist": 50
+          },
+          "checked20": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first",
+            "checks": true
+          },
+          "checked50": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first",
+            "shortlist": 50,
+            "checks": true
+          },
+          "agreement50": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first",
+            "shortlist": 50,
+            "agreement": true
+          },
+          "document50": {
+            "context": "neighbors",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "package": "source_first",
+            "shortlist": 50,
+            "checks": true,
+            "neighbor_radius": 2
+          }
+        },
+        "models": {
+          "encoder": {
+            "name": "bge-m3",
+            "revision": "5617a9f61b028005a4858fdac845db406aefb181"
+          },
+          "bge": {
+            "name": "bge-reranker-v2-m3",
+            "revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
+          },
+          "qwen": {
+            "name": "bge-qwen3-reranker-4b",
+            "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+          }
+        }
+      }
+    },
+    "run1": {
+      "sha256": "5e919720913a40c7c2b79aabb0874f4c7d0f1d8df41c66960efe92081330c266",
+      "format": "quality_instruction_probe/1",
+      "audit": {
+        "status": "pass",
+        "report_sha256": "5e919720913a40c7c2b79aabb0874f4c7d0f1d8df41c66960efe92081330c266",
+        "torch_imported": false,
+        "exact_profile_outputs": 324,
+        "exact_source_passage_spans": 0,
+        "exact_source_packages": 12132,
+        "bound_files": 125,
+        "mismatches": 0,
+        "actual_cache_workload": null
+      },
+      "configuration": {
+        "instructions": {
+          "english_match": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+          "english_retrieval": "Given a factual situation, retrieve legal provisions that directly govern or define the legal relationships, transactions, or obligations described. A provision is relevant when its actual rule helps assess the stated facts; a shared topic or isolated word is insufficient."
+        },
+        "model": {
+          "name": "qwen3-reranker-4b",
+          "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+        },
+        "shortlist": 20,
+        "threshold": 0.5,
+        "topk": 5,
+        "max_length": 2048
+      }
+    },
+    "run2": {
+      "sha256": "4a70e4d37162eea10f775e91608a6b4dd3da69c2c6963958e9ca10da7cd71a48",
+      "format": "quality_instruction_probe/1",
+      "audit": {
+        "status": "pass",
+        "report_sha256": "4a70e4d37162eea10f775e91608a6b4dd3da69c2c6963958e9ca10da7cd71a48",
+        "torch_imported": false,
+        "exact_profile_outputs": 324,
+        "exact_source_passage_spans": 0,
+        "exact_source_packages": 12132,
+        "bound_files": 126,
+        "mismatches": 0,
+        "actual_cache_workload": null
+      },
+      "configuration": {
+        "instructions": {
+          "german_full": "Beurteile, ob die Rechtsnorm (Document) den im Sachverhalt (Query) beschriebenen Rechtsbegriff/Sachverhalt trifft.",
+          "english_issue": "Given a tax or legal fact pattern, retrieve the legal rule needed for a substantive assessment of those facts. Match concrete taxable transactions, legal classifications, entitlements, obligations or disputed treatment. Routine administrative status updates, greetings, scheduling, and statements that merely confirm compliant completion do not require a match. Mere vocabulary overlap is insufficient."
+        },
+        "model": {
+          "name": "qwen3-reranker-4b",
+          "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+        },
+        "shortlist": 20,
+        "threshold": 0.5,
+        "topk": 5,
+        "max_length": 2048
+      }
+    },
+    "run3": {
+      "sha256": "07569c17533f230a1d504e8790bf56db2b78ccf6d7a0616b245fa662e0b5891d",
+      "format": "quality_passage_rerank_probe/1",
+      "audit": {
+        "status": "pass",
+        "report_sha256": "07569c17533f230a1d504e8790bf56db2b78ccf6d7a0616b245fa662e0b5891d",
+        "torch_imported": false,
+        "exact_profile_outputs": 1134,
+        "exact_source_passage_spans": 11760,
+        "exact_source_packages": 0,
+        "bound_files": 132,
+        "mismatches": 0,
+        "actual_cache_workload": {
+          "bge": {
+            "pairs": 569286,
+            "inherited_pairs": 125626,
+            "fresh_pairs": 443660,
+            "used_pairs": 569286,
+            "inherited_used_pairs": 125626,
+            "fresh_used_pairs": 443660,
+            "inherited_unused_pairs": 0
+          },
+          "qwen": {
+            "pairs": 37224,
+            "inherited_pairs": 10144,
+            "fresh_pairs": 27080,
+            "used_pairs": 36096,
+            "inherited_used_pairs": 9016,
+            "fresh_used_pairs": 27080,
+            "inherited_unused_pairs": 1128
+          },
+          "encoder": {
+            "queries": 465,
+            "inherited_queries": 132,
+            "fresh_queries": 333,
+            "used_queries": 465,
+            "inherited_used_queries": 132
+          }
+        }
+      },
+      "configuration": {
+        "variants": {
+          "instruction_control": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query."
+          },
+          "coherent50": {
+            "context": "coherent",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "shortlist": 50
+          },
+          "package20": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "passage_rerank": true,
+            "passage_shortlist": "package",
+            "shortlist": 20
+          },
+          "package50": {
+            "context": "sentence",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "passage_rerank": true,
+            "passage_shortlist": "package",
+            "shortlist": 50
+          },
+          "coherent_package50": {
+            "context": "coherent",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "passage_rerank": true,
+            "passage_shortlist": "package",
+            "shortlist": 50
+          },
+          "coherent_package_lexical50": {
+            "context": "coherent",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "passage_rerank": true,
+            "passage_shortlist": "package",
+            "shortlist": 50,
+            "lexical_pool": 20
+          },
+          "coherent_package_graph50": {
+            "context": "coherent",
+            "pool": 200,
+            "hybrid": true,
+            "rerank_threshold": 0.5,
+            "sim_rescue": 0.0,
+            "cascade": true,
+            "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+            "passage_rerank": true,
+            "passage_shortlist": "package",
+            "shortlist": 50,
+            "lexical_pool": 20,
+            "citation_pool": 50
+          }
+        },
+        "models": {
+          "encoder": {
+            "name": "bge-m3",
+            "revision": "5617a9f61b028005a4858fdac845db406aefb181"
+          },
+          "bge": {
+            "name": "bge-reranker-v2-m3",
+            "revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e"
+          },
+          "qwen": {
+            "name": "bge-qwen3-reranker-4b",
+            "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5"
+          }
+        }
+      },
+      "inherited_pilot": {
+        "cancellation_sha256": "945843a474fbca4c6dfbb41cd7895f8338333d123984ad9c493df1c630f78b75",
+        "status": "interrupted_diagnostic",
+        "completed_cases": 61,
+        "planned_cases": 162,
+        "excluded_from_full_quality_metrics": true,
+        "cache_pairs": {
+          "bge": 125626,
+          "qwen": 10144
+        },
+        "query_vectors": 132
+      }
+    }
+  },
+  "variants": {
+    "live/treffer": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 50,
+          "hit5_cases": 80,
+          "negative_with_suggestion": 11,
+          "positive_entries": 741,
+          "positive_unique_case_norm_pairs": 671,
+          "negative_entries": 30,
+          "negative_unique_case_norm_pairs": 30,
+          "historical_target_matching_entries": 127,
+          "unadjudicated_non_target_entries": 614,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 99,
+          "mrr_best_sentence": 0.6093137254901961,
+          "mean_target_coverage": 0.6313725490196079,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 7,
+          "positive_entries": 49,
+          "positive_unique_case_norm_pairs": 49,
+          "negative_entries": 14,
+          "negative_unique_case_norm_pairs": 14,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 31,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8333333333333334,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 12,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 2,
+          "negative_case_losses": 2,
+          "negative_norm_pairs_added": 9,
+          "negative_norm_pairs_removed": 8
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 8,
+          "negative_norm_pairs_removed": 5
+        }
+      }
+    },
+    "baseline/kaskade": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 11,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 84,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 47,
+          "positive_unique_case_norm_pairs": 47,
+          "negative_entries": 11,
+          "negative_unique_case_norm_pairs": 11,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 29,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8,
+          "mean_target_coverage": 0.7444444444444444,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 0,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 0,
+          "negative_norm_pairs_removed": 0
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 0,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 0,
+          "negative_norm_pairs_removed": 0
+        }
+      }
+    },
+    "run1/english_match": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 49,
+          "hit5_cases": 77,
+          "negative_with_suggestion": 10,
+          "positive_entries": 692,
+          "positive_unique_case_norm_pairs": 635,
+          "negative_entries": 31,
+          "negative_unique_case_norm_pairs": 31,
+          "historical_target_matching_entries": 114,
+          "unadjudicated_non_target_entries": 578,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 95,
+          "mrr_best_sentence": 0.600326797385621,
+          "mean_target_coverage": 0.6032679738562093,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 50,
+          "positive_unique_case_norm_pairs": 50,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 19,
+          "unadjudicated_non_target_entries": 31,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 19,
+          "mrr_best_sentence": 0.788888888888889,
+          "mean_target_coverage": 0.7777777777777778,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 9,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 5,
+          "negative_norm_pairs_removed": 3
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 1,
+          "negative_norm_pairs_added": 8,
+          "negative_norm_pairs_removed": 3
+        }
+      }
+    },
+    "run1/english_retrieval": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 48,
+          "hit5_cases": 77,
+          "negative_with_suggestion": 14,
+          "positive_entries": 782,
+          "positive_unique_case_norm_pairs": 728,
+          "negative_entries": 45,
+          "negative_unique_case_norm_pairs": 45,
+          "historical_target_matching_entries": 112,
+          "unadjudicated_non_target_entries": 670,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 98,
+          "mrr_best_sentence": 0.588562091503268,
+          "mean_target_coverage": 0.6114379084967321,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 10,
+          "positive_entries": 60,
+          "positive_unique_case_norm_pairs": 60,
+          "negative_entries": 32,
+          "negative_unique_case_norm_pairs": 32,
+          "historical_target_matching_entries": 19,
+          "unadjudicated_non_target_entries": 41,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 19,
+          "mrr_best_sentence": 0.788888888888889,
+          "mean_target_coverage": 0.7777777777777778,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 10,
+          "positive_hit_losses": 1,
+          "negative_case_wins": 0,
+          "negative_case_losses": 3,
+          "negative_norm_pairs_added": 19,
+          "negative_norm_pairs_removed": 3
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 0,
+          "negative_case_losses": 2,
+          "negative_norm_pairs_added": 21,
+          "negative_norm_pairs_removed": 0
+        }
+      }
+    },
+    "run2/german_full": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 11,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 84,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 47,
+          "positive_unique_case_norm_pairs": 47,
+          "negative_entries": 11,
+          "negative_unique_case_norm_pairs": 11,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 29,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8,
+          "mean_target_coverage": 0.7444444444444444,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 0,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 0,
+          "negative_norm_pairs_removed": 0
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 0,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 0,
+          "negative_norm_pairs_removed": 0
+        }
+      }
+    },
+    "run2/english_issue": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 53,
+          "hit5_cases": 82,
+          "negative_with_suggestion": 14,
+          "positive_entries": 791,
+          "positive_unique_case_norm_pairs": 712,
+          "negative_entries": 41,
+          "negative_unique_case_norm_pairs": 41,
+          "historical_target_matching_entries": 123,
+          "unadjudicated_non_target_entries": 668,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 99,
+          "mrr_best_sentence": 0.6433006535947713,
+          "mean_target_coverage": 0.631045751633987,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 11,
+          "positive_entries": 63,
+          "positive_unique_case_norm_pairs": 63,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 45,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.788888888888889,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 15,
+          "positive_hit_losses": 1,
+          "negative_case_wins": 1,
+          "negative_case_losses": 4,
+          "negative_norm_pairs_added": 17,
+          "negative_norm_pairs_removed": 5
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 4,
+          "negative_norm_pairs_added": 20,
+          "negative_norm_pairs_removed": 2
+        }
+      }
+    },
+    "run3/instruction_control": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 49,
+          "hit5_cases": 77,
+          "negative_with_suggestion": 10,
+          "positive_entries": 692,
+          "positive_unique_case_norm_pairs": 635,
+          "negative_entries": 31,
+          "negative_unique_case_norm_pairs": 31,
+          "historical_target_matching_entries": 114,
+          "unadjudicated_non_target_entries": 578,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 95,
+          "mrr_best_sentence": 0.600326797385621,
+          "mean_target_coverage": 0.6032679738562093,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 50,
+          "positive_unique_case_norm_pairs": 50,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 19,
+          "unadjudicated_non_target_entries": 31,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 19,
+          "mrr_best_sentence": 0.788888888888889,
+          "mean_target_coverage": 0.7777777777777778,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 9,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 5,
+          "negative_norm_pairs_removed": 3
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 1,
+          "negative_norm_pairs_added": 8,
+          "negative_norm_pairs_removed": 3
+        }
+      }
+    },
+    "run3/coherent50": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 43,
+          "hit5_cases": 70,
+          "negative_with_suggestion": 14,
+          "positive_entries": 776,
+          "positive_unique_case_norm_pairs": 420,
+          "negative_entries": 39,
+          "negative_unique_case_norm_pairs": 39,
+          "historical_target_matching_entries": 153,
+          "unadjudicated_non_target_entries": 623,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 82,
+          "mrr_best_sentence": 0.5379084967320263,
+          "mean_target_coverage": 0.54281045751634,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 9,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 7,
+          "positive_entries": 57,
+          "positive_unique_case_norm_pairs": 57,
+          "negative_entries": 15,
+          "negative_unique_case_norm_pairs": 15,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 39,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.7166666666666667,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 8,
+          "positive_hit_losses": 6,
+          "negative_case_wins": 2,
+          "negative_case_losses": 5,
+          "negative_norm_pairs_added": 20,
+          "negative_norm_pairs_removed": 10
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 9,
+          "negative_norm_pairs_removed": 5
+        }
+      }
+    },
+    "run3/package20": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 50,
+          "hit5_cases": 80,
+          "negative_with_suggestion": 11,
+          "positive_entries": 741,
+          "positive_unique_case_norm_pairs": 671,
+          "negative_entries": 30,
+          "negative_unique_case_norm_pairs": 30,
+          "historical_target_matching_entries": 127,
+          "unadjudicated_non_target_entries": 614,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 99,
+          "mrr_best_sentence": 0.6093137254901961,
+          "mean_target_coverage": 0.6313725490196079,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 7,
+          "positive_entries": 49,
+          "positive_unique_case_norm_pairs": 49,
+          "negative_entries": 14,
+          "negative_unique_case_norm_pairs": 14,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 31,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8333333333333334,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 12,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 2,
+          "negative_case_losses": 2,
+          "negative_norm_pairs_added": 9,
+          "negative_norm_pairs_removed": 8
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 8,
+          "negative_norm_pairs_removed": 5
+        }
+      }
+    },
+    "run3/package50": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 47,
+          "hit5_cases": 78,
+          "negative_with_suggestion": 13,
+          "positive_entries": 855,
+          "positive_unique_case_norm_pairs": 783,
+          "negative_entries": 39,
+          "negative_unique_case_norm_pairs": 39,
+          "historical_target_matching_entries": 125,
+          "unadjudicated_non_target_entries": 730,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 97,
+          "mrr_best_sentence": 0.5831699346405229,
+          "mean_target_coverage": 0.6163398692810459,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 7,
+          "positive_entries": 58,
+          "positive_unique_case_norm_pairs": 58,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 40,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8333333333333334,
+          "mean_target_coverage": 0.7555555555555554,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 10,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 2,
+          "negative_case_losses": 4,
+          "negative_norm_pairs_added": 18,
+          "negative_norm_pairs_removed": 8
+        },
+        "additional": {
+          "positive_hit_wins": 0,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 0,
+          "negative_norm_pairs_added": 10,
+          "negative_norm_pairs_removed": 5
+        }
+      }
+    },
+    "run3/coherent_package50": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 45,
+          "hit5_cases": 75,
+          "negative_with_suggestion": 12,
+          "positive_entries": 821,
+          "positive_unique_case_norm_pairs": 440,
+          "negative_entries": 39,
+          "negative_unique_case_norm_pairs": 39,
+          "historical_target_matching_entries": 172,
+          "unadjudicated_non_target_entries": 649,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 92,
+          "mrr_best_sentence": 0.568137254901961,
+          "mean_target_coverage": 0.588562091503268,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 14,
+          "negative_with_suggestion": 8,
+          "positive_entries": 58,
+          "positive_unique_case_norm_pairs": 58,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 19,
+          "unadjudicated_non_target_entries": 39,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 19,
+          "mrr_best_sentence": 0.8355555555555555,
+          "mean_target_coverage": 0.7888888888888889,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 10,
+          "positive_hit_losses": 3,
+          "negative_case_wins": 2,
+          "negative_case_losses": 3,
+          "negative_norm_pairs_added": 21,
+          "negative_norm_pairs_removed": 11
+        },
+        "additional": {
+          "positive_hit_wins": 1,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 1,
+          "negative_norm_pairs_added": 12,
+          "negative_norm_pairs_removed": 7
+        }
+      }
+    },
+    "run3/coherent_package_lexical50": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 45,
+          "hit5_cases": 76,
+          "negative_with_suggestion": 12,
+          "positive_entries": 820,
+          "positive_unique_case_norm_pairs": 439,
+          "negative_entries": 39,
+          "negative_unique_case_norm_pairs": 39,
+          "historical_target_matching_entries": 175,
+          "unadjudicated_non_target_entries": 645,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 93,
+          "mrr_best_sentence": 0.5705882352941178,
+          "mean_target_coverage": 0.5918300653594772,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 14,
+          "negative_with_suggestion": 8,
+          "positive_entries": 58,
+          "positive_unique_case_norm_pairs": 58,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 19,
+          "unadjudicated_non_target_entries": 39,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 19,
+          "mrr_best_sentence": 0.8355555555555555,
+          "mean_target_coverage": 0.7888888888888889,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 11,
+          "positive_hit_losses": 3,
+          "negative_case_wins": 2,
+          "negative_case_losses": 3,
+          "negative_norm_pairs_added": 21,
+          "negative_norm_pairs_removed": 11
+        },
+        "additional": {
+          "positive_hit_wins": 1,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 1,
+          "negative_case_losses": 1,
+          "negative_norm_pairs_added": 12,
+          "negative_norm_pairs_removed": 7
+        }
+      }
+    },
+    "run3/coherent_package_graph50": {
+      "datasets": {
+        "main": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 45,
+          "hit5_cases": 75,
+          "negative_with_suggestion": 13,
+          "positive_entries": 825,
+          "positive_unique_case_norm_pairs": 442,
+          "negative_entries": 40,
+          "negative_unique_case_norm_pairs": 40,
+          "historical_target_matching_entries": 180,
+          "unadjudicated_non_target_entries": 645,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 97,
+          "mrr_best_sentence": 0.5692810457516342,
+          "mean_target_coverage": 0.6130718954248366,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "additional": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 12,
+          "hit5_cases": 14,
+          "negative_with_suggestion": 7,
+          "positive_entries": 58,
+          "positive_unique_case_norm_pairs": 58,
+          "negative_entries": 16,
+          "negative_unique_case_norm_pairs": 16,
+          "historical_target_matching_entries": 20,
+          "unadjudicated_non_target_entries": 38,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 20,
+          "mrr_best_sentence": 0.8355555555555555,
+          "mean_target_coverage": 0.8111111111111111,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "paired_change_counts": {
+        "main": {
+          "positive_hit_wins": 10,
+          "positive_hit_losses": 3,
+          "negative_case_wins": 2,
+          "negative_case_losses": 4,
+          "negative_norm_pairs_added": 22,
+          "negative_norm_pairs_removed": 11
+        },
+        "additional": {
+          "positive_hit_wins": 1,
+          "positive_hit_losses": 0,
+          "negative_case_wins": 2,
+          "negative_case_losses": 1,
+          "negative_norm_pairs_added": 12,
+          "negative_norm_pairs_removed": 7
+        }
+      }
+    }
+  },
+  "query_need_classifier": {
+    "decision": "rejected_for_runtime",
+    "report_sha256": "b9e9e38ba0781278a3fbf7ddf9761dccae9077fdaa191ddb7a071289cd1a6088",
+    "protocol_sha256": "c66deb79f1db0d88b4d9388601126260b4f5c986365c91353cf1b2bc623807f8",
+    "source_sha256": "5392cce54fedd6236320dc8f1a61e75e0fab8b0e1e0ceff853c023946b6c2d21",
+    "model": {
+      "type": "sklearn.linear_model.LogisticRegression",
+      "C": 1.0,
+      "class_weight": "balanced",
+      "threshold": 0.5,
+      "solver": "lbfgs",
+      "max_iter": 1000,
+      "tol": 0.0001,
+      "fit_intercept": true,
+      "regularization": "L2",
+      "preprocessing": "None; exact existing full-query BGE-M3 vector"
+    },
+    "source_folds": 11,
+    "cases": 162,
+    "training_exclusions_across_folds": 12,
+    "model_saved": false,
+    "datasets": {
+      "main": {
+        "before": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 11,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 84,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "after": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 44,
+          "hit5_cases": 66,
+          "negative_with_suggestion": 2,
+          "positive_entries": 611,
+          "positive_unique_case_norm_pairs": 565,
+          "negative_entries": 6,
+          "negative_unique_case_norm_pairs": 6,
+          "historical_target_matching_entries": 95,
+          "unadjudicated_non_target_entries": 516,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 82,
+          "mrr_best_sentence": 0.5285947712418301,
+          "mean_target_coverage": 0.511764705882353,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "additional": {
+        "before": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 47,
+          "positive_unique_case_norm_pairs": 47,
+          "negative_entries": 11,
+          "negative_unique_case_norm_pairs": 11,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 29,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8,
+          "mean_target_coverage": 0.7444444444444444,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "after": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 6,
+          "hit5_cases": 8,
+          "negative_with_suggestion": 0,
+          "positive_entries": 33,
+          "positive_unique_case_norm_pairs": 33,
+          "negative_entries": 0,
+          "negative_unique_case_norm_pairs": 0,
+          "historical_target_matching_entries": 13,
+          "unadjudicated_non_target_entries": 20,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 13,
+          "mrr_best_sentence": 0.4666666666666667,
+          "mean_target_coverage": 0.5,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      }
+    },
+    "limitations": [
+      "Already inspected development data; no independent blind validation.",
+      "Only two source collections contain negative cases; source style and query length are confounded.",
+      "Whole-source OOF, with query-only near variants removed from training before each fixed fit.",
+      "The gate removes genuine positive short queries and is not activated."
+    ]
+  },
+  "instruction_mean": {
+    "format": "quality_instruction_mean_aggregate/1",
+    "decision": "rejected_for_runtime",
+    "report_sha256": "766c0a98459431b49d4b8f9e12885100f75139fbde33772a528dc95d3b21feac",
+    "protocol_sha256": "32ec04cc387fea6f59484d384c42c5cb779bd93a8bb59780961c43aba73e4148",
+    "source_sha256": "805462d97d6c6e8a3a928102c39a973380fc1949f3676fc7c467d6b948d85474",
+    "rule": {
+      "rule": "arithmetic mean of all three English instruction raw scores",
+      "instructions": [
+        "english_match",
+        "english_retrieval",
+        "english_issue"
+      ],
+      "threshold": 0.5,
+      "shortlist": 20,
+      "topk": 5,
+      "ordering": "descending mean, descending retrieval similarity, ascending norm ID",
+      "max_length": 2048
+    },
+    "datasets": {
+      "main": {
+        "positive_cases": 102,
+        "negative_cases": 30,
+        "hit1_cases": 52,
+        "hit5_cases": 79,
+        "negative_with_suggestion": 13,
+        "positive_entries": 732,
+        "positive_unique_case_norm_pairs": 673,
+        "negative_entries": 36,
+        "negative_unique_case_norm_pairs": 36,
+        "historical_target_matching_entries": 119,
+        "unadjudicated_non_target_entries": 613,
+        "historical_norm_targets": 176,
+        "matched_historical_norm_targets": 100,
+        "mrr_best_sentence": 0.6209150326797387,
+        "mean_target_coverage": 0.6277777777777779,
+        "suggestion_precision": null,
+        "full_legal_recall": null
+      },
+      "additional": {
+        "positive_cases": 15,
+        "negative_cases": 15,
+        "hit1_cases": 11,
+        "hit5_cases": 13,
+        "negative_with_suggestion": 9,
+        "positive_entries": 58,
+        "positive_unique_case_norm_pairs": 58,
+        "negative_entries": 21,
+        "negative_unique_case_norm_pairs": 21,
+        "historical_target_matching_entries": 19,
+        "unadjudicated_non_target_entries": 39,
+        "historical_norm_targets": 27,
+        "matched_historical_norm_targets": 19,
+        "mrr_best_sentence": 0.788888888888889,
+        "mean_target_coverage": 0.7777777777777778,
+        "suggestion_precision": null,
+        "full_legal_recall": null
+      }
+    },
+    "audit": {
+      "exact_case_outputs": 162,
+      "bound_files": 186,
+      "mismatches": 0
+    },
+    "notes": [
+      "Single post-hoc arithmetic mean of the three existing English instruction runs; no new model inference.",
+      "All 162 cases are previously inspected development data, not independent evaluation examples.",
+      "The three prompts use the same model and are not independent validation evidence.",
+      "No threshold/weight selection, learned labels or runtime activation; positive non-target norms remain unadjudicated."
+    ]
+  },
+  "qwen8b": {
+    "format": "quality_qwen8b_aggregate/1",
+    "status": "recovered_complete",
+    "decision": "research_only",
+    "report_sha256": "e5c110fab028266b1dee4d2e7786b94126c016cc4c152ec588cf33293f0cb514",
+    "baseline_sha256": "91ee80cd07f192a34d9701c3be1a97fd64d42e8fb5e0dc10cd2dd9bef1c2886c",
+    "inputs_sha256": "145e1edfe2ab2cda1f54ed20889be2395ae1bf32d2c97c5f4d632e177edd9e30",
+    "model_manifest_sha256": "a189f0b22f8baee7c2ee2542cfdc4dbbeb9a2d10c8f1ecd41bc8366daa124333",
+    "source_hashes": {
+      "tools\\quality_qwen8b_probe.py": "45f77f165b4bfb188217d85168caa4a6203adf1e919554bd84d8ea3dfcdcfc14",
+      "tools\\_gpu_eval_metrics.py": "166a577de141a62f80de421c229e3d0be0cf46da5fc4ae9f6708a9ee0358e4ab",
+      "risk_layer\\torch_compat.py": "77de58364bb7841a0296cbe7451d7614e9eabb8bcd7dff1cb27e5b9d4614d6d5"
+    },
+    "model": {
+      "name": "Qwen/Qwen3-Reranker-8B",
+      "revision": "77d193c791ed757ca307ee72715aa132723da912"
+    },
+    "configuration": {
+      "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+      "max_length": 2048,
+      "threshold": 0.5,
+      "topk": 5,
+      "variants": {
+        "qwen8b_reduced_top20": {
+          "head": "reduced",
+          "shortlist": 20
+        },
+        "qwen8b_reduced_top50": {
+          "head": "reduced",
+          "shortlist": 50
+        },
+        "qwen8b_full_gpu_top20": {
+          "head": "full_gpu",
+          "shortlist": 20
+        },
+        "qwen8b_full_gpu_top50": {
+          "head": "full_gpu",
+          "shortlist": 50
+        }
+      },
+      "truncation": false,
+      "quantization": null,
+      "dtype": "float16"
+    },
+    "variants": {
+      "qwen8b_reduced_top20": {
+        "datasets": {
+          "main": {
+            "positive_cases": 102,
+            "negative_cases": 30,
+            "hit1_cases": 58,
+            "hit5_cases": 75,
+            "negative_with_suggestion": 11,
+            "positive_entries": 507,
+            "positive_unique_case_norm_pairs": 472,
+            "negative_entries": 30,
+            "negative_unique_case_norm_pairs": 30,
+            "historical_target_matching_entries": 101,
+            "unadjudicated_non_target_entries": 406,
+            "historical_norm_targets": 176,
+            "matched_historical_norm_targets": 89,
+            "mrr_best_sentence": 0.6356209150326798,
+            "mean_target_coverage": 0.5718954248366015,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          },
+          "additional": {
+            "positive_cases": 15,
+            "negative_cases": 15,
+            "hit1_cases": 10,
+            "hit5_cases": 12,
+            "negative_with_suggestion": 9,
+            "positive_entries": 42,
+            "positive_unique_case_norm_pairs": 42,
+            "negative_entries": 21,
+            "negative_unique_case_norm_pairs": 21,
+            "historical_target_matching_entries": 18,
+            "unadjudicated_non_target_entries": 24,
+            "historical_norm_targets": 27,
+            "matched_historical_norm_targets": 18,
+            "mrr_best_sentence": 0.7166666666666667,
+            "mean_target_coverage": 0.711111111111111,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          }
+        },
+        "paired_change_counts_vs_original_kaskade": {
+          "main": {
+            "positive_hit_wins": 10,
+            "positive_hit_losses": 3,
+            "negative_case_wins": 2,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 14,
+            "negative_norm_pairs_removed": 13
+          },
+          "additional": {
+            "positive_hit_wins": 0,
+            "positive_hit_losses": 1,
+            "negative_case_wins": 1,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 14,
+            "negative_norm_pairs_removed": 4
+          }
+        }
+      },
+      "qwen8b_reduced_top50": {
+        "datasets": {
+          "main": {
+            "positive_cases": 102,
+            "negative_cases": 30,
+            "hit1_cases": 56,
+            "hit5_cases": 75,
+            "negative_with_suggestion": 13,
+            "positive_entries": 602,
+            "positive_unique_case_norm_pairs": 563,
+            "negative_entries": 35,
+            "negative_unique_case_norm_pairs": 35,
+            "historical_target_matching_entries": 106,
+            "unadjudicated_non_target_entries": 496,
+            "historical_norm_targets": 176,
+            "matched_historical_norm_targets": 93,
+            "mrr_best_sentence": 0.6241830065359478,
+            "mean_target_coverage": 0.5898692810457516,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          },
+          "additional": {
+            "positive_cases": 15,
+            "negative_cases": 15,
+            "hit1_cases": 10,
+            "hit5_cases": 12,
+            "negative_with_suggestion": 10,
+            "positive_entries": 48,
+            "positive_unique_case_norm_pairs": 48,
+            "negative_entries": 28,
+            "negative_unique_case_norm_pairs": 28,
+            "historical_target_matching_entries": 18,
+            "unadjudicated_non_target_entries": 30,
+            "historical_norm_targets": 27,
+            "matched_historical_norm_targets": 18,
+            "mrr_best_sentence": 0.7166666666666667,
+            "mean_target_coverage": 0.7111111111111111,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          }
+        },
+        "paired_change_counts_vs_original_kaskade": {
+          "main": {
+            "positive_hit_wins": 11,
+            "positive_hit_losses": 4,
+            "negative_case_wins": 2,
+            "negative_case_losses": 4,
+            "negative_norm_pairs_added": 20,
+            "negative_norm_pairs_removed": 14
+          },
+          "additional": {
+            "positive_hit_wins": 0,
+            "positive_hit_losses": 1,
+            "negative_case_wins": 0,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 21,
+            "negative_norm_pairs_removed": 4
+          }
+        }
+      },
+      "qwen8b_full_gpu_top20": {
+        "datasets": {
+          "main": {
+            "positive_cases": 102,
+            "negative_cases": 30,
+            "hit1_cases": 58,
+            "hit5_cases": 75,
+            "negative_with_suggestion": 11,
+            "positive_entries": 507,
+            "positive_unique_case_norm_pairs": 472,
+            "negative_entries": 30,
+            "negative_unique_case_norm_pairs": 30,
+            "historical_target_matching_entries": 101,
+            "unadjudicated_non_target_entries": 406,
+            "historical_norm_targets": 176,
+            "matched_historical_norm_targets": 89,
+            "mrr_best_sentence": 0.6356209150326798,
+            "mean_target_coverage": 0.5718954248366015,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          },
+          "additional": {
+            "positive_cases": 15,
+            "negative_cases": 15,
+            "hit1_cases": 10,
+            "hit5_cases": 12,
+            "negative_with_suggestion": 9,
+            "positive_entries": 42,
+            "positive_unique_case_norm_pairs": 42,
+            "negative_entries": 21,
+            "negative_unique_case_norm_pairs": 21,
+            "historical_target_matching_entries": 18,
+            "unadjudicated_non_target_entries": 24,
+            "historical_norm_targets": 27,
+            "matched_historical_norm_targets": 18,
+            "mrr_best_sentence": 0.7166666666666667,
+            "mean_target_coverage": 0.711111111111111,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          }
+        },
+        "paired_change_counts_vs_original_kaskade": {
+          "main": {
+            "positive_hit_wins": 10,
+            "positive_hit_losses": 3,
+            "negative_case_wins": 2,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 14,
+            "negative_norm_pairs_removed": 13
+          },
+          "additional": {
+            "positive_hit_wins": 0,
+            "positive_hit_losses": 1,
+            "negative_case_wins": 1,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 14,
+            "negative_norm_pairs_removed": 4
+          }
+        }
+      },
+      "qwen8b_full_gpu_top50": {
+        "datasets": {
+          "main": {
+            "positive_cases": 102,
+            "negative_cases": 30,
+            "hit1_cases": 56,
+            "hit5_cases": 75,
+            "negative_with_suggestion": 13,
+            "positive_entries": 602,
+            "positive_unique_case_norm_pairs": 563,
+            "negative_entries": 35,
+            "negative_unique_case_norm_pairs": 35,
+            "historical_target_matching_entries": 106,
+            "unadjudicated_non_target_entries": 496,
+            "historical_norm_targets": 176,
+            "matched_historical_norm_targets": 93,
+            "mrr_best_sentence": 0.6241830065359478,
+            "mean_target_coverage": 0.5898692810457516,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          },
+          "additional": {
+            "positive_cases": 15,
+            "negative_cases": 15,
+            "hit1_cases": 10,
+            "hit5_cases": 12,
+            "negative_with_suggestion": 10,
+            "positive_entries": 48,
+            "positive_unique_case_norm_pairs": 48,
+            "negative_entries": 28,
+            "negative_unique_case_norm_pairs": 28,
+            "historical_target_matching_entries": 18,
+            "unadjudicated_non_target_entries": 30,
+            "historical_norm_targets": 27,
+            "matched_historical_norm_targets": 18,
+            "mrr_best_sentence": 0.7166666666666667,
+            "mean_target_coverage": 0.7111111111111111,
+            "suggestion_precision": null,
+            "full_legal_recall": null
+          }
+        },
+        "paired_change_counts_vs_original_kaskade": {
+          "main": {
+            "positive_hit_wins": 11,
+            "positive_hit_losses": 4,
+            "negative_case_wins": 2,
+            "negative_case_losses": 4,
+            "negative_norm_pairs_added": 20,
+            "negative_norm_pairs_removed": 14
+          },
+          "additional": {
+            "positive_hit_wins": 0,
+            "positive_hit_losses": 1,
+            "negative_case_wins": 0,
+            "negative_case_losses": 2,
+            "negative_norm_pairs_added": 21,
+            "negative_norm_pairs_removed": 4
+          }
+        }
+      }
+    },
+    "numerical_audit": {
+      "pairs": 14961,
+      "different_logit_pairs": 0,
+      "different_scores": 0,
+      "max_abs_score_difference": 0.0,
+      "max_abs_logit_difference": 0.0,
+      "threshold_crossings": 0,
+      "exact_scores": true
+    },
+    "output_difference_counts": {
+      "main": {
+        "20": {
+          "different_outputs": 0,
+          "different_norm_orders": 0
+        },
+        "50": {
+          "different_outputs": 0,
+          "different_norm_orders": 0
+        }
+      },
+      "additional": {
+        "20": {
+          "different_outputs": 0,
+          "different_norm_orders": 0
+        },
+        "50": {
+          "different_outputs": 0,
+          "different_norm_orders": 0
+        }
+      }
+    },
+    "workload": {
+      "cases": 162,
+      "unique_pairs": 14961,
+      "batches": 7481,
+      "oom_retries": 0,
+      "input_groups": 304,
+      "top20_candidate_entries": 6066,
+      "top50_candidate_entries": 15011
+    },
+    "runtime": {
+      "packages": {
+        "torch": "2.9.1+rocm7.2.1",
+        "transformers": "5.15.1",
+        "numpy": "2.2.6",
+        "safetensors": "0.8.0"
+      },
+      "dtype": "torch.float16",
+      "attention_implementation": "sdpa",
+      "gpu": "AMD Radeon RX 9070 XT",
+      "hip": "7.2.53211-158bd99533",
+      "cuda": null,
+      "device_total_bytes": 17095983104,
+      "load_seconds": 11.936601400000654,
+      "reduced_scoring_seconds": 5404.611047599999,
+      "full_head_validation_seconds": 23.00516179999977,
+      "decoder_peak_allocated_bytes": 14261773824,
+      "decoder_peak_reserved_bytes": 15168700416,
+      "post_decoder_allocated_bytes": 79691776
+    },
+    "audit": {
+      "exact_case_outputs": 648,
+      "bound_files": 68,
+      "original_inputs": {
+        "status": "pass",
+        "inputs_sha256": "145e1edfe2ab2cda1f54ed20889be2395ae1bf32d2c97c5f4d632e177edd9e30",
+        "cases": 162,
+        "exact_source_packages": 15011,
+        "bound_files": 69,
+        "torch_imported": false,
+        "mismatches": 0
+      },
+      "original_input_audit_sha256": "bdd1b87a39cd2bb0f47a09f00793e023b1bb9e71f3f6181f659b07095b7457e3",
+      "mismatches": 0,
+      "max_abs_gpu_vs_fp32_row_reference": {
+        "reduced": 0.007894515991210938,
+        "full_gpu": 0.007894515991210938
+      },
+      "fp16_projection_tolerance": "0.002 * sum(abs(hidden * original_row)) + 0.002 per logit",
+      "head_comparison_uses_same_hidden_states": true,
+      "full_original_head_verified": true
+    },
+    "notes": [
+      "All four fixed arms and all 162 historical cases are included, including worse results.",
+      "Historical norm-target denominators are 176 and 27; unlisted positive-case norms are unadjudicated.",
+      "The head comparison reuses identical observed hidden states and batch boundaries, not a second decoder inference.",
+      "FP16 GEMM shape can affect logits and raw scores; both heads are reported without a bit-equality promise.",
+      "Timing covers this standalone 8B experiment, not production pipeline or three-model co-residence.",
+      "Previously examined development data; no independent validation or production activation."
+    ],
+    "recovery": {
+      "format": "quality_qwen8b_recovery/1",
+      "original_report_sha256": "02ad6f4e6c61ce4206a107b4969b2f324bceb134c82d755ff8b36d90b6a98706",
+      "original_manifest_sha256": "79e3c7419d573f6a72266d5cc5d441508762638b67580ea3b4e1880c2c165ee2",
+      "original_status": "failed",
+      "original_error": "ValueError('GPU decoder was not released before full original head validation')",
+      "original_post_decoder_allocated_bytes": 79691776,
+      "original_release_guard_bytes": 67108864,
+      "fresh_process": true,
+      "full_head_only": true,
+      "decoder_rerun": false,
+      "complete_inherited_decoder_pairs": 14961,
+      "inherited_artifact_hashes": {
+        "inputs.json": "145e1edfe2ab2cda1f54ed20889be2395ae1bf32d2c97c5f4d632e177edd9e30",
+        "pairs.json": "cc5d9a59ba9e9b7357b6c497b4f41773d77b5b123c00d45a34e313206c880db9",
+        "tokens.json": "f9523eaa46b85e29277492e48ff8f2be296b092dd4b1e0444d99ef41936a1f3e",
+        "model-download.json": "a189f0b22f8baee7c2ee2542cfdc4dbbeb9a2d10c8f1ecd41bc8366daa124333",
+        "batches.json": "6ec27d60faaa129940458ba35fbe2882464f3c5f0650810e0e1c7899c6a029b4",
+        "oom_retries.json": "a5338d955b09046ec0b16f3a9625b7955c763aae07dc722e474e6078745f932f",
+        "hidden_states.npy": "81ecac36943763ba9ae0e23982a9640f5daf025835bbbbc7f2c2e9d2bd79f886",
+        "reduced_head_rows.npy": "0d4726efa243c4b344ce620214feab6613c7f43c380d46b6ace759a395064e9d",
+        "reduced_logits.npy": "47f8d820603caf29ce9d7ff27dde2d92f06a2613c353ef953d608fa2f19edc6f",
+        "reduced_scores.npy": "7577fabcb7f632a41e1a26eb97bb2272beeb1c38dbaefb3c0120a5506b333b70"
+      },
+      "source_hashes": {
+        "tools/quality_qwen8b_recovery.py": "6d7bd52ca47bc24cf46c0b722ca1685700edd4851216111db95e2a226445ca6a"
+      },
+      "runtime": {
+        "packages": {
+          "torch": "2.9.1+rocm7.2.1",
+          "transformers": "5.15.1",
+          "numpy": "2.2.6",
+          "safetensors": "0.8.0"
+        },
+        "gpu": "AMD Radeon RX 9070 XT",
+        "hip": "7.2.53211-158bd99533",
+        "cuda": null,
+        "device_total_bytes": 17095983104,
+        "dtype": "torch.float16",
+        "initial_allocated_bytes": 0,
+        "head_load_seconds": 3.6113750000004075,
+        "full_head_validation_seconds": 23.00516179999977,
+        "peak_allocated_bytes": 1323394560,
+        "peak_reserved_bytes": 1325400064,
+        "full_gpu_projected_pairs": 14961
+      }
+    }
+  },
+  "anchor_query_classifier": {
+    "report_sha256": "e03ed4da50af48396e94a8084cbacfa1f1a07e26bbbf7c0b41bbd8a0fb28c1b6",
+    "protocol_sha256": "3810b2dcb6d6f813184895c426681d7b34264d9b5075af86ad405863e6933672",
+    "source_sha256": "069b6c108dc9ce679d2eec839d34fb2ce745f103c7dabc79dc99f95f45bc1d22",
+    "audit": {
+      "bound_input_files": 24,
+      "current_tools_replaced_by_exact_frozen_source": 0
+    },
+    "source_folds": 11,
+    "cases": 162,
+    "model_saved": false,
+    "runtime_activated": false,
+    "decision": "rejected_for_runtime",
+    "format": "query_classifier_anchor_aggregate/1",
+    "model": {
+      "type": "sklearn.linear_model.LogisticRegression",
+      "C": 1.0,
+      "class_weight": "balanced",
+      "threshold": 0.5,
+      "solver": "lbfgs",
+      "max_iter": 1000,
+      "tol": 0.0001,
+      "fit_intercept": true,
+      "regularization": "L2",
+      "preprocessing": "None; exact existing full-query BGE-M3 vector"
+    },
+    "datasets": {
+      "main": {
+        "before": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 11,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 29,
+          "negative_unique_case_norm_pairs": 29,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 84,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "after": {
+          "positive_cases": 102,
+          "negative_cases": 30,
+          "hit1_cases": 46,
+          "hit5_cases": 68,
+          "negative_with_suggestion": 4,
+          "positive_entries": 617,
+          "positive_unique_case_norm_pairs": 571,
+          "negative_entries": 9,
+          "negative_unique_case_norm_pairs": 9,
+          "historical_target_matching_entries": 97,
+          "unadjudicated_non_target_entries": 520,
+          "historical_norm_targets": 176,
+          "matched_historical_norm_targets": 84,
+          "mrr_best_sentence": 0.5482026143790849,
+          "mean_target_coverage": 0.5313725490196081,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      },
+      "additional": {
+        "before": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 11,
+          "hit5_cases": 13,
+          "negative_with_suggestion": 8,
+          "positive_entries": 47,
+          "positive_unique_case_norm_pairs": 47,
+          "negative_entries": 11,
+          "negative_unique_case_norm_pairs": 11,
+          "historical_target_matching_entries": 18,
+          "unadjudicated_non_target_entries": 29,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 18,
+          "mrr_best_sentence": 0.8,
+          "mean_target_coverage": 0.7444444444444444,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        },
+        "after": {
+          "positive_cases": 15,
+          "negative_cases": 15,
+          "hit1_cases": 9,
+          "hit5_cases": 11,
+          "negative_with_suggestion": 1,
+          "positive_entries": 42,
+          "positive_unique_case_norm_pairs": 42,
+          "negative_entries": 1,
+          "negative_unique_case_norm_pairs": 1,
+          "historical_target_matching_entries": 16,
+          "unadjudicated_non_target_entries": 26,
+          "historical_norm_targets": 27,
+          "matched_historical_norm_targets": 16,
+          "mrr_best_sentence": 0.6666666666666666,
+          "mean_target_coverage": 0.611111111111111,
+          "suggestion_precision": null,
+          "full_legal_recall": null
+        }
+      }
+    },
+    "anchors": {
+      "original_rows": 73,
+      "unique_training_texts": 48,
+      "retained_per_fold": [
+        42,
+        41,
+        42,
+        42,
+        42,
+        42,
+        42,
+        42,
+        42,
+        42,
+        42
+      ]
+    },
+    "notes": [
+      "Existing curated catalog descriptions supply weak positive matching supervision for fitting only, not new evaluation cases.",
+      "The fixed 0.5 gate preserves main hits but removes two additional positive cases; it remains undeployed.",
+      "All 162 cases are known development data; whole-source and declared similarity purges precede every fit."
+    ],
+    "instruction_report_sha256": "8323178a20465591481b163a3a6c0ffe3b9f84b3142a46ab692bab098c3e55e0",
+    "instruction_variants": {
+      "english_match": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 49,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 10,
+              "positive_entries": 692,
+              "positive_unique_case_norm_pairs": 635,
+              "negative_entries": 31,
+              "negative_unique_case_norm_pairs": 31,
+              "historical_target_matching_entries": 114,
+              "unadjudicated_non_target_entries": 578,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 95,
+              "mrr_best_sentence": 0.600326797385621,
+              "mean_target_coverage": 0.6032679738562093,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 49,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 3,
+              "positive_entries": 692,
+              "positive_unique_case_norm_pairs": 635,
+              "negative_entries": 9,
+              "negative_unique_case_norm_pairs": 9,
+              "historical_target_matching_entries": 114,
+              "unadjudicated_non_target_entries": 578,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 95,
+              "mrr_best_sentence": 0.600326797385621,
+              "mean_target_coverage": 0.6032679738562093,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 50,
+              "positive_unique_case_norm_pairs": 50,
+              "negative_entries": 16,
+              "negative_unique_case_norm_pairs": 16,
+              "historical_target_matching_entries": 19,
+              "unadjudicated_non_target_entries": 31,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 19,
+              "mrr_best_sentence": 0.788888888888889,
+              "mean_target_coverage": 0.7777777777777778,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 9,
+              "hit5_cases": 11,
+              "negative_with_suggestion": 1,
+              "positive_entries": 44,
+              "positive_unique_case_norm_pairs": 44,
+              "negative_entries": 1,
+              "negative_unique_case_norm_pairs": 1,
+              "historical_target_matching_entries": 17,
+              "unadjudicated_non_target_entries": 27,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 17,
+              "mrr_best_sentence": 0.6555555555555556,
+              "mean_target_coverage": 0.6444444444444444,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      },
+      "english_retrieval": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 48,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 14,
+              "positive_entries": 782,
+              "positive_unique_case_norm_pairs": 728,
+              "negative_entries": 45,
+              "negative_unique_case_norm_pairs": 45,
+              "historical_target_matching_entries": 112,
+              "unadjudicated_non_target_entries": 670,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 98,
+              "mrr_best_sentence": 0.588562091503268,
+              "mean_target_coverage": 0.6114379084967321,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 48,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 6,
+              "positive_entries": 782,
+              "positive_unique_case_norm_pairs": 728,
+              "negative_entries": 13,
+              "negative_unique_case_norm_pairs": 13,
+              "historical_target_matching_entries": 112,
+              "unadjudicated_non_target_entries": 670,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 98,
+              "mrr_best_sentence": 0.588562091503268,
+              "mean_target_coverage": 0.6114379084967321,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 10,
+              "positive_entries": 60,
+              "positive_unique_case_norm_pairs": 60,
+              "negative_entries": 32,
+              "negative_unique_case_norm_pairs": 32,
+              "historical_target_matching_entries": 19,
+              "unadjudicated_non_target_entries": 41,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 19,
+              "mrr_best_sentence": 0.788888888888889,
+              "mean_target_coverage": 0.7777777777777778,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 9,
+              "hit5_cases": 11,
+              "negative_with_suggestion": 2,
+              "positive_entries": 53,
+              "positive_unique_case_norm_pairs": 53,
+              "negative_entries": 4,
+              "negative_unique_case_norm_pairs": 4,
+              "historical_target_matching_entries": 17,
+              "unadjudicated_non_target_entries": 36,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 17,
+              "mrr_best_sentence": 0.6555555555555556,
+              "mean_target_coverage": 0.6444444444444444,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      },
+      "german_full": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 46,
+              "hit5_cases": 68,
+              "negative_with_suggestion": 11,
+              "positive_entries": 617,
+              "positive_unique_case_norm_pairs": 571,
+              "negative_entries": 29,
+              "negative_unique_case_norm_pairs": 29,
+              "historical_target_matching_entries": 97,
+              "unadjudicated_non_target_entries": 520,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 84,
+              "mrr_best_sentence": 0.5482026143790849,
+              "mean_target_coverage": 0.5313725490196081,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 46,
+              "hit5_cases": 68,
+              "negative_with_suggestion": 4,
+              "positive_entries": 617,
+              "positive_unique_case_norm_pairs": 571,
+              "negative_entries": 9,
+              "negative_unique_case_norm_pairs": 9,
+              "historical_target_matching_entries": 97,
+              "unadjudicated_non_target_entries": 520,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 84,
+              "mrr_best_sentence": 0.5482026143790849,
+              "mean_target_coverage": 0.5313725490196081,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 47,
+              "positive_unique_case_norm_pairs": 47,
+              "negative_entries": 11,
+              "negative_unique_case_norm_pairs": 11,
+              "historical_target_matching_entries": 18,
+              "unadjudicated_non_target_entries": 29,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 18,
+              "mrr_best_sentence": 0.8,
+              "mean_target_coverage": 0.7444444444444444,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 9,
+              "hit5_cases": 11,
+              "negative_with_suggestion": 1,
+              "positive_entries": 42,
+              "positive_unique_case_norm_pairs": 42,
+              "negative_entries": 1,
+              "negative_unique_case_norm_pairs": 1,
+              "historical_target_matching_entries": 16,
+              "unadjudicated_non_target_entries": 26,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 16,
+              "mrr_best_sentence": 0.6666666666666666,
+              "mean_target_coverage": 0.611111111111111,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      },
+      "english_issue": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 53,
+              "hit5_cases": 82,
+              "negative_with_suggestion": 14,
+              "positive_entries": 791,
+              "positive_unique_case_norm_pairs": 712,
+              "negative_entries": 41,
+              "negative_unique_case_norm_pairs": 41,
+              "historical_target_matching_entries": 123,
+              "unadjudicated_non_target_entries": 668,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 99,
+              "mrr_best_sentence": 0.6433006535947713,
+              "mean_target_coverage": 0.631045751633987,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 53,
+              "hit5_cases": 82,
+              "negative_with_suggestion": 5,
+              "positive_entries": 791,
+              "positive_unique_case_norm_pairs": 712,
+              "negative_entries": 11,
+              "negative_unique_case_norm_pairs": 11,
+              "historical_target_matching_entries": 123,
+              "unadjudicated_non_target_entries": 668,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 99,
+              "mrr_best_sentence": 0.6433006535947713,
+              "mean_target_coverage": 0.631045751633987,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 11,
+              "positive_entries": 63,
+              "positive_unique_case_norm_pairs": 63,
+              "negative_entries": 29,
+              "negative_unique_case_norm_pairs": 29,
+              "historical_target_matching_entries": 18,
+              "unadjudicated_non_target_entries": 45,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 18,
+              "mrr_best_sentence": 0.788888888888889,
+              "mean_target_coverage": 0.7555555555555554,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 9,
+              "hit5_cases": 11,
+              "negative_with_suggestion": 2,
+              "positive_entries": 53,
+              "positive_unique_case_norm_pairs": 53,
+              "negative_entries": 3,
+              "negative_unique_case_norm_pairs": 3,
+              "historical_target_matching_entries": 16,
+              "unadjudicated_non_target_entries": 37,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 16,
+              "mrr_best_sentence": 0.6555555555555556,
+              "mean_target_coverage": 0.6222222222222221,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      }
+    }
+  },
+  "nested_query_classifier": {
+    "report_sha256": "070e04889ef23e409f891bf26a654e17f7b9aca07140e9f12063a7d1241c5597",
+    "protocol_sha256": "b497bdb45491662a8015cf01c3fc669c83823c9750afce98bcb4ef40ed40b8e9",
+    "source_sha256": "e9db3817985a83ccab16ca5696f080168073dae48eb26b73de5fe3601b6949f3",
+    "audit": {
+      "bound_input_files": 90,
+      "current_tools_replaced_by_exact_frozen_source": 1
+    },
+    "source_folds": 11,
+    "cases": 162,
+    "model_saved": false,
+    "runtime_activated": false,
+    "decision": "rejected_for_runtime",
+    "format": "query_classifier_nested_aggregate/1",
+    "model": {
+      "type": "sklearn.linear_model.LogisticRegression",
+      "C": 1.0,
+      "class_weight": "balanced",
+      "solver": "lbfgs",
+      "max_iter": 1000,
+      "tol": 0.0001,
+      "fit_intercept": true,
+      "regularization": "L2",
+      "preprocessing": "None; exact existing full-query BGE-M3 vector"
+    },
+    "model_fits": {
+      "inner": 90,
+      "outer": 11
+    },
+    "fallback_outer_folds": 2,
+    "variants": {
+      "kaskade": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 46,
+              "hit5_cases": 68,
+              "negative_with_suggestion": 11,
+              "positive_entries": 617,
+              "positive_unique_case_norm_pairs": 571,
+              "negative_entries": 29,
+              "negative_unique_case_norm_pairs": 29,
+              "historical_target_matching_entries": 97,
+              "unadjudicated_non_target_entries": 520,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 84,
+              "mrr_best_sentence": 0.5482026143790849,
+              "mean_target_coverage": 0.5313725490196081,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 46,
+              "hit5_cases": 68,
+              "negative_with_suggestion": 11,
+              "positive_entries": 617,
+              "positive_unique_case_norm_pairs": 571,
+              "negative_entries": 29,
+              "negative_unique_case_norm_pairs": 29,
+              "historical_target_matching_entries": 97,
+              "unadjudicated_non_target_entries": 520,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 84,
+              "mrr_best_sentence": 0.5482026143790849,
+              "mean_target_coverage": 0.5313725490196081,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 47,
+              "positive_unique_case_norm_pairs": 47,
+              "negative_entries": 11,
+              "negative_unique_case_norm_pairs": 11,
+              "historical_target_matching_entries": 18,
+              "unadjudicated_non_target_entries": 29,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 18,
+              "mrr_best_sentence": 0.8,
+              "mean_target_coverage": 0.7444444444444444,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 47,
+              "positive_unique_case_norm_pairs": 47,
+              "negative_entries": 11,
+              "negative_unique_case_norm_pairs": 11,
+              "historical_target_matching_entries": 18,
+              "unadjudicated_non_target_entries": 29,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 18,
+              "mrr_best_sentence": 0.8,
+              "mean_target_coverage": 0.7444444444444444,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      },
+      "english_match": {
+        "datasets": {
+          "main": {
+            "before": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 49,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 10,
+              "positive_entries": 692,
+              "positive_unique_case_norm_pairs": 635,
+              "negative_entries": 31,
+              "negative_unique_case_norm_pairs": 31,
+              "historical_target_matching_entries": 114,
+              "unadjudicated_non_target_entries": 578,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 95,
+              "mrr_best_sentence": 0.600326797385621,
+              "mean_target_coverage": 0.6032679738562093,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 102,
+              "negative_cases": 30,
+              "hit1_cases": 49,
+              "hit5_cases": 77,
+              "negative_with_suggestion": 10,
+              "positive_entries": 692,
+              "positive_unique_case_norm_pairs": 635,
+              "negative_entries": 31,
+              "negative_unique_case_norm_pairs": 31,
+              "historical_target_matching_entries": 114,
+              "unadjudicated_non_target_entries": 578,
+              "historical_norm_targets": 176,
+              "matched_historical_norm_targets": 95,
+              "mrr_best_sentence": 0.600326797385621,
+              "mean_target_coverage": 0.6032679738562093,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          },
+          "additional": {
+            "before": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 50,
+              "positive_unique_case_norm_pairs": 50,
+              "negative_entries": 16,
+              "negative_unique_case_norm_pairs": 16,
+              "historical_target_matching_entries": 19,
+              "unadjudicated_non_target_entries": 31,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 19,
+              "mrr_best_sentence": 0.788888888888889,
+              "mean_target_coverage": 0.7777777777777778,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            },
+            "after": {
+              "positive_cases": 15,
+              "negative_cases": 15,
+              "hit1_cases": 11,
+              "hit5_cases": 13,
+              "negative_with_suggestion": 8,
+              "positive_entries": 50,
+              "positive_unique_case_norm_pairs": 50,
+              "negative_entries": 16,
+              "negative_unique_case_norm_pairs": 16,
+              "historical_target_matching_entries": 19,
+              "unadjudicated_non_target_entries": 31,
+              "historical_norm_targets": 27,
+              "matched_historical_norm_targets": 19,
+              "mrr_best_sentence": 0.788888888888889,
+              "mean_target_coverage": 0.7777777777777778,
+              "suggestion_precision": null,
+              "full_legal_recall": null
+            }
+          }
+        }
+      }
+    },
+    "rule": "Within each outer training split, use the largest cutoff at most 0.5 retaining all inner source-OOF original positive cases. Catalog anchors enter fitting only. A degenerate inner training class forces outer cutoff zero.",
+    "notes": [
+      "Thresholds are derived separately inside outer training folds, never from global OOF scores or outer test labels.",
+      "Two negative source collections cause two conservative fallback folds; all cases are retained and no false suggestions are removed.",
+      "The 162 cases remain previously inspected development data; no model file or runtime activation."
+    ]
+  },
+  "live_result": {
+    "report_sha256": "ad7223bb2609df6a0f962d3d167ab566cc79336e1d5e95bb54b8a2d4e660ec6d",
+    "reference_report_sha256": "07569c17533f230a1d504e8790bf56db2b78ccf6d7a0616b245fa662e0b5891d",
+    "selected_variant": "package20",
+    "public_profile": "treffer",
+    "profile_config": {
+      "context": "sentence",
+      "pool": 200,
+      "hybrid": true,
+      "rerank_threshold": 0.5,
+      "sim_rescue": 0.0,
+      "cascade": true,
+      "instruction": "Judge whether the legal provision (Document) matches the legal concept or factual situation described in the Query.",
+      "passage_rerank": true,
+      "passage_shortlist": "package",
+      "shortlist": 20
+    },
+    "source_hashes": {
+      "risk_layer/__init__.py": "9fface44516c5072b8779d91b195037a8368098cbac42a2d7494f02bdb45c67f",
+      "risk_layer/abgleich.py": "78e9f58effe5e1082524672b4d8ef6e1bd9e5c51f7a0971cafdb24cf1016031c",
+      "risk_layer/anonymize.py": "2eb63c7c02c3af6538b44cc54ffc6cda736e01b4faa54f3b2e2e2586aa90db38",
+      "risk_layer/api_v1.py": "c5af91a05c429cb64253d82dbc4d5d0fb41b6e971d49799fc80cd0aed88bf3b7",
+      "risk_layer/berater.py": "14e4dfbc49584876fb8dfdf804602c6b9350ea67a715cdd7bf655ea55bd398a5",
+      "risk_layer/catalog.py": "fca257291a69ad28167baf662edfacf997c6682929fd0b6d01ab1ac0f650da0d",
+      "risk_layer/citation_candidates.py": "ab240d20cd70b4cd463e2d6587bacf70acf18c64648eba68dd01419eab383494",
+      "risk_layer/cli.py": "266ff4aa258429d77a4dfccbf5444a3f505580a8520bd7a04b21880d579ee01d",
+      "risk_layer/corpus.py": "70f420fa996f4e6210546d900e23889716208b007f16bbd6f566745b29c8571f",
+      "risk_layer/dateisperre.py": "c954c5f0fa163fde6fe5c0a8eda67acb79b1ca6afa905f9fc6fb20fe47e97561",
+      "risk_layer/discovery.py": "b45a91edce2279af6adc05f80584764a3addba526179df6b46fa1608cbd77e55",
+      "risk_layer/embedding.py": "6b3ecf98288ded4e31aa9320e8c13792111aed304b568772da51e498df2f82db",
+      "risk_layer/embedding_model.py": "e6177cbfde23f9fbf591b0c26058896581366f3c8ae85d0bb3c0b9b19ac6fb18",
+      "risk_layer/embedding_operator.py": "99c27d527b703fd7eb6a95aa11b68fdf142a4079054951eba5e1eff1c59d1a43",
+      "risk_layer/finetune.py": "44ede4739dba971afed4ef626c8271b04170b30ff2701e19fb0c23d0bb183488",
+      "risk_layer/gii.py": "9ccda4c0943d2951e94fe324343e101ef0ad421a848824cb6d5b82e493b5cb00",
+      "risk_layer/graph.py": "c9eb0ea304946ec733dc0bc4eb875a67ec65b813bf1b5599b85a41fb13641905",
+      "risk_layer/idschema.py": "728223cc90ac98c8f6b27cbb2d0700e7e91bccc8af9b4e205631c59583ccd6cb",
+      "risk_layer/ingest.py": "cd1b39af8a49c2ad601124412dd9fdeaf5f5f8def06bf9c418c0faf063844a5f",
+      "risk_layer/lawmap.py": "731ea3620702ddbf792f7e60f797a18d07707715a40588d8ff09bc5edba02d74",
+      "risk_layer/lemma.py": "7a35d257f7e8ea6aee29d59c1fbd141d8c4f1f48db4629d392c1b833cb9d84c4",
+      "risk_layer/llama_cpp_manifest.py": "8c6e7754ef2d5615872e8a32f6953c2cb749c1d24957f74f74a149df29ce52f5",
+      "risk_layer/llm.py": "9d7579f7742a56d221c7e6f2cc8311c6d9865341e842a855b4b44bcc508ab549",
+      "risk_layer/llm_bench.py": "d57ecce8fafb36aeadda6d9238678dd53b0cf9f35cdd4f3f17a9a789d2377fbe",
+      "risk_layer/matcher.py": "504e7e35443056cdeb75089d9e85ce99d1914fc6ce897e8e3df0c3a73e107a0d",
+      "risk_layer/modell.py": "34a44f6be2a8616b50b5c79ae7d047480c76bf06ceaea7f4ea882ed9fff9e07e",
+      "risk_layer/models.py": "040ef4d088074845e65a9bca60f784724a181a32bdf2ace576a71db23679216a",
+      "risk_layer/muster.py": "fb647d12fa404ee67b807b478bcd3f031668aae79c5331b8c1df4452a52beada",
+      "risk_layer/norm_check.py": "f04812200170cba7300c04990ffa83fac1b7f9f74917af912f71b9ace1b15661",
+      "risk_layer/operator_cli.py": "f8e207c89783e0f2fec58c189d6f92e42cadc5da953df12babb7afc3e17e35cc",
+      "risk_layer/ops_cli.py": "78c154f1207287e64721a4d1c1736335a035d180a602bacc1b5e092d89578a1a",
+      "risk_layer/passage_selection.py": "5d0a6afb6a4cfc4c18abcefe25564f5cec3fd0ab877664b3692e553251876876",
+      "risk_layer/passages.py": "481f42aa4ebf5af25599b4af150cf0c51a7a0e4e4317d88cb5b8cfa5fc1f4810",
+      "risk_layer/persistenz.py": "198f665da76f079b3e9afd4e492e56e07e7e7c41c9975cbb75573bde750ac28a",
+      "risk_layer/pipeline.py": "c5f393012e9b5f819550d90b58d8276716c65e782ef48bca58956ca697af2be7",
+      "risk_layer/quantenlos.py": "52f2f16b6a7b9305dd5608080b0479d8a7e012c2a2e375862197c7b88ac9cb07",
+      "risk_layer/radar.py": "9c1d5dff934761ed075448865c08be2d7b6f1ed5f8794520d763a7aa83797dcc",
+      "risk_layer/recherche.py": "55e1797a80df2cce6d7386a0da92ddab5cdf9b3cf53e987a8f9b358e0be6361e",
+      "risk_layer/release_lifecycle.py": "46d29a762b0471b8a9c6a835b88f14c811af6bda5b69d9c6198dedc89e20c1be",
+      "risk_layer/release_manifest.py": "09ec443c8566bb7e80192f3b112576d5682fb6504859b04c378531aefc7a9c08",
+      "risk_layer/report.py": "3d2e979140be7bbeeb7bd1162f383fa3a3ff33a2ac0af407d15a173f3491e382",
+      "risk_layer/reranker.py": "1a0e631bbd209790351742a65c7ec62da182f25201ba4853765eeb6aa6a15ce3",
+      "risk_layer/resolver.py": "d6739ab409d9338f873ef96615135f88a9b09179b35525ec51f56a02ae7baddd",
+      "risk_layer/rss.py": "5dd9eb11228a4ebf85977d81e04f4e3eab04763de49869ddf60548e4ff012809",
+      "risk_layer/schicht2.py": "9f203e2dd6353c98f1c2009326de44b883b6d1a4e529eb03bd103f5677ea3543",
+      "risk_layer/semantic_checks.py": "11fc5ad178fbe1f0552833a0f3de65eeea596a9835671ca07e54d3a4664e2efe",
+      "risk_layer/semantic_context.py": "8a0f401a786f11a42da10ff2bc0bb5ad83bb03fc50c5c5fcf481ad290d27b4cb",
+      "risk_layer/semantic_search.py": "5375c9d936cc08de061668e4b45f791ec44c5e3703bc4ceecc3d1facf8f903c3",
+      "risk_layer/sicherung.py": "34972bf848cfb3f95888a6e692eb66ddca41f984444cf2ece25ec0967a76871f",
+      "risk_layer/torch_compat.py": "77de58364bb7841a0296cbe7451d7614e9eabb8bcd7dff1cb27e5b9d4614d6d5",
+      "risk_layer/triggerindex.py": "4ee3740b96ad3662ef0a5a21d1f304cfb8f185125bbb69e9b5a353e56154da63",
+      "risk_layer/unknown_gate.py": "7555dd414537872d7ec59e35335101a942d9b752d4e07a7e8d397d2408fdcc54",
+      "risk_layer/web.py": "8247f5002159378e4cc4c65b72424d741796fc01849508eb4d95a0e9473fcd03",
+      "risk_layer/zitate.py": "e9fdfe4fc4d4fa1fd623e62af113d550510cebfb1d09e30fdfbba947c7d9617c",
+      "catalog/begriffe.yaml": "3902f83ddd49cc316f35f960b3215f40f5e2c211d011bd75193ed4244ba95d56",
+      "tools/_gpu_eval_metrics.py": "166a577de141a62f80de421c229e3d0be0cf46da5fc4ae9f6708a9ee0358e4ab",
+      "tools/quality_live_check.py": "7280f774cc62a59ca38a99d79e83c36315799c19a543b57305c66f172d752061",
+      "tools/quality_precision_live.py": "24ffdc76e0c3a73f2dac92957574fbeab6ff571584627f78b1080eb42ba47854",
+      "tools/quality_recall_report.py": "a24a1ce1a5fcc554d2c48512c56cdba9ba9ff8ab9e17754ba5df1b0197a0859a",
+      "tools/quality_recall_live.py": "103d10035bb5f4bfaf9f05b6aa6a9527be920662d0392e3fd57f4c7e2ae34230"
+    },
+    "status": "mismatch",
+    "cases": 162,
+    "reference_differences": 109,
+    "difference_categories": {
+      "scores_and_metadata": 22,
+      "metadata_other": 11,
+      "score_only": 70,
+      "selection": 3,
+      "evidence": 3,
+      "order": 3
+    },
+    "metadata_difference_counts": {
+      "case_counts": {
+        "chain_metadata_and_scores_only": 22,
+        "chain_metadata_only": 11,
+        "score_only": 70,
+        "identical_suggestions": 53,
+        "unaligned_suggestions": 6
+      },
+      "changed_chain_entries_in_aligned_outputs": 39,
+      "catalog_chain_norm_entries_verified": 39,
+      "reference_chain_metadata_empty": true
+    },
+    "models": {
+      "encoder": {
+        "name": "bge-m3",
+        "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+        "devices": [
+          "cuda:0"
+        ],
+        "dtypes": [
+          "torch.float32"
+        ],
+        "load_seconds": 28.39866239999901
+      },
+      "bge": {
+        "name": "bge-reranker-v2-m3",
+        "revision": "953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e",
+        "devices": [
+          "cuda:0"
+        ],
+        "dtypes": [
+          "torch.float16"
+        ],
+        "load_seconds": 4.315544900000532
+      },
+      "qwen": {
+        "name": "bge-qwen3-reranker-4b",
+        "revision": "22e683669bc0f0bd69640a1354a6d0aebcfeede5",
+        "devices": [
+          "cuda:0"
+        ],
+        "dtypes": [
+          "torch.float16"
+        ],
+        "load_seconds": 7.977700600000389
+      }
+    },
+    "runtime": {
+      "torch": "2.9.1+rocm7.2.1",
+      "hip": "7.2.53211-158bd99533",
+      "cuda": null,
+      "device": "AMD Radeon RX 9070 XT",
+      "device_total_bytes": 17095983104,
+      "packages": {
+        "numpy": "2.2.6",
+        "transformers": "5.15.1",
+        "sentence-transformers": "5.6.0"
+      }
+    },
+    "warmup_seconds": 8.707068299998355,
+    "timings": {
+      "all": {
+        "n": 162,
+        "total_seconds": 1444.832523000001,
+        "mean_seconds": 8.918719277777784,
+        "median_seconds": 5.385644150001099,
+        "min_seconds": 1.6133362999971723,
+        "max_seconds": 53.62293910000153,
+        "p95_seconds": 24.274663500000315
+      },
+      "main": {
+        "n": 132,
+        "total_seconds": 1331.413185500005,
+        "mean_seconds": 10.086463526515189,
+        "median_seconds": 8.18159944999934,
+        "min_seconds": 3.1591814999992494,
+        "max_seconds": 53.62293910000153,
+        "p95_seconds": 25.472350000000006
+      },
+      "additional": {
+        "n": 30,
+        "total_seconds": 113.41933749999589,
+        "mean_seconds": 3.7806445833331965,
+        "median_seconds": 3.986383100000239,
+        "min_seconds": 1.6133362999971723,
+        "max_seconds": 5.146674300001905,
+        "p95_seconds": 4.673646399998688
+      }
+    },
+    "audit": {
+      "status": "pass",
+      "report_sha256": "ad7223bb2609df6a0f962d3d167ab566cc79336e1d5e95bb54b8a2d4e660ec6d",
+      "torch_imported": false,
+      "actual_profile_outputs": 162,
+      "exact_source_passage_spans": 1567,
+      "reference_differences": 109,
+      "bound_files": 197,
+      "metadata_difference_counts": {
+        "case_counts": {
+          "chain_metadata_and_scores_only": 22,
+          "chain_metadata_only": 11,
+          "score_only": 70,
+          "identical_suggestions": 53,
+          "unaligned_suggestions": 6
+        },
+        "changed_chain_entries_in_aligned_outputs": 39,
+        "catalog_chain_norm_entries_verified": 39,
+        "reference_chain_metadata_empty": true
+      },
+      "note": "Stored actual GPU output, comparisons and source intervals audited; models were not replayed on CPU."
+    },
+    "notes": [
+      "All table metrics come from actual current Pipeline.run, including when research outputs differ.",
+      "Only these synchronized case timings describe this fresh live run; model loading and warmup are excluded.",
+      "NER and lemma are disabled; these timings do not measure full server latency."
+    ]
+  }
+}

@@ -4,6 +4,9 @@ import logging
 from pathlib import Path
 
 from risk_layer import gii
+from risk_layer.embedding import EmbeddingIndex, HashEncoder
+from risk_layer.graph import NormGraph
+from risk_layer.triggerindex import TriggerIndex
 
 FIXTURE = Path(__file__).parent / "fixtures" / "mini_gii.xml"
 
@@ -21,12 +24,90 @@ def test_law_aus_amtabk_ohne_jahressuffix():
     assert all(k.law == "TestG" for k in knoten)  # nicht „TestG 1990"
 
 
+def test_artikel_id_und_zitat_in_graph_trigger_und_embedding(tmp_path):
+    pfad = tmp_path / "artikel.xml"
+    pfad.write_text(
+        "<dokumente><norm><metadaten><amtabk>GG</amtabk><enbez>Art 1</enbez></metadaten>"
+        "<textdaten><text><Content><P>(1) Die Würde des Menschen ist unantastbar.</P>"
+        "</Content></text></textdaten></norm>"
+        "<norm><metadaten><enbez>Art. 1a</enbez><titel>Testartikel</titel></metadaten>"
+        "<textdaten><text><Content><P>Dieser Testartikel verweist auf Art. 1 Abs. 1 GG."
+        '<DL Type="alpha"><DT>a)</DT><DD>Erste Alternative.</DD></DL></P>'
+        "</Content></text></textdaten></norm></dokumente>",
+        encoding="utf-8",
+    )
+    graph = NormGraph.build(gii.parse_datei(pfad), tmp_path / "graph.db")
+    try:
+        detail = graph.aufloesen("norm:GG:art1:abs1")
+        assert detail["verwendet"] == "norm:GG:art1:abs1"
+        assert detail["id"] in graph.aufloesen("norm:GG:art1a")["verweist_auf"]
+        assert [(hit["id"], hit["zitat"]) for hit in graph.suche_titel("Testartikel")] == [
+            ("norm:GG:art1a", "Art. 1a GG")
+        ]
+        trigger = TriggerIndex.build(graph, tmp_path / "trigger.db")
+        try:
+            treffer = trigger.kandidaten("Menschen unantastbar Testartikel")
+            assert {r["norm_id"]: r["zitat"] for r in treffer} == {
+                "norm:GG:art1": "Art. 1 GG", "norm:GG:art1a": "Art. 1a GG",
+            }
+        finally:
+            trigger.close()
+        encoder = HashEncoder(dim=32)
+        index = EmbeddingIndex.build(graph, encoder, passagen=True)
+        assert dict(zip(index.ids, index.zitate, strict=True)) == {"norm:GG:art1a": "Art. 1a GG"}
+        treffer = index.passage_evidence.candidates(encoder.encode(["Würde"])[0], min_sim=-1)
+        assert {r["norm_id"]: r["zitat"] for r in treffer} == {
+            "norm:GG:art1": "Art. 1 GG", "norm:GG:art1a": "Art. 1a GG",
+        }
+    finally:
+        graph.close()
+
+
 def test_metadaten_und_text():
     knoten = {k.id: k for k in gii.parse_datei(FIXTURE)}
     n = knoten["norm:TestG:2:abs2:nr2"]
     assert n.titel == "Beispielnorm"
     assert n.gueltig_ab == "1990-01-01"
     assert "eingegliedert" in n.text
+
+
+def test_kompaktes_xml_bewahrt_zahlen_und_inline_woerter(tmp_path):
+    pfad = tmp_path / "kompakt.xml"
+    pfad.write_text(
+        "<dokumente><norm><metadaten><amtabk>TestG</amtabk><enbez>§ 1</enbez></metadaten>"
+        '<textdaten><text><Content><P>(1) <SUP class="Rec">1</SUP>Es gelten'
+        '<DL Type="arabic"><DT>1.</DT><DD><LA>20 Pro<B>zent</B></LA></DD>'
+        "<DT>2.</DT><DD><LA>4 Promille</LA></DD></DL>je Einheit.</P>"
+        "<P>(2) Erste<BR/>zweite Zeile.</P></Content></text></textdaten></norm></dokumente>",
+        encoding="utf-8",
+    )
+    norm = {k.id: k for k in gii.parse_datei(pfad)}
+    assert norm["norm:TestG:1"].text == (
+        "(1) 1 Es gelten 1. 20 Prozent 2. 4 Promille je Einheit. (2) Erste zweite Zeile."
+    )
+    assert norm["norm:TestG:1:abs1:nr1"].text == "20 Prozent"
+
+
+def test_mehrdeutige_nummer_und_buchstabe_verwenden_ganzen_absatz(tmp_path):
+    pfad = tmp_path / "zwei_listen.xml"
+    pfad.write_text(
+        "<dokumente><norm><metadaten><amtabk>TestG</amtabk><enbez>§ 1</enbez></metadaten>"
+        '<textdaten><text><Content><P>(1) Beträge:<DL Type="arabic">'
+        '<DT>1.</DT><DD><LA>20 Prozent<DL Type="alpha"><DT>a)</DT><DD>im Inland</DD></DL></LA></DD>'
+        '<DT>2.</DT><DD>4 Promille</DD></DL>Empfänger:<DL Type="arabic">'
+        "<DT>1.</DT><DD>Vereine</DD></DL></P></Content></text></textdaten></norm></dokumente>",
+        encoding="utf-8",
+    )
+    graph = NormGraph.build(gii.parse_datei(pfad), tmp_path / "graph.sqlite")
+    try:
+        absatz = "norm:TestG:1:abs1"
+        for tiefe in (":nr1", ":nr1:lita"):
+            ergebnis = graph.aufloesen(absatz + tiefe)
+            assert ergebnis["verwendet"] == absatz
+            assert "20 Prozent" in ergebnis["text"] and "Vereine" in ergebnis["text"]
+        assert graph.aufloesen(absatz + ":nr2")["verwendet"] == absatz + ":nr2"
+    finally:
+        graph.close()
 
 
 def test_rahmennorm_uebersprungen():
@@ -87,6 +168,14 @@ def test_verschachtelte_dl_bekommt_nr_kontext(tmp_path):
     assert knoten["norm:TestG:4:abs1:nr2:lita"].nummer == "2"
     # kein kontextloser (kollidierender) Sammel-Knoten mehr
     assert "norm:TestG:4:abs1:lita" not in knoten
+
+
+def test_nummern_und_buchstaben_direkt_unter_paragraph(tmp_path):
+    pfad = tmp_path / "ohne_absatznummer.xml"
+    pfad.write_text(_NESTED_XML.replace("(1) Steuerfrei", "Steuerfrei"), encoding="utf-8")
+    knoten = {k.id: k for k in gii.parse_datei(pfad)}
+    assert knoten["norm:TestG:4:nr2"].absatz is None
+    assert "Buchstabe a unter Nummer 2" in knoten["norm:TestG:4:nr2:lita"].text
 
 
 def test_dt_ohne_dd_verschiebt_paarung_nicht(tmp_path):

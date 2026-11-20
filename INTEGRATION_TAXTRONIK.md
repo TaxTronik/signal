@@ -162,14 +162,16 @@ schließen); Token-Werte erscheinen nie im Log.
 Implementiert in `risk_layer/api_v1.py`, gehärtet zustandslos, Vertragstests
 (`tests/test_api_v1.py`). **Auth:** Bearer-Token aus Env `RISK_LAYER_TOKEN`,
 konstant-zeitig geprüft (ist keins gesetzt, wird nicht geprüft → nur lokaler
-Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.4.0`
+Loopback-Bind; ein Netz-Bind ohne Token wird abgelehnt). Engine-Version: `1.5.0`
 (additiv zu `1.1.0` = `POST /v1/katalog/review`; `1.2.0` ergänzt
 `GET /v1/status` + den `engine_status`-Block in `/v1/analyse` sowie — parallel
 entwickelt — `GET /v1/radar`; `1.3.0` ergänzt `POST /v1/los/{ziehen,abholen,pruefen}`
 (Quantenlos, beweisbar blinde Stichprobe);
 `1.3.1` den optionalen IBM-Token, `1.3.2` strikte Eingabeschemas,
 Ressourcenlimits sowie die fail-closed Nachweisprüfung und `1.4.0` den
-abgesicherten Embedding-Operatorvertrag).
+abgesicherten Embedding-Operatorvertrag). Ab `1.5.0` versteht die Analyse
+`semantik_profil` und `rechtsgebiete`. Hosts prüfen die Version vor Verwendung
+dieser Optionen, da ältere Engines unbekannte Optionen still übergehen.
 
 ### `GET /v1/health`
 → `{ok: true, engineVersion, katalogVersion, graph: bool, embedding: bool}`
@@ -223,7 +225,17 @@ ersten Einsatz kann trotzdem scheitern. `grund` ist bei jeder Degradation
 gesetzt (derselbe Wortlaut, der auch im Betreiber-Log steht).
 
 ### `POST /v1/analyse`  (zustandslos, KEIN Persist)
-Body: `{text: string, mitLLM?: bool, optionen?: {unknown?, abweichung?, llm_url?}}`
+Body: `{text: string, mitLLM?: bool, optionen?: {unknown?: bool, abweichung?: bool,
+lemma?: bool, semantik_profil?: string, rechtsgebiete?: string[]}}`.
+`semantik_profil` ist optional und standardmäßig `standard`; die verfügbaren
+Profile und ihre Ressourcen stehen in der [README](README.md#experimentelle-semantikprofile).
+`treffer` verwendet zusätzlich BGE zur Auswahl von Originalquellpassagen und
+bewertet anschließend die Normpakete mit BGE und Qwen3-Reranker-4B. Der Host
+benötigt dafür dieselbe konfigurierte Modellkaskade und einen passenden
+Passagenindex wie für `kaskade`; die Option lautet `"semantik_profil": "treffer"`.
+`rechtsgebiete` enthält explizite Gesetz-IDs, zum Beispiel `AO` oder `EStG`;
+ein nichtleerer Scope benötigt ein Passagenprofil. Ein vom Client geliefertes
+`llm_url` wird ignoriert: Es gilt die serverseitige Modellkonfiguration.
 → vollständiges Analyse-JSON. Wichtigste Felder für die TS-Typen:
 ```jsonc
 {
@@ -248,10 +260,50 @@ Body: `{text: string, mitLLM?: bool, optionen?: {unknown?, abweichung?, llm_url?
                "norm_vorschlag": [ { "zitat","id","im_korpus","gestuetzt","titel" } ],
                "ist_streitig", "streit_signal" } ],
   "semantik": [ { "start", "end", "satz",
-                 "normen": [ { "zitat","id","titel","sim",
-                              "ketten": [ {glieder,verknuepfung,hinweis,anzeige} ] } ] } ]
+                 // Bei Passagenprofilen zusätzlich:
+                 "profil": "dokument",
+                 "kontext": { "start", "end", "text" },
+                 "normen": [ { "zitat","id","titel","sim","rerank",
+                              "gestuetzt", "im_korpus",
+                              "ketten": [ {glieder,verknuepfung,hinweis,anzeige} ],
+                              // Bei Passagenprofilen zusätzlich:
+                              "evidenz": {
+                                "fingerprint", "gekuerzt",
+                                "passagen": [ { "id", "norm_id", "quell_start",
+                                                "quell_end", "text" } ],
+                                "anker": [ "Katalogankertext" ]
+                              } } ] } ]
 }
 ```
+**Semantische Vorschläge darstellen:** `start/end/satz` bezeichnet einen
+Bezugspunkt im Eingabetext; `kontext.start/end/text` den tatsächlich für das
+Ranking verwendeten Suchtext. Mehrere Bezugspunkte können dieselbe Normliste
+für einen gemeinsamen Kontext tragen. Für die Anzeige nach
+`(profil, kontext.start, kontext.end)` gruppieren und identische Normeinträge
+einschließlich ihrer Evidenz einmal zeigen; die zugehörigen Textstellen bleiben
+als Referenzen erhalten. Falls sich die Normlisten unterscheiden, die
+Textstellen-Bezüge je Norm beibehalten. Gleicher Wortlaut an anderen Offsets ist
+ein eigener Kontext. Ohne `kontext` bleibt die Darstellung satzbezogen, ohne
+`profil` gilt `standard`. Das unveränderte Analyse-JSON bleibt die Persistenzgrundlage.
+
+`evidenz.passagen` enthält Originalnormtext; `quell_start/quell_end` sind Offsets
+im Text von `norm_id`, **keine Eingabe-Offsets**. `fingerprint` bezeichnet den
+Quellenstand, `gekuerzt` eine gekürzte Auswahl. `anker` enthält getrennte
+Katalogtexte und darf nicht als wörtliche Gesetzespassage angezeigt werden.
+Alte Indizes beziehungsweise `standard` liefern keine solchen Normtextauszüge;
+die Normzitate und IDs bleiben verfügbar.
+
+`gestuetzt: true` bedeutet hier, dass der Normvorschlag eine Korpusquelle hat.
+Es bestätigt weder die Anwendung auf jeden Bezugssatz noch einen Rechtsverstoß.
+`sim` und `rerank` sind Such-/Rangwerte, keine kalibrierten Wahrscheinlichkeiten.
+Die Oberfläche zeigt daher **Normvorschläge zum Suchkontext** mit Quellen und
+Bezugspunkten. Sie bleiben getrennt von `spans`, `karten` und `risiken`.
+Text- und HTML-Reports der CLI verwenden dieselbe Kontextgruppierung.
+Sie zeigen lesbare Normzitate; interne Norm-IDs dienen nur als Fallback.
+Im HTML stehen längere Normauszüge und Kataloganker je Norm in aufklappbaren
+Belegen. Quellenfingerprints bleiben im Analyse-JSON für die Provenienz erhalten
+und werden im Text-/HTML-Report nicht angezeigt.
+
 `mitLLM:false` (Default) = schnell/deterministisch (kein Risiko mit `quelle:"llm"`).
 `mitLLM:true` → zusätzlich LLM-Kandidaten (15–30s; async aufrufen).
 
@@ -264,7 +316,9 @@ um die **effektiven Lauf-Parameter dieses Aufrufs**:
   "katalog_version": "0.3.0",
   "schichten": { /* wie GET /v1/status, s. o. */ },
   "optionen": { "unknown": false, "berater": false,
-                "abweichung": false, "mit_llm": false }   // was DIESER Lauf angefordert hat
+                "abweichung": false, "mit_llm": false,
+                // Nur bei nichtstandardmäßigem Profil bzw. nichtleerem Scope:
+                "semantik_profil": "dokument", "rechtsgebiete": ["AO"] }
 }
 ```
 
@@ -402,7 +456,7 @@ Braucht nur den normalen Bearer-Token und liefert den globalen Livezustand:
 ```json
 {
   "ok": true,
-  "engineVersion": "1.4.0",
+  "engineVersion": "1.5.0",
   "index": {"active": true, "current": true, "fingerprint": "…", "input_fingerprint": "…", "encoder": "bge-m3", "revision": "…"},
   "job": {"state": "succeeded", "id": "…", "requested": "…", "started": "…", "completed": "…", "last_success": "…", "error": null},
   "schedule": {"enabled": true, "interval_days": 7, "last_check_at": "…", "next_run_at": "…"},

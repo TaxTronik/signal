@@ -83,7 +83,11 @@ class CrossEncoderReranker:
     name = "bge-reranker-v2-m3"
 
     def __init__(self, modell: str = "BAAI/bge-reranker-v2-m3",
-                 device: str | None = None, revision: str | None = None):
+                 device: str | None = None, revision: str | None = None,
+                 batch_size: int | None = None):
+        if batch_size is not None and batch_size < 1:
+            raise ValueError("Reranker-Batchgröße muss positiv sein")
+        self._batch_size = batch_size
         self._modell_name = modell
         self._device = device
         kuratierte_revision = HF_MODELL_REVISIONEN.get(modell)
@@ -135,7 +139,8 @@ class CrossEncoderReranker:
             return []
         m = self._laden()
         with self._lock:                       # forward-Pass serialisieren
-            return [float(x) for x in m.predict(paare)]
+            kwargs = {"batch_size": self._batch_size} if self._batch_size is not None else {}
+            return [float(x) for x in m.predict(paare, **kwargs)]
 
 
 class Qwen3Reranker:
@@ -202,6 +207,19 @@ class Qwen3Reranker:
         return self._model
 
     def score(self, paare: list[tuple[str, str]]) -> list[float]:
+        return self.score_with_instruction(paare, self.INSTRUCTION, max_length=1024)
+
+    def score_with_instruction(self, paare: list[tuple[str, str]], instruction: str,
+                               *, max_length: int = 2048) -> list[float]:
+        """Use the same pinned weights for an explicit binary relevance question.
+
+        No shared prompt is mutated, so concurrent requests cannot exchange
+        instructions. These yes/no scores are not calibrated legal confidence.
+        """
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("Reranker-Instruktion darf nicht leer sein")
+        if not isinstance(max_length, int) or isinstance(max_length, bool) or max_length < 1:
+            raise ValueError("Reranker-Tokenbudget muss positiv sein")
         if not paare:
             return []
         model = self._laden()  # ZUERST: klare RuntimeError statt nacktem ImportError von torch
@@ -214,22 +232,66 @@ class Qwen3Reranker:
                 batch = paare[i:i + 16]
                 ids = []
                 for q, d in batch:
-                    t = f"<Instruct>: {self.INSTRUCTION}\n<Query>: {q}\n<Document>: {d}"
-                    mid = self._tok(t, add_special_tokens=False, truncation=True, max_length=1024).input_ids
+                    t = f"<Instruct>: {instruction}\n<Query>: {q}\n<Document>: {d}"
+                    if instruction == self.INSTRUCTION:
+                        mid = self._tok(t, add_special_tokens=False, truncation=True, max_length=max_length).input_ids
+                    else:
+                        # A factual answer must not silently lose a limiting
+                        # condition at the end of the document or query.
+                        mid = self._tok(t, add_special_tokens=False, truncation=False).input_ids
+                        if len(self._pre) + len(mid) + len(self._suf) > max_length:
+                            raise RuntimeError("Fachliche Reranker-Prüfung überschreitet das Tokenbudget")
                     ids.append(self._pre + mid + self._suf)
                 inp = self._tok.pad({"input_ids": ids}, padding=True, return_tensors="pt").to(self._dev)
                 with torch.no_grad():
-                    logits = model(**inp).logits[:, -1, :]   # links gepaddet -> letztes Token real
+                    # Nur der letzte Token entscheidet yes/no. Keine Projektion
+                    # aller Sequenzpositionen und kein ungenutzter Generation-Cache.
+                    logits = model(**inp, logits_to_keep=1, use_cache=False).logits[:, -1, :]
                 yn = logits[:, [self._no, self._yes]].float()
                 out.extend(float(x) for x in torch.softmax(yn, dim=1)[:, 1])
+        return out
+
+
+class CascadedQwenReranker(Qwen3Reranker):
+    """Qwen after explicit BGE shortlist in the passage pipeline.
+
+    No fabricated scores for excluded candidates: semantic_search performs
+    the shortlist first and then calls this model on the surviving pairs.
+    """
+
+    def __init__(self, device: str | None = None):
+        super().__init__(variante="4B", device=device)
+        self.name = "bge-qwen3-reranker-4b"
+        self.vorauswahl = CrossEncoderReranker(device=device, batch_size=8)
+
+    def score(self, paare: list[tuple[str, str]]) -> list[float]:
+        # The encoder and both rerankers coexist in a 16GB local GPU runtime.
+        out: list[float] = []
+        for start in range(0, len(paare), 2):
+            out.extend(super().score(paare[start:start + 2]))
+        return out
+
+    def score_with_instruction(self, paare: list[tuple[str, str]], instruction: str,
+                               *, max_length: int = 2048) -> list[float]:
+        # Apply the same memory bound to both factual questions.
+        if not paare:
+            return super().score_with_instruction(paare, instruction, max_length=max_length)
+        out: list[float] = []
+        for start in range(0, len(paare), 2):
+            out.extend(super().score_with_instruction(
+                paare[start:start + 2], instruction, max_length=max_length))
         return out
 
 
 def reranker_oeffnen(name: str = "auto", *, device: str | None = None) -> Reranker | None:
     """``auto``/``bge-reranker-v2-m3`` -> Cross-Encoder, falls verfügbar; sonst None.
     ``aus`` schaltet ab. Fehlt sentence-transformers, degradiert ``auto`` zu None."""
+    if name == "auto":
+        name = os.environ.get("RISK_LAYER_RERANKER", "auto") or "auto"
     if name in ("aus", "none", "off"):
         return None
+    if name == "bge-qwen3-reranker-4b":
+        return CascadedQwenReranker(device=device)
     if name in ("auto", "bge-reranker-v2-m3", "bge-reranker"):
         try:
             import sentence_transformers  # noqa: F401
@@ -290,7 +352,8 @@ def baue_norm_doc_fn(katalog, graph, *, max_text: int = 300):
 
 
 def filtere_mit_rettung(kandidaten: list[dict[str, Any]], schwelle: float,
-                        sim_rettung: float) -> list[dict[str, Any]]:
+                        sim_rettung: float, *,
+                        rettung_min_rerank: float | None = None) -> list[dict[str, Any]]:
     """Abstention-Policy P2 (oder-Rettung) über gescorte Kandidaten: ein Kandidat
     überlebt, wenn ``rerank >= schwelle`` ODER ``sim >= sim_rettung``.
 
@@ -311,6 +374,9 @@ def filtere_mit_rettung(kandidaten: list[dict[str, Any]], schwelle: float,
       * Fehlender ``rerank``-Score zählt als -inf (kein Phantom-Default, der die
         Abstention aushebeln würde).
       * ``sim_rettung <= 0`` schaltet die Rettung ab (= altes P0-Verhalten).
+      * Optional verlangt ``rettung_min_rerank`` auch im Sim-Rettungszweig
+        einen Mindest-Rerank-Score. Der normale ``rerank >= schwelle``-Zweig
+        bleibt unverändert; ``None`` erhält die bisherige Oder-Rettung.
 
     Deterministische Ordnung des Ergebnisses: rerank absteigend, dann sim
     absteigend, dann norm_id (unabhängig von der Eingabe-Reihenfolge).
@@ -325,7 +391,9 @@ def filtere_mit_rettung(kandidaten: list[dict[str, Any]], schwelle: float,
 
     behalten = [n for n in kandidaten
                 if _rerank(n) >= schwelle
-                or (sim_rettung > 0 and _sim(n) >= sim_rettung)]
+                or (sim_rettung > 0 and _sim(n) >= sim_rettung
+                    and (rettung_min_rerank is None
+                         or _rerank(n) >= rettung_min_rerank))]
     return sorted(behalten,
                   key=lambda n: (-_rerank(n), -_sim(n), n.get("norm_id", "")))
 
@@ -349,6 +417,8 @@ def rerank_normen(reranker: Reranker | None, query: str,
     out: list[dict[str, Any]] = []
     for i in rang:
         marke = dict(normen[i])
-        marke["rerank"] = round(scores[i], 3)
+        # Abstention und Top-k arbeiten mit dem Modellscore. Eine vorgezogene
+        # Rundung kann Schwellen ueberschreiten oder knappe Raenge vertauschen.
+        marke["rerank"] = float(scores[i])
         out.append(marke)
     return out

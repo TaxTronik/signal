@@ -124,6 +124,31 @@ def test_kandidaten_pro_satz_span_treu(tmp_path):
         assert t["normen"] and "sim" in t["normen"][0]
 
 
+def test_kandidaten_pro_satz_kann_leere_pools_fuer_fusion_liefern():
+    enc = HashEncoder(dim=64)
+    idx = EmbeddingIndex(np.zeros((1, 64), dtype=np.float32),
+                         ["norm:AO:42"], ["§ 42 AO"], ["Missbrauch"], enc.name)
+    text = "  Hier fehlt ein semantischer Treffer.\n  Auch dieser Satz bleibt offen.  "
+    assert idx.kandidaten_pro_satz(text, enc) == []
+
+    saetze = idx.kandidaten_pro_satz(text, enc, auch_ohne_treffer=True)
+    assert [s["text"] for s in saetze] == [
+        "Hier fehlt ein semantischer Treffer", "Auch dieser Satz bleibt offen"]
+    assert all(s["normen"] == [] for s in saetze)
+    assert all(text[s["start"]:s["end"]] == s["text"] for s in saetze)
+
+
+@pytest.mark.parametrize("text", ["", "  ", "Kurz.", "--------------------"])
+def test_leere_fusionspools_nur_fuer_inhaltliche_saetze(text):
+    class UnbenutzterEncoder:
+        def encode(self, _texte):
+            raise AssertionError("Leerer oder zu kurzer Text braucht kein Embedding")
+
+    idx = EmbeddingIndex(np.zeros((0, 0), dtype=np.float32), [], [], [], "unused")
+    assert idx.kandidaten_pro_satz(
+        text, UnbenutzterEncoder(), auch_ohne_treffer=True) == []
+
+
 def test_pipeline_embedding_marken_overlap_sicher(tmp_path):
     g = _graph(tmp_path)
     enc = HashEncoder(dim=512)

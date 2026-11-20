@@ -19,6 +19,21 @@ LAW = "EStDV"
 IM_GRAPH = {"norm:EStDV:8", "norm:EStG:51", "norm:HGB:22"}
 
 
+def test_abgeschlossener_batch_ohne_normgraph_laesst_ergebnisdatei_unberuehrt(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    from tools import card_batch
+
+    def status(method, url, key):
+        assert (method, url) == ("GET", "https://batch.invalid/v1/batches/test")
+        return b'{"status":"completed","output_file_id":"file-test"}'
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(card_batch, "_api", status)
+    assert card_batch.fetch(SimpleNamespace(batch_id="test"), "https://batch.invalid", "") == 2
+    assert "Kein Normgraph" in capsys.readouterr().err
+    assert list(tmp_path.iterdir()) == []
+
+
 def _verarbeite(roh, verweist=(), enable_normrelation=False, enable_begriff=True):
     return verarbeite_kandidaten(
         roh, quell_norm=QUELL, quell_law=LAW, node_text=TEXT, node_titel=TITEL,

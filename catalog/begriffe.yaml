@@ -26,9 +26,14 @@
 #   "fehl" ⇒ fehlt/fehlen/fehlende; "kasse" ⇒ Kasse/Kassenführung, aber NICHT
 #   Unterstützungs|kasse (kein Wortanfang) – genau der Realabgleich, an dem die
 #   reine Stichwortliste „Unterstützungskasse" mit „Kasse" verwechselt hat.
+#   Optional je Muster: ausschlusswoerter sind ebenfalls Wortpräfixe. Dort
+#   beginnende Glied-Funde werden ignoriert ("fehl" in "fehlerfrei"); explizite
+#   Phrasen wie "nicht fehlerfrei" und andere Satzsignale bleiben erhalten.
+#   verneinbare_nomen nennt vollständige Wortformen, deren ausdrücklich
+#   verneintes Vorkommen ("keine Mängel", "frei von Fehlern") kein Befund ist.
 # =============================================================================
 
-version: "0.3.0"
+version: "0.3.2"
 stand: "2026-05-31"
 quelle: "DStR-Beitrag: Steuerartenübergreifende Risikosteuerung der Organschaft; AO-Eckbegriffe"
 
@@ -366,7 +371,15 @@ begriffe:
       # Objekt (Kasse/Buchführung/Belege) + Mangel/Abwesenheit im selben Satz.
       - gruppen:
           - ["kasse", "kassenführung", "kasseneinnahme", "bareinnahme", "buchführung", "aufzeichnung", "kassenbuch", "beleg"]
-          - ["fehl", "nicht nachvollziehbar", "nicht in der kasse", "nicht vollständig", "unvollständig", "nicht ordnungsgemäß", "mangel", "nicht erfasst", "nicht verbucht", "nicht geführt", "nachlässig geführt"]
+          - ["fehl", "nicht nachvollziehbar", "nicht in der kasse", "nicht vollständig", "unvollständig", "nicht ordnungsgemäß", "mangel", "mängel", "nicht erfasst", "nicht verbucht", "nicht geführt", "nachlässig geführt",
+             "nicht fehlerfrei", "nicht mangelfrei", "nicht mängelfrei",
+             "keineswegs fehlerfrei", "keineswegs mangelfrei", "keineswegs mängelfrei",
+             "nicht immer fehlerfrei", "nicht immer mangelfrei", "nicht immer mängelfrei",
+             "nicht durchgängig fehlerfrei", "nicht durchgängig mangelfrei", "nicht durchgängig mängelfrei",
+             "nicht frei von mangel", "nicht frei von mängel", "nicht frei von fehler",
+             "nicht ohne mangel", "nicht ohne mängel", "nicht ohne fehler"]
+        ausschlusswoerter: ["fehlerfrei", "mangelfrei", "mängelfrei"]
+        verneinbare_nomen: ["Mangel", "Mängel", "Mängeln", "Fehler", "Fehlern"]
     gefaehrdungsnotiz: >
       Nicht nachvollziehbare oder unvollständige (Kassen-)Aufzeichnungen verletzen
       die Ordnungsvorschriften (§ 146 AO; Einzelaufzeichnung/Registrierkasse

@@ -6,6 +6,7 @@ muss als KatalogFehler mit Begriffs-Kontext scheitern (/NF50/).
 """
 
 import pytest
+import yaml
 
 from risk_layer import catalog as C
 from risk_layer.catalog import Katalog, KatalogFehler, lade_katalog
@@ -61,6 +62,54 @@ begriffe:
 """)
     e = lade_katalog(p).get("kst_organschaft")
     assert e.ausloeser[0]["gruppen"] == [["Organschaft"], ["Eingliederung", "eingegliedert"]]
+
+
+@pytest.mark.parametrize("ausschlusswoerter", [
+    None, True, 7, "fehlerfrei", {"wort": "fehlerfrei"},
+    [None], [False], [7], [""], ["   "], [["fehlerfrei"]], ["fehlerfrei mangelhaft"],
+])
+def test_ungueltige_ausschlusswoerter_werden_abgelehnt(tmp_path, ausschlusswoerter):
+    p = _schreibe(tmp_path, yaml.safe_dump({
+        "begriffe": [{"id": "test", "begriff_kanonisch": "Test", "ausloeser": [{
+            "gruppen": [["Beleg"], ["fehl"]],
+            "ausschlusswoerter": ausschlusswoerter,
+        }]}],
+    }))
+    with pytest.raises(KatalogFehler, match=r"\[test\].*ausschlusswoerter"):
+        lade_katalog(p)
+
+
+@pytest.mark.parametrize("ausschlusswoerter", [[], ["fehlerfrei", " mangelfrei "]])
+def test_ausschlusswoerter_werden_erhalten(tmp_path, ausschlusswoerter):
+    p = _schreibe(tmp_path, yaml.safe_dump({
+        "begriffe": [{"id": "test", "begriff_kanonisch": "Test", "ausloeser": [{
+            "gruppen": [["Beleg"], ["fehl"]],
+            "ausschlusswoerter": ausschlusswoerter,
+        }]}],
+    }))
+    spec = lade_katalog(p).get("test").ausloeser[0]
+    assert spec["ausschlusswoerter"] == [wort.strip() for wort in ausschlusswoerter]
+
+
+@pytest.mark.parametrize("glied", [17, True, {"wort": "fehlt"}, "   "])
+def test_ausloeser_lehnt_ungueltige_gruppenglieder_ab(tmp_path, glied):
+    p = _schreibe(tmp_path, yaml.safe_dump({
+        "begriffe": [{"id": "test", "begriff_kanonisch": "Test",
+                      "ausloeser": [{"gruppen": [["Beleg"], [glied]]}]}]}))
+    with pytest.raises(KatalogFehler, match="ausloeser-Gruppe"):
+        lade_katalog(p)
+
+
+def test_alte_ausloeser_listenschreibweise_bleibt_gueltig(tmp_path):
+    p = _schreibe(tmp_path, """
+begriffe:
+  - id: test
+    begriff_kanonisch: Test
+    ausloeser:
+      - [["Beleg"], ["fehl"]]
+""")
+    assert lade_katalog(p).get("test").ausloeser == (
+        {"gruppen": [["Beleg"], ["fehl"]]},)
 
 
 def test_begriffe_null_wird_abgelehnt(tmp_path):

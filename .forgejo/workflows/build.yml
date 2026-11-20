@@ -77,17 +77,14 @@ jobs:
               yaml.safe_load(path.read_text(encoding='utf-8'))
               print(f'{path}: yaml ok')
           PY
-          # systemd-Template: nach Render bleibt kein @PLATZHALTER@ und [Service] existiert
-          sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer.service.in > /tmp/u.service
-          grep -q '^\[Service\]' /tmp/u.service && ! grep -qE '@[A-Z_]+@' /tmp/u.service && echo "systemd-template ok"
-          sed -e 's/@[A-Z_]*@/x/g' deploy/risk-layer-release.service.in > /tmp/release.service
-          grep -q '^\[Service\]' /tmp/release.service
+          # Der Testlauf rendert die Release-Unit mit dem echten Installer.
+          grep -q '^\[Service\]' deploy/risk-layer.service.in
+          grep -q '^\[Service\]' deploy/risk-layer-release.service.in
+          echo "systemd-template ok"
           grep -Fq 'ExecStart="@PYTHON@" -I "@LAUNCHER@" --home "@RELEASE_HOME@" -- service run --home "@RELEASE_HOME@"' deploy/risk-layer-release.service.in || {
             echo "::error file=deploy/risk-layer-release.service.in::Release-Unit muss ueber den manifestgebundenen Release-Launcher starten"
             exit 1
           }
-          ! grep -qE '@[A-Z_]+@' /tmp/release.service
-          echo "release-systemd-template ok"
           grep -q '^\[Service\]' deploy/risk-layer-backup.service
           grep -Fq 'ExecStart=/usr/bin/python3.12 -I ${RISK_LAYER_RELEASE_TOOLS} ops --config ${RISK_LAYER_OPS_PROFILE} backup' deploy/risk-layer-backup.service || {
             echo "::error file=deploy/risk-layer-backup.service::Backup-Unit muss die profilbasierte Operator-Fassade starten"
@@ -164,13 +161,13 @@ jobs:
         if: matrix.python-version == '3.12'
         run: |
           python -m ruff check risk_layer tests
-          python -m ruff check --select E9,F63,F7,F82 tools
+          python -m ruff check --select E9,F63,F7,F82 tools experiments
           python -m mypy
 
       - name: Vollständige Tests + Branch-Coverage
         run: |
           umask 022
-          python -m compileall -q risk_layer tests tools
+          python -m compileall -q risk_layer tests tools experiments
           python -m coverage run -m pytest -q
           python -m coverage report
           python tools/gold_gate.py
@@ -197,13 +194,7 @@ jobs:
       - name: Alle produktiven Locks auditieren
         run: |
           python -m pip install --require-hashes --only-binary=:all: -r requirements-security-lock.txt
-          python -m pip_audit -r requirements-lock.txt --desc
-          python -m pip_audit -r requirements-runtime-lock.txt --desc
-          python -m pip_audit -r requirements-ner-lock.txt --desc
-          python -m pip_audit -r requirements-embedding-linux-cpu-py312-lock.txt --desc
-          python -m pip_audit -r requirements-quanten-linux-py312-lock.txt --desc
-          python -m pip_audit --no-deps --disable-pip -r requirements-embedding-windows-cpu-py312-lock.txt --desc
-          python -m pip_audit --no-deps --disable-pip -r requirements-quanten-windows-py312-lock.txt --desc
+          python tools/audit_locks.py
 
       - name: Vollständige Git-Historie auf Secrets prüfen
         run: |

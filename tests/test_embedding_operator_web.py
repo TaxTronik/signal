@@ -52,7 +52,7 @@ def test_get_embedding_status_braucht_nur_normalen_bearer(tmp_path, monkeypatch)
         assert _request(f"{base}/v1/embedding/status")[0] == 401
         status, body = _request(f"{base}/v1/embedding/status", bearer=BEARER)
         assert status == 200
-        assert body["ok"] is True and body["engineVersion"] == "1.4.0"
+        assert body["ok"] is True and body["engineVersion"] == web.V1_VERSION
         assert body["index"]["active"] is False
         assert body["index"]["current"] is None
         assert body["job"]["state"] == "idle"

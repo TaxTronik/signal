@@ -55,12 +55,16 @@ def test_setup_provisioniert_operator_token_getrennt_und_privat():
     assert "$env:RISK_LAYER_EMBEDDING_DIR" in installer
 
 
-def test_docker_buildkontext_schliesst_beide_engine_secrets_aus():
-    dockerignore = _text(".dockerignore")
-    assert ".engine_token" in dockerignore.splitlines()
-    assert ".operator_token" in dockerignore.splitlines()
-    assert ".risk-layer-ops.json" in dockerignore.splitlines()
-    assert ".signal/" in dockerignore.splitlines()
+def test_docker_buildkontext_erlaubt_nur_die_laufzeitquellen():
+    rules = [line for line in _text(".dockerignore").splitlines()
+             if line and not line.startswith("#")]
+    assert rules[0] == "**"
+    assert set(rules[1:]) == {
+        "!pyproject.toml", "!README.md", "!LICENSE", "!risk_layer/*.py",
+        "!risk_layer/py.typed", "!catalog/begriffe.yaml", "!requirements-runtime-lock.txt",
+        "!requirements-embedding-linux-cpu-py312-lock.txt",
+        "!requirements-quanten-linux-py312-lock.txt", "!requirements-ner-lock.txt",
+    }
 
 
 def test_lokale_embedding_transaktion_macht_git_arbeitsbaum_nicht_schmutzig():
@@ -157,12 +161,9 @@ def test_release_workflow_bindet_exakt_das_gepruefte_festwissen_ins_oci_image():
 
 
 def test_docker_buildkontext_erlaubt_nur_das_explizite_release_staging():
-    dockerignore = _text(".dockerignore").splitlines()
-    assert "!.managed-release/" in dockerignore
-    assert "!.managed-release/**" in dockerignore
-    assert ".signal/" in dockerignore
-    assert "models/" in dockerignore
-    assert "corpus/" in dockerignore
+    rules = [line for line in _text("Dockerfile.release.dockerignore").splitlines()
+             if line and not line.startswith("#")]
+    assert rules == ["**", "!.managed-release/**"]
 
 
 def test_release_runbook_provisioniert_operator_secret_und_overlay():

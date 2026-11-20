@@ -17,17 +17,25 @@
 #                             Regression (Negativ-Kontrolle: der Text umschreibt
 #                             bewusst und ist Schicht-2-Territorium)
 #
-# Stand der Erwartungen = gemessener Ist-Stand der Engine am 2026-06-10
-# (Katalog 0.3.0). Ändert sich der Katalog bewusst, ist DIESES Gold mit
+# Ursprüngliche Erwartungen = gemessener Ist-Stand am 2026-06-10 (Katalog 0.3.0).
+# 2026-09-07: Kassenmangel in „Buchführung erhebliche Mängel“ ergänzt (0.3.1).
+# 2026-11-20: Negativkontrolle für ausdrücklich verneinte Mängel (0.3.2).
+# Ändert sich der Katalog bewusst, ist DIESES Gold mit
 # fortzuschreiben (wie jedes Gold-Set).
 
 gold_version: deterministisch-v1
-stand: '2026-06-10'
+stand: '2026-11-20'
 rolle: regressionsgate
-quelle: examples/*.txt gegen Produktionskatalog (catalog/begriffe.yaml 0.3.0)
+quelle: Projektbeispiele und Kassenmangel-Negativkontrolle gegen Produktionskatalog 0.3.2
 faelle:
+- datei: fixtures/gold/kassenmangel_verneint.txt
+  erwartete_katalog: []
+  erwartete_zitate: []
+  erwartete_streit_signale: []
+  praezision: true
 - datei: examples/beispiel_ao.txt
   erwartete_katalog:
+  - ao_buchfuehrungs_kassenmangel
   - ao_gestaltungsmissbrauch
   - ao_grobes_verschulden
   - ao_neue_tatsachen

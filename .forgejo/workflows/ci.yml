@@ -41,7 +41,7 @@ jobs:
       - name: Ruff (Produktionscode/Tests + Runtime-Gate fuer Tools)
         run: |
           python -m ruff check risk_layer tests
-          python -m ruff check --select E9,F63,F7,F82 tools
+          python -m ruff check --select E9,F63,F7,F82 tools experiments
 
       - name: Mypy (Produktionscode)
         run: python -m mypy
@@ -85,7 +85,7 @@ jobs:
 
       # Schnelles, versionsspezifisches "parst es überhaupt?"-Gate vor dem Testlauf.
       - name: Byte-compile
-        run: python -m compileall -q risk_layer tests
+        run: python -m compileall -q risk_layer tests tools experiments
 
       # Die Suite ist artefakt-frei: Tests bauen Mini-Normgraph/Embedding-Index selbst
       # aus tests/fixtures/ (kein corpus/graph.sqlite, kein corpus/embedding/ nötig).

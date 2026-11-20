@@ -86,6 +86,9 @@ def test_dataclass_defaults_sind_die_dokumentierten():
         # /LF50/ Lemma-Robustheitspfad: bewusst additiv ergänzt – Default False
         # hält jeden Lauf ohne das Flag byte-identisch zum Bestand.
         "lemma": False,
+        # Neue Profile sind ausdrücklich opt-in; der Standardpfad bleibt gleich.
+        "semantik_profil": "standard",
+        "rechtsgebiete": (),
     }
     ist = {f.name: f.default for f in dataclasses.fields(AnalyseOptionen)}
     assert ist == erwartet

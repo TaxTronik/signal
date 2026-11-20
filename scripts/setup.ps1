@@ -333,12 +333,12 @@ if (-not $SkipDeps) {
         $embeddingDevice = ([string]$env:RISK_LAYER_EMB_DEVICE).Trim().ToLowerInvariant()
         if ($script:EmbeddingRuntime -eq "amd" -and $embeddingDevice -match '^cuda(?::[0-9]+)?$') {
             $embeddingLock = "requirements-embedding-windows-amd-py312-lock.txt"
-            Info "Embedding+Reranker -> hash-gepinnter AMD-ROCm/PyTorch-Stack fuer Windows/Python 3.12"
+            Info "Embedding+Reranker -> ROCm 10.2.0 mit PyTorch 2.15.0 fuer Windows/Python 3.12 (AMD validiert Adrenalin 26.11.2)"
             & python -m pip install --no-build-isolation --require-hashes -r $embeddingLock
             if ($LASTEXITCODE -ne 0) { throw "pip install (AMD-Embedding-Hashlock) fehlgeschlagen." }
-            & python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"
+            & python -c "import torch,sys; sys.exit(0 if torch.version.hip and torch.cuda.is_available() and (torch.ones(1, device='cuda') + 1).item() == 2 else 1)"
             if ($LASTEXITCODE -ne 0) {
-                throw "AMD-Embedding-Runtime installiert, aber PyTorch erkennt keine GPU. Windows-11-/Treiber-Kompatibilitaet pruefen."
+                throw "AMD-Embedding-GPU-Test fehlgeschlagen. Geraetearchitektur und Treiber pruefen (AMD validiert Windows 11 25H2 mit Adrenalin 26.11.2)."
             }
             OkMsg "Abhaengigkeiten installiert (Runtime + sentence-transformers + AMD-ROCm/PyTorch)"
         } elseif ($embeddingDevice -eq "cpu") {

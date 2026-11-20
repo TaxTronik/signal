@@ -89,10 +89,15 @@ _WAEHRUNG = r"(?:€|EUR|Euro|TEUR|Mio\.?\s*(?:€|EUR|Euro))"
 _BETRAG = re.compile(rf"\b(?:\d{{1,3}}(?:[.\s]\d{{3}})+|\d+)(?:,\d+)?\s*{_WAEHRUNG}")
 _DATUM = re.compile(
     r"\b(?:\d{1,2}\.\s?(?:Januar|Februar|März|April|Mai|Juni|Juli|August|September|Oktober|November|Dezember)\s?\d{4}"
-    r"|\d{1,2}\.\d{1,2}\.\d{2,4})\b"
+    r"|\d{1,2}\.\d{1,2}\.\d{2,4}|\d{4}-\d{2}-\d{2})\b"
 )
 _STEUERNR = re.compile(r"\b\d{2,3}/\d{3}/\d{4,5}\b")
-_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:\s?\d{4}){3,}\d{0,4}\b")
+# DE hat nach der Prüfziffer 18 Ziffern. Die letzte Zweiergruppe gehört
+# auch in der Druckdarstellung vollständig zur Kontonummer.
+_IBAN = re.compile(
+    r"\b(?i:DE)\d{2}(?:[ \u00a0\u202f]?\d{4}){4}[ \u00a0\u202f]?\d{2}\b"
+    r"|\b[A-Z]{2}\d{2}(?:\s?\d{4}){3,}\d{0,4}\b"
+)
 _EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 # Telefon: +49/0-Vorwahl + >=6 weitere Ziffern/Trenner. Kein '.'/',' in der Klasse,
 # damit Daten/Betraege (1.000,00) und Steuernummern nicht faelschlich greifen; der
@@ -331,8 +336,9 @@ def _ner_pass(text: str, z: _Zaehler) -> tuple[str, bool, str | None]:
     except Exception as exc:  # noqa: BLE001
         # Fail-degraded statt Crash: das Gate bleibt mindestens so stark wie
         # der Regex-Pfad; ein kaputtes Modell darf den Export-Pfad nicht legen.
-        _log.warning("NER-Pass fehlgeschlagen (%s: %s) — nur Regex-Ergebnis",
-                     type(exc).__name__, exc)
+        # Modellfehler können Ausschnitte des eingereichten Texts enthalten.
+        _log.warning("NER-Pass fehlgeschlagen (%s) — nur Regex-Ergebnis",
+                     type(exc).__name__)
         return text, False, f"NER-Pass fehlgeschlagen ({type(exc).__name__})"
     # Tabu-Spans: alle Vorkommen der von UNS vergebenen Platzhalter. Warum kein
     # generisches „[…]"-Regex: eckige Klammern können legitim im Sachverhalt

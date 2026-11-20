@@ -1,5 +1,5 @@
 # systemd-User-Unit für den stabilen, release-aware Launcher.
-# Vor Installation alle @PLATZHALTER@ ersetzen; niemals direkt verwenden.
+# deploy/install-release-service.py setzt die Werte für den jeweiligen Host ein.
 [Unit]
 Description=Risk-Layer /v1 Engine aus verifiziertem current-Release
 After=network-online.target

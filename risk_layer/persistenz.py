@@ -16,10 +16,28 @@ Read-Modify-Write-Zyklus; einfachere Stores können eine eigene Strategie wähle
 from __future__ import annotations
 
 import os
+import sqlite3
+import stat
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, cast
+
+
+@contextmanager
+def sqlite_neubau(pfad: Path) -> Iterator[sqlite3.Connection]:
+    """Veröffentlicht die fertig gebaute SQLite-Datei in einem Schritt."""
+    pfad.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=pfad.parent) as stage:
+        neu = Path(stage) / pfad.name
+        with closing(sqlite3.connect(str(neu))) as con:
+            yield con
+            con.commit()
+        if pfad.exists():
+            neu.chmod(stat.S_IMODE(pfad.stat().st_mode))
+        neu.replace(pfad)
 
 # Umlaut-Transliteration: filesystem- und ID-sicher (ASCII), über alle Stores
 # IDENTISCH. "Müller" → "mueller" – egal welcher Store den Slug bildet.

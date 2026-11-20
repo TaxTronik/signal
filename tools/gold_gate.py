@@ -137,6 +137,11 @@ def main(argv: list[str] | None = None) -> int:
     for pfad in dateien:
         daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
         if not ist_deterministisches_gold(daten):
+            if daten.get("rolle") == "regressionsgate" or any(
+                isinstance(fall, dict) and "datei" in fall for fall in daten.get("faelle") or []
+            ):
+                print(f"{pfad}: unvollständiges deterministisches Gold.", file=sys.stderr)
+                return 2
             # ehrlich benennen statt still 0 messen (s. Modul-Docstring).
             uebersprungen.append(pfad.name)
             continue
@@ -150,12 +155,15 @@ def main(argv: list[str] | None = None) -> int:
 
     erwartet = sum(e["erwartet"] for e in ergebnisse)
     gefunden = sum(e["gefunden"] for e in ergebnisse)
-    quote = (gefunden / erwartet) if erwartet else 1.0
+    if not erwartet:
+        print("Das Gold enthält keine positive Erwartung für die Trefferquote.", file=sys.stderr)
+        return 2
+    quote = gefunden / erwartet
     verstoesse = [e for e in ergebnisse if e["praezisions_verstoss"]]
 
     print("Gold-Gate (deterministische Schichten: Matcher/Muster/Streit/Zitate)")
     for name in uebersprungen:
-        print(f"  übersprungen: {name} (Retrieval-Gold, kein deterministischer Anteil)")
+        print(f"  übersprungen: {name} (separate Auswertung)")
     for e in ergebnisse:
         status = "ok " if not e["fehlend"] and not e["praezisions_verstoss"] else "REG"
         print(f"  [{status}] {e['datei']}: {e['gefunden']}/{e['erwartet']} erwartete Marken")

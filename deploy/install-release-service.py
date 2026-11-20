@@ -88,12 +88,13 @@ def render(
         "@LLM_URL@": llm_url,
         "@EMB_DEVICE@": emb_device,
     }
-    for placeholder, value in replacements.items():
-        if text.count(placeholder) == 0:
-            raise SystemExit(f"Unit-Vorlage enthält {placeholder} nicht")
-        text = text.replace(placeholder, _systemd_quote(value))
-    if re.search(r"@[A-Z_]+@", text):
-        raise SystemExit("Unit-Vorlage enthält nicht ersetzte Platzhalter")
+    pattern = re.compile(r"@[A-Z_]+@")
+    placeholders = set(pattern.findall(text))
+    if missing := replacements.keys() - placeholders:
+        raise SystemExit(f"Unit-Vorlage enthält {', '.join(sorted(missing))} nicht")
+    if unknown := placeholders - replacements.keys():
+        raise SystemExit(f"Unbekannte Unit-Platzhalter: {', '.join(sorted(unknown))}")
+    text = pattern.sub(lambda match: _systemd_quote(replacements[match[0]]), text)
 
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     _real_path(str(output.parent), "Unit-Ausgabeverzeichnis", directory=True)
@@ -146,21 +147,25 @@ def main() -> int:
         raise SystemExit(f"Environment-Datei muss Modus 0600 haben: {env_file}")
     output = Path(args.output).expanduser().absolute()
     template = Path(__file__).with_name("risk-layer-release.service.in")
-    render(
-        template=template,
-        output=output,
-        python=python,
-        launcher=launcher,
-        release_home=release_home,
-        berater=berater,
-        env_file=env_file,
-        host=args.host,
-        port=args.port,
-        llm_url=args.llm_url,
-        emb_device=args.emb_device,
-    )
-
-    subprocess.run(["systemd-analyze", "--user", "verify", str(output)], check=True)
+    output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _real_path(str(output.parent), "Unit-Ausgabeverzeichnis", directory=True)
+    with tempfile.TemporaryDirectory(dir=output.parent) as stage:
+        candidate = Path(stage) / output.name
+        render(
+            template=template,
+            output=candidate,
+            python=python,
+            launcher=launcher,
+            release_home=release_home,
+            berater=berater,
+            env_file=env_file,
+            host=args.host,
+            port=args.port,
+            llm_url=args.llm_url,
+            emb_device=args.emb_device,
+        )
+        subprocess.run(["systemd-analyze", "--user", "verify", str(candidate)], check=True)
+        os.replace(candidate, output)
     if not args.render_only:
         subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
         subprocess.run(

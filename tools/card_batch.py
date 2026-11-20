@@ -44,6 +44,7 @@ from risk_layer.discovery import (                       # noqa: E402
 )
 from risk_layer.graph import graph_oeffnen               # noqa: E402
 from risk_layer.persistenz import atomar_schreiben       # noqa: E402
+from risk_layer.zitate import knoten_zitat                # noqa: E402
 
 utf8_konsole()
 
@@ -115,10 +116,7 @@ def _node_from_graph(graph, nid: str):
     text = (r["text"] or "").strip()
     if len(text) < 15:
         return None
-    zitat = f"§ {r['para']} {r['law']}"
-    if r["absatz"]:
-        zitat = (f"§ {r['para']} Abs. {r['absatz']}"
-                 + (f" Nr. {r['nummer']}" if r["nummer"] else "") + f" {r['law']}")
+    zitat = knoten_zitat(r["law"], r["para"], absatz=r["absatz"], nummer=r["nummer"])
     titel = (r["titel"] or "").strip()
     if not titel:                                   # Absatz-Knoten erben den §-Titel
         p = graph.con.execute("SELECT titel FROM knoten WHERE id=?",
@@ -206,10 +204,12 @@ def fetch(args, base: str, api_key: str) -> int:
     if st != "completed":
         print("Noch nicht fertig — später erneut fetchen (Batch läuft async).")
         return 0
+    graph = graph_oeffnen()
+    if graph is None:
+        print("Kein Normgraph — erst 'graph build'.", file=sys.stderr)
+        return 2
     content = _api("GET", f"{base}/v1/files/{b['output_file_id']}/content", api_key,
                    timeout=300).decode("utf-8")
-
-    graph = graph_oeffnen()
     nodes = {n["id"]: n for n in iter_paragraphen(graph)}
 
     @lru_cache(maxsize=None)

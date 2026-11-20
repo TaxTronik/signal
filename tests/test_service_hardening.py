@@ -5,6 +5,7 @@ import ctypes
 import os
 from pathlib import Path
 import re
+import runpy
 import subprocess
 import sys
 
@@ -223,6 +224,47 @@ def test_release_systemd_hat_sicheren_renderer_und_readonly_release_home() -> No
     assert "os.replace(temporary_name, output)" in installer
     assert '.replace("%", "%%")' in installer
     assert "shell=True" not in installer
+
+
+def test_release_installer_rendert_ausgelieferte_unit(tmp_path):
+    render = runpy.run_path(str(ROOT / "deploy/install-release-service.py"))["render"]
+    target = tmp_path / "engine.service"
+    render(
+        template=ROOT / "deploy/risk-layer-release.service.in", output=target,
+        python=Path("/usr/bin/python3"), launcher=Path("/opt/@HOST@/launcher.py"),
+        release_home=Path("/srv/release"), berater=Path("/srv/berater"),
+        env_file=Path("/etc/engine.env"), host="127.0.0.1", port=8000,
+        llm_url="http://127.0.0.1:8080", emb_device="cpu",
+    )
+    unit = target.read_text(encoding="utf-8")
+    launcher = str(Path("/opt/@HOST@/launcher.py")).replace("\\", "\\\\")
+    assert f'-I "{launcher}" --home' in unit
+    assert '--host "127.0.0.1" --port "8000"' in unit
+
+
+def test_release_installer_behaelt_bestehende_unit_bei_prueffehler(tmp_path, monkeypatch):
+    installer = ROOT / "deploy/install-release-service.py"
+    target = tmp_path / "engine.service"
+    target.write_text("bisherige Unit", encoding="utf-8")
+    env_file = tmp_path / "engine.env"
+    env_file.touch(mode=0o600)
+    monkeypatch.setattr(sys, "argv", [
+        str(installer), "--python", str(Path(sys.executable).resolve()),
+        "--release-home", str(tmp_path), "--berater", str(tmp_path),
+        "--env-file", str(env_file), "--output", str(target), "--render-only",
+    ])
+
+    def reject(command, *, check):
+        assert check and command[:3] == ["systemd-analyze", "--user", "verify"]
+        candidate = Path(command[3])
+        assert candidate != target and candidate.name == target.name
+        assert "[Service]" in candidate.read_text(encoding="utf-8")
+        raise subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(subprocess, "run", reject)
+    with pytest.raises(subprocess.CalledProcessError):
+        runpy.run_path(str(installer))["main"]()
+    assert target.read_text(encoding="utf-8") == "bisherige Unit"
 
 
 def test_windows_release_task_startet_verifiziertes_current() -> None:

@@ -9,6 +9,7 @@ import pytest
 from risk_layer.zitate import (
     extrahiere_anker,
     finde_normzitate,
+    kanonisiere_fundstelle,
     norm_zu_zitat,
     parse_entscheidung,
     parse_normzitat,
@@ -17,6 +18,18 @@ from risk_layer.zitate import (
 
 def _ids(zitat):
     return [a.norm_id.to_id() for a in parse_normzitat(zitat) if a.norm_id]
+
+
+@pytest.mark.parametrize(("fundstelle", "erwartet"), [
+    ("§ 39 Abs. 2 Nr. 1 Satz 1 AO", "norm:AO:39:abs2:nr1:s1"),
+    ("§ 15 Abs. 2 Satz 1 EStG (Legaldefinition Gewerbebetrieb)", "norm:EStG:15:abs2:s1"),
+    ("Art. 1 GG", "norm:GG:art1"),
+    ("§§ 7, 8 AStG", None),
+    ("§ 146 AO (Ordnungsvorschriften); § 158 AO (Beweiskraft)", None),
+    ("§ 2 des Wertpapierinstitutsgesetzes", None),
+])
+def test_fundstellen_id_fuer_eindeutige_normquelle(fundstelle, erwartet):
+    assert kanonisiere_fundstelle("Gesetz", fundstelle) == erwartet
 
 
 # /T20/ Gold-Set Normzitate ---------------------------------------------------
@@ -42,6 +55,25 @@ def test_t20_bereich():
     assert _ids("§§ 28 bis 31 GewStG") == [
         "norm:GewStG:28", "norm:GewStG:29", "norm:GewStG:30", "norm:GewStG:31",
     ]
+
+
+@pytest.mark.parametrize(("zitat", "nummern"), [
+    ("§§ 1, 4 bis 5 AO", [1, 4, 5]),
+    ("§§ 14–17 und 25 AO", [14, 15, 16, 17, 25]),
+])
+def test_gemischte_liste_und_bereich_auch_im_normgraph(zitat, nummern):
+    erwartet = [f"norm:AO:{n}" for n in nummern]
+    assert _ids(zitat) == erwartet
+    assert [a.norm_id.to_id() for a in extrahiere_anker(zitat, default_law="EStG")] == erwartet
+
+
+def test_expansionsgrenze_gilt_fuer_das_gesamte_zitat(monkeypatch):
+    from risk_layer import zitate
+    monkeypatch.setattr(zitate, "_MAX_ANKER_PRO_ZITAT", 4)
+    assert len(_ids("§§ 1 bis 2 Abs. 1 bis 2 AO")) == 4
+    for text in ("§§ 1 bis 5 AO", "§§ 1 bis 3 Abs. 1 bis 2 AO"):
+        anker, = parse_normzitat(text)
+        assert anker.norm_id is None and anker.konfidenz == "niedrig"
 
 
 def test_t20_verschachtelter_bereich():
@@ -114,6 +146,88 @@ def test_tiefen_liste_mit_und_expandiert():
 def test_tiefen_liste_mit_komma_und_und():
     assert _ids("§ 2 Abs. 2 Nr. 2, 3 und 5 UStG") == [
         "norm:UStG:2:abs2:nr2", "norm:UStG:2:abs2:nr3", "norm:UStG:2:abs2:nr5",
+    ]
+
+
+def test_gemischte_tiefenliste_in_graph_und_freitext():
+    text = "Nach § 1 Nr. 1, 3 bis 5 AO und Art. 11 GG."
+    erwartet = ["norm:AO:1:nr1", "norm:AO:1:nr3", "norm:AO:1:nr4",
+                "norm:AO:1:nr5", "norm:GG:art11"]
+    for anker in (finde_normzitate(text), extrahiere_anker(text, default_law="EStG")):
+        assert [a.norm_id.to_id() for a in anker] == erwartet
+
+
+def test_gesetz_im_spaeteren_freitext_belegt_keinen_relativen_verweis():
+    assert not finde_normzitate("Zu § 17 fehlt ein Verweis auf die AO.")
+
+
+@pytest.mark.parametrize(("zitat", "ziel"), [
+    ("§ 139b der Abgabenordnung", "norm:AO:139b"),
+    ("§ 43 Absatz 1 Satz 1 des Einkommensteuergesetzes", "norm:EStG:43:abs1:s1"),
+    ("§ 257 des Handelsgesetzbuchs", "norm:HGB:257"),
+    ("Art. 1 Abs. 1 des Grundgesetzes", "norm:GG:art1:abs1"),
+    ("§ 1 der Umsatzsteuer-Durchführungsverordnung", "norm:UStDV:1"),
+])
+def test_langname_bestimmt_zielgesetz_auch_im_freitext(zitat, ziel):
+    assert _ids(zitat) == [ziel]
+    for anker in (finde_normzitate(zitat), extrahiere_anker(zitat, "BewG")):
+        assert [a.norm_id.to_id() for a in anker if a.norm_id] == [ziel]
+
+
+@pytest.mark.parametrize("fremd", [
+    "§ 2 Absatz 1 des Wertpapierinstitutsgesetzes",
+    "§§ 2, 4 Absatz 1 Satz 1 und 2 des Bürgerlichen Gesetzbuches",
+    "Art. 5 der Verordnung (EU) 2016/679",
+    "§ 2 WpIG",
+    "§ 17 der Abgabenordnungsverordnung",
+])
+def test_unbekannte_explizite_quelle_ergibt_keinen_eigenverweis(fremd):
+    text = fremd + "; davon unabhängig gilt § 9 dieses Gesetzes."
+    assert not finde_normzitate(text)
+    assert [a.norm_id.to_id() for a in extrahiere_anker(text, "HGB") if a.norm_id] == [
+        "norm:HGB:9"
+    ]
+
+
+def test_singularverweis_ohne_gesetz_frisst_keine_fremde_aufzaehlung():
+    text = "Die Unterlagen nach § 1 und 2 weitere Belege sind einzureichen."
+    assert [a.norm_id.to_id() for a in extrahiere_anker(text, "AO")] == ["norm:AO:1"]
+    assert [a.norm_id.to_id() for a in finde_normzitate("§ 2 Abs. 1 der AO")] == ["norm:AO:2:abs1"]
+
+
+@pytest.mark.parametrize(("text", "erwartet"), [
+    ("§ 72a Absatz 4 und § 93c Absatz 4 der Abgabenordnung finden keine Anwendung.",
+     ["norm:AO:72a:abs4", "norm:AO:93c:abs4"]),
+    ("§ 76 Absatz 4 und § 111 Absatz 5 des Aktiengesetzes",
+     ["norm:AktG:76:abs4", "norm:AktG:111:abs5"]),
+    ("Art. 1 Abs. 1, Artikel 2 und Art. 3 des Grundgesetzes",
+     ["norm:GG:art1:abs1", "norm:GG:art2", "norm:GG:art3"]),
+    ("§ 1 und § 2 AO sowie § 3 oder § 4 EStG",
+     ["norm:AO:1", "norm:AO:2", "norm:EStG:3", "norm:EStG:4"]),
+    ("§ 1 oder § 2 WpIG, § 3 AO", ["norm:AO:3"]),
+    ("Artikel 5 Nummer 20 und 21 des Zollkodex der Union", []),
+    ("Artikel 4 und Artikel 5 des Zollkodexes der Union, § 3 AO", ["norm:AO:3"]),
+])
+def test_gemeinsamer_gesetzesname_in_zitierketten(text, erwartet):
+    for anker in (finde_normzitate(text), extrahiere_anker(text, "BewG")):
+        assert [a.norm_id.to_id() for a in anker if a.norm_id] == erwartet
+        assert all(a.roh in text for a in anker)
+
+
+@pytest.mark.parametrize("trenner", [". ", "; ", ", im Übrigen gilt ", " und nach "])
+def test_gemeinsamer_gesetzesname_endet_an_bindungsgrenzen(trenner):
+    text = "§ 1a" + trenner + "§ 2 AO"
+    assert [a.norm_id.to_id() for a in finde_normzitate(text)] == ["norm:AO:2"]
+    assert [a.norm_id.to_id() for a in extrahiere_anker(text, "HGB")] == [
+        "norm:HGB:1a", "norm:AO:2",
+    ]
+
+
+def test_gesetzesname_bindet_weder_rueckwaerts_an_fremde_normart_noch_vorwaerts():
+    text = "§ 1 und Art. 2 GG sowie Art. 3"
+    assert [a.norm_id.to_id() for a in finde_normzitate(text)] == ["norm:GG:art2"]
+    assert [a.norm_id.to_id() for a in extrahiere_anker(text, "HGB")] == [
+        "norm:HGB:1", "norm:GG:art2", "norm:HGB:art3",
     ]
 
 

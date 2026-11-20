@@ -289,6 +289,119 @@ def _zusammenfassung_html(report: RunReport) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Semantische Vorschlaege (eigener Datenstrom, keine Markierungen)
+# ---------------------------------------------------------------------------
+
+def _semantik_gruppen(vorschlaege: list[dict]) -> list[dict]:
+    """Group identical context results without changing the analysis payload.
+
+    Keep per-norm focus references if the same context contains differing norm
+    lists or evidence. Legacy results without context remain sentence-based.
+    """
+    gruppen: dict[tuple, dict] = {}
+    for v in vorschlaege:
+        if not v.get("normen"):
+            continue
+        kontext = v.get("kontext")
+        profil = v.get("profil", "standard")
+        start, end = (kontext["start"], kontext["end"]) if kontext else (v["start"], v["end"])
+        key = (profil, start, end)
+        if key not in gruppen:
+            gruppen[key] = {
+                "profil": profil, "start": start, "end": end,
+                "text": kontext["text"] if kontext else v["satz"],
+                "art": "Suchkontext" if kontext else "Bezugssatz",
+                "foki": [], "normen": [],
+            }
+        gruppe = gruppen[key]
+        fokus = (v["start"], v["end"], v["satz"])
+        if fokus not in gruppe["foki"]:
+            gruppe["foki"].append(fokus)
+        bezug = gruppe["foki"].index(fokus) + 1
+        for norm in v["normen"]:
+            eintrag = next((n for n in gruppe["normen"] if n["norm"] == norm), None)
+            if eintrag is None:
+                eintrag = {"norm": norm, "bezuege": []}
+                gruppe["normen"].append(eintrag)
+            if bezug not in eintrag["bezuege"]:
+                eintrag["bezuege"].append(bezug)
+    return list(gruppen.values())
+
+
+def _semantik_quellen(norm: dict) -> list[tuple[str, str]]:
+    """Only display sources actually supplied with the suggestion."""
+    quellen = [("Normquelle", str(norm.get("zitat") or norm.get("id", "")))]
+    evidenz = norm.get("evidenz") or {}
+    passagen = evidenz.get("passagen") or []
+    for p in passagen:
+        quellen.append((
+            f"Originalnormpassage · Quelloffset {p['quell_start']}–{p['quell_end']}",
+            p["text"],
+        ))
+    if not passagen:
+        quellen.append(("Normtextauszug", "Nicht im Analyseergebnis mitgeliefert."))
+    if evidenz.get("gekuerzt"):
+        quellen.append(("Auszug", "Gekürzte Auswahl aus der Originalnorm."))
+    quellen.extend(("Kataloganker", anker) for anker in evidenz.get("anker", []))
+    quellen.extend(("Normkette", k["anzeige"]) for k in norm.get("ketten", []) if k.get("anzeige"))
+    return quellen
+
+
+def _semantik_text(report: RunReport) -> list[str]:
+    gruppen = _semantik_gruppen(report.semantik_vorschlaege)
+    if not gruppen:
+        return []
+    zeilen = ["", "--- Semantische Normvorschläge ---", "Vorschläge zum jeweils angezeigten Suchtext."]
+    for i, g in enumerate(gruppen, 1):
+        zeilen.extend(["", f"[{i}] Profil: {g['profil']} · {g['art']} @{g['start']}–{g['end']}",
+                       f"  {g['art']}: „{g['text']}”"])
+        for j, (start, end, text) in enumerate(g["foki"], 1):
+            zeilen.append(f"  Textstelle {j} @{start}–{end}: „{text}”")
+        for n in g["normen"]:
+            norm = n["norm"]
+            titel = f" — {norm['titel']}" if norm.get("titel") else ""
+            zeilen.append(f"  Vorschlag: {norm.get('zitat') or norm.get('id', '')}{titel}")
+            zeilen.append("    Bezug: Textstellen " + ", ".join(map(str, n["bezuege"])))
+            for label, text in _semantik_quellen(norm):
+                zeilen.append(f"    {label}: " + text.replace("\n", "\n      "))
+    return zeilen
+
+
+def _semantik_html(report: RunReport) -> str:
+    gruppen = _semantik_gruppen(report.semantik_vorschlaege)
+    if not gruppen:
+        return ""
+    def esc(value: object) -> str:
+        return html.escape(str(value))
+
+    teile = ["\n  <section class='semantik'><h2>Semantische Normvorschläge</h2>",
+             "<p>Vorschläge zum jeweils angezeigten Suchtext.</p>"]
+    for i, g in enumerate(gruppen):
+        teile.append(f"<article class='karte' id='semantik-{i}'>"
+                     f"<h3>{esc(g['art'])} · Profil: {esc(g['profil'])}</h3>"
+                     f"<p class='offset'>Eingabe-Offset {esc(g['start'])}–{esc(g['end'])}</p>"
+                     f"<blockquote class='kein-treffer'>{esc(g['text'])}</blockquote>"
+                     "<p><strong>Textstellen als Bezugspunkte:</strong></p><ol>")
+        for j, (start, end, text) in enumerate(g["foki"], 1):
+            teile.append(f"<li id='semantik-{i}-bezug-{j}'>"
+                         f"<span class='offset'>@{esc(start)}–{esc(end)}</span> „{esc(text)}”</li>")
+        teile.append("</ol>")
+        for n in g["normen"]:
+            norm = n["norm"]
+            titel = f" — {esc(norm['titel'])}" if norm.get("titel") else ""
+            bezuege = ", ".join(f"<a href='#semantik-{i}-bezug-{j}'>{j}</a>" for j in n["bezuege"])
+            teile.append(f"<h4>Vorschlag: {esc(norm.get('zitat') or norm.get('id', ''))}{titel}</h4>"
+                         f"<p>Bezug: Textstellen {bezuege}</p>"
+                         "<details><summary>Normquelle und Belege</summary><dl class='quellen'>")
+            for label, text in _semantik_quellen(norm):
+                teile.append(f"<dt>{esc(label)}</dt><dd class='kein-treffer'>{esc(text)}</dd>")
+            teile.append("</dl></details>")
+        teile.append("</article>")
+    teile.append("</section>")
+    return "".join(teile)
+
+
+# ---------------------------------------------------------------------------
 # Gesamt-HTML
 # ---------------------------------------------------------------------------
 
@@ -406,7 +519,7 @@ def report_html(report: RunReport, original_text: str, *, titel: str = "Risk-Lay
   <h2>Annotiertes Dokument</h2>
   <div class='doc'>{annot}</div>
   <h2>Begriffskarten</h2>
-  <div class='karten'>{karten_html}</div>
+  <div class='karten'>{karten_html}</div>{_semantik_html(report)}
   <footer>Risk-Layer Schicht 1 · deterministisch · jede Markierung ist über eine
     Katalog-ID belegt. Definitionen stammen ausschließlich aus hinterlegten Quellen.</footer>
 </div></body></html>"""
@@ -457,4 +570,5 @@ def report_text(report: RunReport) -> str:
             zeilen.append(
                 f"[{tag}] {r.titel:42} @{r.start:>5}–{r.end:<5} „{r.matched_text}\"  {extra}"
             )
+    zeilen.extend(_semantik_text(report))
     return "\n".join(zeilen)

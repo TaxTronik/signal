@@ -27,6 +27,24 @@ def test_intra_law_kante(graph):
     assert "norm:TestG:2:abs1" in r["verweist_auf"]
 
 
+@pytest.mark.parametrize("vorhanden", [False, True])
+def test_abgebrochener_rebuild_veroeffentlicht_keine_teildatenbank(tmp_path, vorhanden):
+    ziel = tmp_path / "graph.sqlite"
+    knoten = gii.parse_datei(FIXTURE)
+    if vorhanden:
+        NormGraph.build(knoten, ziel).close()
+    vorher = ziel.read_bytes() if vorhanden else None
+
+    def unterbrochen():
+        yield knoten[0]
+        raise ValueError("unvollständiger Import")
+
+    with pytest.raises(ValueError, match="unvollständiger Import"):
+        NormGraph.build(unterbrochen(), ziel)
+    assert (ziel.read_bytes() if ziel.exists() else None) == vorher
+    assert list(tmp_path.iterdir()) == ([ziel] if vorhanden else [])
+
+
 def test_dangling_cross_law(graph):
     # „§ 5 EStG" verweist auf einen nicht im Korpus vorhandenen Knoten (/T50/)
     ziele = {d["dst"] for d in graph.dangling()}
@@ -116,6 +134,20 @@ def test_suche_text_bricht_score_gleichstand_stabil_nach_id(tmp_path):
     assert [treffer["id"] for treffer in graph.suche_text(
         "Alpha Begriff gemeinsam", min_score=1.0
     )] == ["norm:A:1", "norm:Z:2"]
+
+
+def test_suche_text_erreicht_schwelle_mit_zehn_haeufigen_woertern(tmp_path):
+    text = "Punkte Texte Suche Daten Worte Testen Index Graph Quelle Grenze"
+    knoten = [gii.NormKnoten(id=f"norm:A:{i}", law="A", para=str(i), titel="Titel",
+                             text=text) for i in range(26)]
+    graph = NormGraph.build(knoten, tmp_path / "schwelle.sqlite")
+    try:
+        treffer, = graph.suche_text(text, k=1, min_score=2.0)
+        treffer["titel"] = "geändert"
+        assert graph.suche_text(text, k=1)[0]["titel"] == "Titel"
+        assert not graph.suche_text(text, min_score=2.01)
+    finally:
+        graph.close()
 
 
 def test_fingerprint_stabil_ueber_zwei_builds(tmp_path):

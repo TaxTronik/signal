@@ -14,9 +14,10 @@ gelebte Stand steht immer in README/FEATURES/INTEGRATION.
 
 | Datei | Zweck | Typ | Stand |
 |---|---|---|---|
-| [../README.md](../README.md) | Einstieg: Architektur, Schnellstart, CLI, `/v1`-Überblick, Roadmap | lebend | aktuell (Engine `1.4.0`) |
-| [../FEATURES.md](../FEATURES.md) | Vollständiges Feature-Inventar inkl. benannter Grenzen und Garantien | lebend | aktuell (Engine `1.4.0`) |
-| [../INTEGRATION_TAXTRONIK.md](../INTEGRATION_TAXTRONIK.md) | Der `/v1`-Integrationsvertrag (Endpunkte, Mapping-Realitätsabgleich, Fixtures) — Name/Ort fix, wird vom Code referenziert | lebend | aktuell (`v1.4.0`) |
+| [Technische und fachliche Prüfung](compliance/Pruefbericht-2026-11-20.md) | Befunde, Korrekturen, Prüfläufe und Einsatzgrenzen | Prüfbericht | 20.11.2026 |
+| [../README.md](../README.md) | Einstieg: Architektur, Schnellstart, CLI, `/v1`-Überblick, Roadmap | lebend | aktuell (Engine `1.5.0`) |
+| [../FEATURES.md](../FEATURES.md) | Vollständiges Feature-Inventar inkl. benannter Grenzen und Garantien | lebend | aktuell (Engine `1.5.0`) |
+| [../INTEGRATION_TAXTRONIK.md](../INTEGRATION_TAXTRONIK.md) | Der `/v1`-Integrationsvertrag (Endpunkte, Mapping-Realitätsabgleich, Fixtures) — Name/Ort fix, wird vom Code referenziert | lebend | aktuell (`v1.5.0`) |
 | [../CHANGELOG.md](../CHANGELOG.md) | Prüfbares Änderungsjournal mit `[Unreleased]`, Releaseabschnitten und Kennzeichnung scope-relevanter Änderungen | lebend (Änderungswesen) | aktuell |
 | [operations/README.md](operations/README.md) | Kurzer Einstieg in die einheitliche Operator-Oberfläche für Deploy, Update, Status, Backup, Restore und Rollback | lebend (Betrieb) | aktuell |
 | [operations/release.md](operations/release.md) | Normaler Release-, Deploy-, Update- und Rollback-Pfad einschließlich Vertrauensgrenze | lebend (Betrieb) | aktuell |

@@ -36,8 +36,9 @@ _WB = r"0-9A-Za-zÄÖÜäöüßÀ-ÖØ-öø-ÿ"
 _WB_OPEN = rf"(?<![{_WB}])"
 _WB_CLOSE = rf"(?![{_WB}])"
 
-# Trenner zwischen Wörtern: Leerraum und/oder Bindestrich (Trenn-/Zusammenschr.)
-_SEP = r"[\s\-]+"
+# Trenner zwischen Wörtern: auch typografische und geschützte Bindestriche aus
+# Word/PDF. Ingest erhält diese Zeichen außerhalb einer Zeilentrennung.
+_SEP = r"[\s\-‐‑]+"
 
 # Rein flexivische Endungen (KEINE Derivation wie -ung), längste zuerst
 _FLEX_ENDUNGEN = ("en", "er", "es", "em", "e", "n", "s")
@@ -62,7 +63,7 @@ def _token_muster(token: str) -> str:
 
 def _surface_muster(surface: str) -> str | None:
     """Baut das vollständige Regex-Muster einer Oberflächenvariante."""
-    woerter = [w for w in re.split(r"[\s\-]+", surface.strip()) if w]
+    woerter = [w for w in re.split(_SEP, surface.strip()) if w]
     if not woerter:
         return None
     kern = _SEP.join(_token_muster(w) for w in woerter)
@@ -98,7 +99,7 @@ def _lemma_token_muster(token: str) -> str:
 
 def _lemma_surface_muster(lemma_surface: str) -> str | None:
     """Vollständiges Muster einer LEMMATISIERTEN Oberfläche (für lemma_text)."""
-    woerter = [w for w in re.split(r"[\s\-]+", lemma_surface.strip()) if w]
+    woerter = [w for w in re.split(_SEP, lemma_surface.strip()) if w]
     if not woerter:
         return None
     kern = _SEP.join(_lemma_token_muster(w) for w in woerter)
@@ -269,17 +270,28 @@ def entferne_enthaltene_spans(items: list, *, gruppe=None) -> list:
     ``None`` ⇒ alle Spans konkurrieren). Gleich lange / identische Spans bleiben
     beide erhalten (nur ECHTES Enthaltensein verwirft).
     """
-    verwerfen: set[int] = set()
-    for i, a in enumerate(items):
-        for j, b in enumerate(items):
-            if i == j:
-                continue
-            if gruppe is not None and gruppe(a) != gruppe(b):
-                continue
-            # b ist echt in a enthalten ⇒ b verwerfen
-            if a.start <= b.start and b.end <= a.end and (a.end - a.start) > (b.end - b.start):
-                verwerfen.add(j)
-    return [x for k, x in enumerate(items) if k not in verwerfen]
+    if len(items) < 2:
+        return list(items)
+    keys = [gruppe(item) for item in items] if gruppe is not None else [None] * len(items)
+    maxima: dict = {}
+    verwerfen = set()
+    # Gleicher Start: längster Span zuerst. Frühere Spans können den aktuellen
+    # nur enthalten, wenn mindestens einer bis zu dessen Ende reicht.
+    for i in sorted(range(len(items)), key=lambda j: (items[j].start, -items[j].end)):
+        item = items[i]
+        try:
+            maximum = maxima.get(keys[i])
+        except TypeError:
+            # Die Schnittstelle erlaubt auch per Gleichheit vergleichbare,
+            # unhashbare Gruppen. Für diesen seltenen Fall den Direktvergleich behalten.
+            return [b for j, b in enumerate(items) if not any(
+                keys[k] == keys[j] and a.start <= b.start and b.end <= a.end
+                and (a.start < b.start or b.end < a.end) for k, a in enumerate(items))]
+        if maximum is None or item.end > maximum.end:
+            maxima[keys[i]] = item
+        elif maximum.end > item.end or maximum.start < item.start:
+            verwerfen.add(i)
+    return [item for i, item in enumerate(items) if i not in verwerfen]
 
 
 def _entferne_enthaltene(treffer: list[Treffer]) -> list[Treffer]:

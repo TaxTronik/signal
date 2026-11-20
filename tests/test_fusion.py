@@ -23,11 +23,13 @@ import sys
 from pathlib import Path
 
 import pytest
+import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import risk_layer.pipeline as P
 from risk_layer.catalog import lade_katalog
+from risk_layer.embedding import EmbeddingIndex, HashEncoder
 from risk_layer.gii import NormKnoten
 from risk_layer.graph import NormGraph
 from risk_layer.pipeline import Pipeline, fusion_aktiviert, rrf_fusion
@@ -168,7 +170,8 @@ class EmbeddingStub:
         self._m = marken
         self.aufrufe: list[dict] = []
 
-    def kandidaten_pro_satz(self, text, encoder, k=5, min_sim=0.5):
+    def kandidaten_pro_satz(self, text, encoder, k=5, min_sim=0.5,
+                            auch_ohne_treffer=False):
         self.aufrufe.append({"k": k, "min_sim": min_sim})
         return self._m
 
@@ -307,3 +310,78 @@ def test_pipeline_ohne_trigger_rerank_und_rettung_ohne_fusion(monkeypatch, graph
     assert [n["norm_id"] for n in gesehen[0]] == ["norm:KStG:14"]
     assert [n["id"] for n in rep.semantik_vorschlaege[0]["normen"]] == \
         ["norm:KStG:14"]
+
+
+@pytest.mark.parametrize(("score", "erwartet"), [(0.5, True), (0.04, False)])
+def test_pipeline_fusion_prueft_trigger_auch_ohne_dense_treffer(
+        monkeypatch, graph, score, erwartet):
+    # Echter Embedding-Pfad: alle Kosinuswerte liegen unter dem Floor. Der
+    # lexikalische Kandidat muss trotzdem vom Reranker beurteilt werden.
+    encoder = HashEncoder(dim=64)
+    embedding = EmbeddingIndex(
+        np.zeros((1, 64), dtype=np.float32), ["norm:KStG:14"],
+        ["§ 14 KStG"], ["Organgesellschaft"], encoder.name)
+    trigger = TriggerStub(_trigger("norm:KStG:14"))
+    gesehen = _rerank_fake(monkeypatch, {"norm:KStG:14": score})
+    text = "  Der ganze Gewinn wird an die Mutter abgeführt.  "
+
+    rep = Pipeline(lade_katalog()).run(
+        text, graph=graph, trigger=trigger, embedding=embedding,
+        embedding_encoder=encoder, reranker=object())
+
+    assert trigger.aufrufe == [{"text": text.strip().rstrip("."), "k": 20}]
+    assert len(gesehen) == 1
+    assert [(n["norm_id"], n["sim"]) for n in gesehen[0]] == [
+        ("norm:KStG:14", None)]
+    assert bool(rep.semantik_vorschlaege) is erwartet
+    if erwartet:
+        vorschlag = rep.semantik_vorschlaege[0]
+        assert text[vorschlag["start"]:vorschlag["end"]] == vorschlag["satz"]
+        assert vorschlag["normen"][0]["sim"] is None
+
+
+def test_pipeline_leerer_dense_pool_ohne_reranker_fragt_keine_trigger(graph):
+    encoder = HashEncoder(dim=64)
+    embedding = EmbeddingIndex(
+        np.zeros((1, 64), dtype=np.float32), ["norm:KStG:14"],
+        ["§ 14 KStG"], ["Organgesellschaft"], encoder.name)
+    trigger = TriggerStub(_trigger("norm:KStG:14"))
+
+    rep = Pipeline(lade_katalog()).run(
+        "Der ganze Gewinn wird an die Mutter abgeführt.", graph=graph,
+        trigger=trigger, embedding=embedding, embedding_encoder=encoder)
+
+    assert trigger.aufrufe == []
+    assert rep.semantik_vorschlaege == []
+
+
+@pytest.mark.parametrize(("sim", "rerank", "erwartet"), [
+    (0.5496, 0.01, False),       # Rundung darf die sim-Rettung nicht aktivieren.
+    (0.4, 0.0996, False),        # Rundung darf die Rerank-Abstention nicht umgehen.
+    (0.55555, 0.12345, True),    # Nur die Anzeige wird auf drei Stellen gerundet.
+])
+def test_pipeline_entscheidet_mit_ungerundeten_scores(graph, sim, rerank, erwartet):
+    class Encoder:
+        name = "konstant"
+
+        def encode(self, texte):
+            return np.tile([1.0, 0.0], (len(texte), 1))
+
+    class Reranker:
+        def score(self, paare):
+            return [rerank] * len(paare)
+
+    encoder = Encoder()
+    embedding = EmbeddingIndex(
+        np.array([[sim, np.sqrt(1.0 - sim ** 2)]]), ["norm:KStG:14"],
+        ["§ 14 KStG"], ["Organgesellschaft"], encoder.name)
+
+    rep = Pipeline(lade_katalog()).run(
+        "Der ganze Gewinn wird an die Mutter abgeführt.", graph=graph,
+        embedding=embedding, embedding_encoder=encoder, reranker=Reranker())
+
+    assert bool(rep.semantik_vorschlaege) is erwartet
+    if erwartet:
+        norm = rep.semantik_vorschlaege[0]["normen"][0]
+        assert norm["sim"] == 0.556
+        assert norm["rerank"] == 0.123

@@ -1,0 +1,349 @@
+{
+  "audit": {
+    "exact_original_diagnostic_replays": 16,
+    "exact_top3_replays": 178,
+    "full_ranked_norms_per_case": 3337,
+    "full_scored_pairs": 593986,
+    "missing_targets": 0,
+    "runtime_imported": false,
+    "target_pairs_in_corpus": 217,
+    "torch_loaded": false
+  },
+  "auditor_sha256": "d734b836a9c77771b25a585933d82a190a52a3f1898ea19d5e5b72882a2cf88d",
+  "diagnostic_cutoffs": [
+    3,
+    10,
+    20,
+    50,
+    100
+  ],
+  "format": "grounded_signal_full_retrieval_summary/1",
+  "groups": {
+    "all": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 29,
+          "positive_cases_with_target": 45,
+          "target_pairs": 48,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 9,
+          "positive_cases_with_all_targets": 66,
+          "positive_cases_with_target": 90,
+          "target_pairs": 118,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 39,
+          "positive_cases_with_target": 63,
+          "target_pairs": 72,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 3,
+          "positive_cases_with_all_targets": 23,
+          "positive_cases_with_target": 29,
+          "target_pairs": 32,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 8,
+          "positive_cases_with_all_targets": 47,
+          "positive_cases_with_target": 76,
+          "target_pairs": 91,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 178,
+      "positive_cases": 129,
+      "target_pairs_in_corpus": 217,
+      "target_pairs_planned": 217,
+      "target_rank_buckets": {
+        "1-3": 32,
+        "101+": 99,
+        "11-20": 24,
+        "21-50": 19,
+        "4-10": 16,
+        "51-100": 27
+      },
+      "target_rank_max": 2829,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 31
+    },
+    "grounded": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 11,
+          "positive_cases_with_target": 11,
+          "target_pairs": 12,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 9,
+          "positive_cases_with_all_targets": 11,
+          "positive_cases_with_target": 12,
+          "target_pairs": 13,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 11,
+          "positive_cases_with_target": 11,
+          "target_pairs": 12,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 3,
+          "positive_cases_with_all_targets": 11,
+          "positive_cases_with_target": 11,
+          "target_pairs": 12,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 8,
+          "positive_cases_with_all_targets": 11,
+          "positive_cases_with_target": 12,
+          "target_pairs": 13,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 16,
+      "positive_cases": 12,
+      "target_pairs_in_corpus": 14,
+      "target_pairs_planned": 14,
+      "target_rank_buckets": {
+        "1-3": 12,
+        "101+": 1,
+        "11-20": 0,
+        "21-50": 1,
+        "4-10": 0,
+        "51-100": 0
+      },
+      "target_rank_max": 119,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 12
+    },
+    "grounded_development": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 5,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 3,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 6,
+          "target_pairs": 7,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 5,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 5,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 3,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 6,
+          "target_pairs": 7,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 8,
+      "positive_cases": 6,
+      "target_pairs_in_corpus": 8,
+      "target_pairs_planned": 8,
+      "target_rank_buckets": {
+        "1-3": 6,
+        "101+": 1,
+        "11-20": 0,
+        "21-50": 1,
+        "4-10": 0,
+        "51-100": 0
+      },
+      "target_rank_max": 119,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 6
+    },
+    "grounded_evaluation": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 6,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 6,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 6,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 4,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 6,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 3,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 6,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 5,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 6,
+          "target_pairs": 6,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 8,
+      "positive_cases": 6,
+      "target_pairs_in_corpus": 6,
+      "target_pairs_planned": 6,
+      "target_rank_buckets": {
+        "1-3": 6,
+        "101+": 0,
+        "11-20": 0,
+        "21-50": 0,
+        "4-10": 0,
+        "51-100": 0
+      },
+      "target_rank_max": 2,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 6
+    },
+    "historical_additional": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 3,
+          "positive_cases_with_target": 5,
+          "target_pairs": 5,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 6,
+          "positive_cases_with_target": 9,
+          "target_pairs": 12,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 4,
+          "positive_cases_with_target": 6,
+          "target_pairs": 8,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 3,
+          "positive_cases_with_target": 4,
+          "target_pairs": 4,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 5,
+          "positive_cases_with_target": 6,
+          "target_pairs": 9,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 30,
+      "positive_cases": 15,
+      "target_pairs_in_corpus": 27,
+      "target_pairs_planned": 27,
+      "target_rank_buckets": {
+        "1-3": 4,
+        "101+": 15,
+        "11-20": 3,
+        "21-50": 1,
+        "4-10": 1,
+        "51-100": 3
+      },
+      "target_rank_max": 2293,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 4
+    },
+    "historical_main": {
+      "cutoffs": {
+        "10": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 15,
+          "positive_cases_with_target": 29,
+          "target_pairs": 31,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "100": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 49,
+          "positive_cases_with_target": 69,
+          "target_pairs": 93,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "20": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 24,
+          "positive_cases_with_target": 46,
+          "target_pairs": 52,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "3": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 9,
+          "positive_cases_with_target": 14,
+          "target_pairs": 16,
+          "target_pairs_with_zero_similarity": 0
+        },
+        "50": {
+          "explicit_no_hint_norm_exposures": 0,
+          "positive_cases_with_all_targets": 31,
+          "positive_cases_with_target": 58,
+          "target_pairs": 69,
+          "target_pairs_with_zero_similarity": 0
+        }
+      },
+      "planned_cases": 132,
+      "positive_cases": 102,
+      "target_pairs_in_corpus": 176,
+      "target_pairs_planned": 176,
+      "target_rank_buckets": {
+        "1-3": 16,
+        "101+": 83,
+        "11-20": 21,
+        "21-50": 17,
+        "4-10": 15,
+        "51-100": 24
+      },
+      "target_rank_max": 2829,
+      "target_rank_min": 1,
+      "top3_ready_target_pairs": 15
+    }
+  },
+  "original_audit_sha256": "5adeaab40f899d41de054a68a3c544f602e8862a3d18487f86e0616d5c613aae",
+  "scope": "Post-hoc CPU rank analysis of the unchanged frozen lexical retrieval; only Top3 was submitted in the model experiment. Larger package fit, model quality and product latency were not tested."
+}

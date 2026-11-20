@@ -21,6 +21,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from .ingest import normalisiere
+from .persistenz import sqlite_neubau
+from .zitate import knoten_zitat
+
 DEFAULT_DB = Path("corpus") / "trigger.sqlite"
 
 # Funktions-/Allerweltswörter, die keine trennscharfen Trigger sind.
@@ -42,7 +46,8 @@ _TOKEN = re.compile(r"[a-zäöüß]+")
 
 
 def _tokens(text: str, minlen: int = 4) -> list[str]:
-    return [w for w in _TOKEN.findall(text.lower()) if len(w) >= minlen and w not in _STOPP]
+    normalized, _ = normalisiere(text)
+    return [w for w in _TOKEN.findall(normalized.lower()) if len(w) >= minlen and w not in _STOPP]
 
 
 def _titel_trigger(titel: str) -> list[str]:
@@ -111,13 +116,16 @@ class TriggerIndex:
               tfidf_top: int = 8, df_anteil_max: float = 0.10) -> "TriggerIndex":
         """Erzeugt den Index aus den §-Knoten des Normgraphen (deterministisch)."""
         db_path = Path(db_path)
-        db_path.parent.mkdir(parents=True, exist_ok=True)
-        if db_path.exists():
-            db_path.unlink()
+        with sqlite_neubau(db_path) as con:
+            cls._befuellen(con, graph, tfidf_top, df_anteil_max)
+        return cls(db_path)
+
+    @staticmethod
+    def _befuellen(con: sqlite3.Connection, graph, tfidf_top: int, df_anteil_max: float) -> None:
         # §-Knoten (Paragraph-Ebene) aus dem Graphen lesen
         rows = graph.con.execute(
             "SELECT id, titel, law, para, text FROM knoten "
-            "WHERE absatz IS NULL AND nummer IS NULL").fetchall()
+            "WHERE absatz IS NULL AND nummer IS NULL AND id NOT LIKE 'norm:%:%:%' ORDER BY id").fetchall()
         nodes = [{"id": r["id"], "titel": r["titel"] or "", "law": r["law"],
                   "para": r["para"], "text": r["text"] or ""} for r in rows]
         N = len(nodes) or 1
@@ -135,12 +143,11 @@ class TriggerIndex:
         def idf(w: str) -> float:
             return math.log(N / df.get(w, 1))
 
-        con = sqlite3.connect(str(db_path))
         con.executescript(_SCHEMA)
         norm_rows = []
         trig: dict[tuple[str, str, str], float] = {}
         for n, toks in zip(nodes, token_cache):
-            zitat = f"§ {n['para']} {n['law']}"
+            zitat = knoten_zitat(n["law"], n["para"])
             norm_rows.append((n["id"], zitat, n["titel"]))
             # 1) Überschrift-Trigger: hochcharakteristisch → IDF × Titel-Boost.
             for w in _titel_trigger(n["titel"]):
@@ -164,14 +171,11 @@ class TriggerIndex:
             [(w, nid, q, g) for (w, nid, q), g in trig.items()])
         woerter = {w for (w, _, _) in trig}
         con.executemany("INSERT OR REPLACE INTO wort VALUES (?,?,?)",
-                        [(w, df.get(w, 1), round(idf(w), 3)) for w in woerter])
-        con.commit()
-        con.close()
-        return cls(db_path)
+                        [(w, df.get(w, 1), round(idf(w), 3)) for w in sorted(woerter)])
 
     # -- Laufzeit -------------------------------------------------------
-    def kandidaten(self, text: str, k: int = 8, *, nur_geprueft: bool = False) -> list[dict[str, Any]]:
-        """Text → gerankte Kandidaten-Normen über den invertierten Trigger-Index."""
+    def kandidaten(self, text: str, k: int | None = 8, *, nur_geprueft: bool = False) -> list[dict[str, Any]]:
+        """Text → gerankte Normen; k=None erlaubt Filtern vor einem späteren Limit."""
         # sortiert: deterministische Parameter-Reihenfolge über die Blöcke
         woerter = sorted(set(_tokens(text, 4)))
         if not woerter:
@@ -205,7 +209,7 @@ class TriggerIndex:
                 "score": round(d["score"], 2), "trigger": sorted(set(d["trigger"]))[:6],
                 "geprueft": d["geprueft"], "quelle": "trigger_index",
             })
-        out.sort(key=lambda x: -x["score"])
+        out.sort(key=lambda x: (-x["score"], x["norm_id"]))
         return out[:k]
 
     def detektiere(self, text: str, *, idf_min: float = 4.0, max_marken: int = 40,
@@ -217,8 +221,11 @@ class TriggerIndex:
         Reproduzierbar, auditierbar, kuratierbar – unabhängig von LLM-Trainingsdaten.
         Bewusst übermarkierend; Paraphrasen ohne Korpus-Wort bleiben dem LLM/Embedding.
         """
-        vork = [(m.group().lower(), m.start(), m.end())
-                for m in re.finditer(r"[A-Za-zÄÖÜäöüß]+", text)]
+        # Gleiche PDF-/Word-Normalisierung wie im Katalogpfad. Jeder Span bleibt
+        # über die Offset-Map ein wörtlicher Beleg im Originaldokument.
+        normalized, omap = normalisiere(text)
+        vork = [(m.group().lower(), omap[m.start()], omap[m.end() - 1] + 1)
+                for m in re.finditer(_TOKEN.pattern, normalized, re.IGNORECASE)]
         vork = [(w, s, e) for w, s, e in vork if len(w) >= 4 and w not in _STOPP]
         if not vork:
             return []
@@ -243,14 +250,24 @@ class TriggerIndex:
                 if nur_geprueft:
                     sql += " AND t.geprueft = 1"
                 trows.extend(self.con.execute(sql, tuple(block)).fetchall())
-        per_wort: dict[str, list[dict[str, Any]]] = {}
+        pro_norm: dict[str, dict[str, dict[str, Any]]] = {}
         for r in trows:
-            per_wort.setdefault(r["wort"], []).append({
+            normen = pro_norm.setdefault(r["wort"], {})
+            vorhandene = normen.get(r["norm_id"])
+            if vorhandene is not None:
+                # Eine Norm kann dasselbe Wort aus Überschrift UND Normtext
+                # tragen. Diese Belege dürfen keine weiteren Norm-Slots belegen.
+                vorhandene["gewicht"] = max(vorhandene["gewicht"], r["gewicht"])
+                vorhandene["geprueft"] |= bool(r["geprueft"])
+                continue
+            normen[r["norm_id"]] = {
                 "norm_id": r["norm_id"], "zitat": r["zitat"], "titel": r["titel"],
                 "gewicht": r["gewicht"], "geprueft": bool(r["geprueft"]), "quelle": "trigger_index",
-            })
-        for w in per_wort:
-            per_wort[w].sort(key=lambda x: -x["gewicht"])
+            }
+        per_wort = {
+            w: sorted(normen.values(), key=lambda x: (-x["gewicht"], x["norm_id"]))
+            for w, normen in pro_norm.items()
+        }
         marken: list[dict[str, Any]] = []
         for w, s, e in vork:
             if w not in idf_ok or w not in per_wort:

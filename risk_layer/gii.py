@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,10 +45,28 @@ class NormKnoten:
 
 _WS = re.compile(r"\s+")
 _ABS = re.compile(r"^\((\d+[a-z]*)\)")
+_EINZELNORM = re.compile(r"(§|Art\.?|Artikel)\s*(\d+[a-z]*)", re.I)
+_TEXTBLOECKE = {"P", "DL", "DT", "DD", "LA", "BR", "Title", "table", "row", "entry", "pre"}
+
+
+def _textteile(el: ET.Element) -> Iterator[str]:
+    if el.text:
+        yield el.text
+    for kind in el:
+        # Gliederungsmarken und Tabellenzellen haben im kompakten XML oft
+        # keinen Zwischenraum. Inline-Auszeichnungen können mitten im Wort stehen.
+        abstand = kind.tag in _TEXTBLOECKE or (kind.tag == "SUP" and kind.get("class") == "Rec")
+        if abstand:
+            yield " "
+        yield from _textteile(kind)
+        if abstand:
+            yield " "
+        if kind.tail:
+            yield kind.tail
 
 
 def _text(el: ET.Element) -> str:
-    return _WS.sub(" ", "".join(el.itertext())).strip()
+    return _WS.sub(" ", "".join(_textteile(el))).strip()
 
 
 def _law_aus_metadaten(root: ET.Element) -> tuple[str, str | None]:
@@ -108,7 +127,7 @@ def _dt_dd_paare(dl: ET.Element) -> list[tuple[ET.Element, ET.Element]]:
 
 
 def _dl_knoten(
-    dl: ET.Element, *, law: str, para: str, absn: str, titel: str,
+    dl: ET.Element, *, law: str, para: str, absn: str | None, titel: str,
     gueltig_ab: str | None, praefix: str, nummer: str | None,
 ) -> list[NormKnoten]:
     """Knoten einer DL (rekursiv): nr-/lit-Marken unterhalb von ``praefix``.
@@ -144,6 +163,27 @@ def _dl_knoten(
     return knoten
 
 
+def _eindeutige_knoten(knoten: list[NormKnoten], pfad: str | Path) -> list[NormKnoten]:
+    # Mehrere Sätze eines Absatzes können eigene Listen mit derselben Nr. 1
+    # enthalten. Ohne die Satzebene identifiziert der Pfad keine Einzelstelle.
+    nach_id: dict[str, NormKnoten] = {}
+    mehrdeutig = set()
+    for kn in knoten:
+        if nach_id.setdefault(kn.id, kn) != kn:
+            mehrdeutig.add(kn.id)
+    if not mehrdeutig:
+        return list(nach_id.values())
+    _log.warning("%s: %d mehrdeutige Normpfade; Auflösung über den Elterntext",
+                 pfad, len(mehrdeutig))
+    eindeutig = []
+    for kid, kn in nach_id.items():
+        teile = kid.split(":")
+        # Auch tiefer liegende Treffer würden einen eindeutigen Elternpfad vortäuschen.
+        if all(":".join(teile[:tiefe]) not in mehrdeutig for tiefe in range(3, len(teile) + 1)):
+            eindeutig.append(kn)
+    return eindeutig
+
+
 def parse_datei(pfad: str | Path) -> list[NormKnoten]:
     """Parst eine gii-XML-Datei zu Norm-Knoten."""
     root = ET.parse(pfad).getroot()
@@ -155,14 +195,16 @@ def parse_datei(pfad: str | Path) -> list[NormKnoten]:
         if md is None:
             continue
         enbez = md.findtext("enbez")
-        if not enbez or not re.match(r"^§\s*\d", enbez):
+        normkopf = _EINZELNORM.fullmatch((enbez or "").strip())
+        if not normkopf:
             # Rahmen-/Gliederungsnorm überspringen (Struktur bleibt ungenutzt).
             # „§§ x bis y"-Einheiten fallen hier ebenfalls durch – das soll
             # sichtbar sein statt still geschluckt zu werden.
             if enbez and enbez.startswith("§"):
                 _log.info("enbez ohne Einzel-§ übersprungen (%s): %r", law, enbez)
             continue
-        para = re.sub(r"^§\s*", "", enbez).strip()
+        zeichen, nummer = normkopf.groups()
+        para = nummer if zeichen == "§" else "art" + nummer
         titel = (md.findtext("titel") or "").strip()
         content = norm.find("textdaten/text/Content")
         if content is None:
@@ -178,39 +220,49 @@ def parse_datei(pfad: str | Path) -> list[NormKnoten]:
         ))
 
         # Absatz- und Nummern-Knoten
-        for p in content.findall("P"):
-            ptext = _text(p)
-            m = _ABS.match(ptext)
-            if not m:
+        absaetze = [(p, _text(p)) for p in content.findall("P")]
+        mit_absatznummern = any(_ABS.match(text) for _, text in absaetze)
+        for p, ptext in absaetze:
+            absn = None
+            praefix = f"norm:{law}:{para}"
+            if m := _ABS.match(ptext):
+                absn = m.group(1)
+                praefix = f"{praefix}:abs{absn}"
+                knoten.append(NormKnoten(
+                    id=praefix, law=law, para=para, absatz=absn,
+                    text=ptext, titel=titel, gueltig_ab=gueltig_ab,
+                ))
+            elif mit_absatznummern:
+                # Die Zugehörigkeit eines unnummerierten Fortsetzungsblocks ist offen.
                 continue
-            absn = m.group(1)
-            abs_id = f"norm:{law}:{para}:abs{absn}"
-            knoten.append(NormKnoten(
-                id=abs_id, law=law, para=para, absatz=absn,
-                text=ptext, titel=titel, gueltig_ab=gueltig_ab,
-            ))
             for dl in _oberste_dls(p):
                 knoten.extend(_dl_knoten(
                     dl, law=law, para=para, absn=absn, titel=titel,
-                    gueltig_ab=gueltig_ab, praefix=abs_id, nummer=None,
+                    gueltig_ab=gueltig_ab, praefix=praefix, nummer=None,
                 ))
-    return knoten
+    return _eindeutige_knoten(knoten, pfad)
 
 
-def parse_verzeichnis(verzeichnis: str | Path) -> list[NormKnoten]:
+def parse_verzeichnis(verzeichnis: str | Path, *, streng: bool = False) -> list[NormKnoten]:
     """Parst alle *.xml eines Korpus-Verzeichnisses.
 
     Robust gegen einzelne korrupte Dateien: ein Parse-Fehler bricht NICHT den
     gesamten Korpus-Import ab, sondern wird je Datei geloggt; die übrigen
-    Dateien werden weiterverarbeitet.
+    Dateien werden weiterverarbeitet. Beim Veröffentlichen eines Graphen
+    erzwingt ``streng=True`` einen erfolgreichen Import jeder Quelldatei.
     """
     knoten: list[NormKnoten] = []
     dateien = sorted(Path(verzeichnis).glob("*.xml"))
     fehler: list[tuple[str, str]] = []
     for pfad in dateien:
         try:
-            knoten.extend(parse_datei(pfad))
+            gelesen = parse_datei(pfad)
+            if streng and not gelesen:
+                raise ValueError(f"{pfad.name}: keine importierbare Norm")
+            knoten.extend(gelesen)
         except (ET.ParseError, OSError) as exc:
+            if streng:
+                raise ValueError(f"{pfad.name}: XML-Import fehlgeschlagen") from exc
             fehler.append((str(pfad), str(exc)))
             _log.warning("gii-Datei übersprungen (%s): %s", pfad, exc)
     if fehler:

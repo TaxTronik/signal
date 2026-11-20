@@ -6,6 +6,8 @@ import re
 import tomllib
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -62,8 +64,10 @@ def test_optionale_locks_sind_zielsystemspezifisch_und_hashgepinnt() -> None:
 
     amd_lock = _text("requirements-embedding-windows-amd-py312-lock.txt").lower()
     assert "sentence-transformers==5.6.0" in amd_lock
-    assert "rocm-rel-7.2.1" in amd_lock
-    assert "torch-2.9.1%2brocm7.2.1" in amd_lock
+    assert "https://stable.repo.amd.com/rocm/whl-next/torch/torch-2.15.0%2brocm10.2.0-cp312-cp312-win_amd64.whl" in amd_lock
+    for arch in ("gfx1100", "gfx1101", "gfx1200", "gfx1201"):
+        assert f"amd-torch-device-{arch} @" in amd_lock
+        assert f"rocm-sdk-device-{arch} @" in amd_lock
     assert "--hash=sha256:" in amd_lock
     assert "nvidia-" not in amd_lock
 
@@ -121,19 +125,39 @@ def test_ci_actions_und_containerbasis_sind_digestgepinnt() -> None:
     assert re.search(r"(?m)^FROM\s+\S+@sha256:[0-9a-f]{64}(?:\s|$)", docker)
 
 
-def test_security_workflow_auditiert_alle_produktionslocks() -> None:
-    workflow = _text(".forgejo/workflows/security.yml")
-    for lock in (
-        "requirements-runtime-lock.txt",
-        "requirements-ner-lock.txt",
-        "requirements-embedding-linux-cpu-py312-lock.txt",
-        "requirements-quanten-linux-py312-lock.txt",
-    ):
-        assert f"pip_audit -r {lock}" in workflow
+@pytest.mark.parametrize("filename", ["security.yml", "build.yml"])
+def test_security_workflow_auditiert_alle_produktionslocks(filename: str) -> None:
+    workflow = _text(f".forgejo/workflows/{filename}")
+    assert "python tools/audit_locks.py" in workflow
 
-    for lock in (
-        "requirements-embedding-windows-cpu-py312-lock.txt",
-        "requirements-embedding-windows-amd-py312-lock.txt",
-        "requirements-quanten-windows-py312-lock.txt",
-    ):
-        assert f"pip_audit --no-deps --disable-pip -r {lock}" in workflow
+
+def test_audit_prueft_upstreamversionen_von_vendor_wheels(tmp_path):
+    from tools.audit_locks import audit_pins
+
+    lock = tmp_path / "requirements-test-lock.txt"
+    pin = "--hash=sha256:" + "a" * 64
+    lock.write_text(
+        f"torch @ https://repo.radeon.com/torch-2.9.1%2Brocm7.2.1-cp312-cp312-win_amd64.whl {pin}\n"
+        f"numpy==2.2.6 {pin}\n", encoding="utf-8")
+    assert audit_pins(lock) == {"torch==2.9.1", "numpy==2.2.6"}
+    lock.write_text(f"torch==2.13.0+cpu {pin}\n", encoding="utf-8")
+    assert audit_pins(lock) == {"torch==2.13.0"}
+
+
+def test_herstellerartefakt_benoetigt_hash_und_passenden_wheelnamen(tmp_path):
+    from tools.audit_locks import audit_pins
+
+    lock = tmp_path / "requirements-test-lock.txt"
+    pin = "--hash=sha256:" + "a" * 64
+    lock.write_text(
+        "rocm @ https://repo.radeon.com/rocm-1.0-py3-none-any.whl\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA-256"):
+        audit_pins(lock)
+    lock.write_text(
+        f"rocm @ https://repo.radeon.com/other-1.0-py3-none-any.whl {pin}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="artifact name"):
+        audit_pins(lock)
+    lock.write_text(
+        f"rocm @ https://repo.radeon.com/rocm-10.2.0.tar.gz {pin}\n"
+        f"numpy==2.2.6 {pin}\n", encoding="utf-8")
+    assert audit_pins(lock) == {"numpy==2.2.6"}

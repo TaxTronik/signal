@@ -1,0 +1,3 @@
+# Der Release-Build bezieht Code und Abhängigkeiten aus seinem Basisimage.
+**
+!.managed-release/**

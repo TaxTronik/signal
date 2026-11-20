@@ -31,6 +31,26 @@ def test_build_stats(index):
     assert s["normen"] == 3 and s["trigger"] > 0 and s["geprueft"] == 0
 
 
+def test_defekter_graph_laesst_bestehenden_triggerindex_intakt(index, tmp_path):
+    ziel = index.path
+    index.close()
+    vorher = ziel.read_bytes()
+    graph = NormGraph(tmp_path / "ohne-tabellen.sqlite")
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            TriggerIndex.build(graph, ziel)
+        assert ziel.read_bytes() == vorher
+    finally:
+        graph.close()
+
+
+def test_unbounded_candidates_allow_scope_filtering_before_limit(index):
+    query = "Aufzeichnungen Besteuerungsgrundlagen Unterlagen"
+    all_candidates = index.kandidaten(query, k=None)
+    assert {c["norm_id"] for c in all_candidates} == {"norm:AO:146", "norm:AO:162", "norm:HGB:257"}
+    assert index.kandidaten(query, k=1) == all_candidates[:1]
+
+
 def test_kassen_belege_treffen_146_vor_257(index):
     res = index.kandidaten("Die Bareinnahmen erscheinen nicht in der Kasse; die Aufzeichnungen fehlen.")
     ids = [c["norm_id"] for c in res]
@@ -109,3 +129,49 @@ def test_detektiere_chunking_grosse_wortmenge(index):
     text = "Die Bareinnahmen erscheinen nicht in der Kasse " + " ".join(fueller)
     marken = index.detektiere(text, idf_min=0.5)
     assert any(m["wort"] == "Bareinnahmen" for m in marken)
+
+
+@pytest.mark.parametrize("wort", [
+    "Aufzeichnun\u00adgen",     # weiche Trennung aus Word/PDF
+    "Aufzeichnun-\r\n  gen",  # gedruckte Zeilentrennung
+    "Aufzeichnun\u2060gen",   # unsichtbarer Word Joiner
+])
+def test_trigger_erkennt_extraktionsartefakte_mit_original_offsets(index, wort):
+    # Die Ligatur im Vorspann vergrößert zusätzlich den normalisierten Text;
+    # ein bloßes Übernehmen normalisierter Offsets wäre hier falsch.
+    text = f"O\ufb03zieller Hinweis: Die {wort} fehlen."
+    marken = index.detektiere(text, idf_min=0.5)
+    assert len(marken) == 1
+    marke = marken[0]
+    assert marke["wort"] == wort
+    assert marke["start"] == text.index(wort)
+    assert marke["end"] == text.index(wort) + len(wort)
+    assert text[marke["start"]:marke["end"]] == wort
+    assert {n["norm_id"] for n in marke["normen"]} == {"norm:AO:146"}
+    assert index.kandidaten(text) == index.kandidaten("Die Aufzeichnungen fehlen.")
+
+
+def test_detektiere_normenlimit_zaehlt_verschiedene_normen(tmp_path):
+    graph = NormGraph.build([
+        NormKnoten(id="norm:AO:146", law="AO", para="146", titel="Aufzeichnungen",
+                   text="Aufzeichnungen sind vollständig zu führen."),
+        NormKnoten(id="norm:HGB:257", law="HGB", para="257", titel="Unterlagen",
+                   text="Aufzeichnungen sind aufzubewahren."),
+        NormKnoten(id="norm:AO:162", law="AO", para="162", titel="Schätzung",
+                   text="Besteuerungsgrundlagen werden geschätzt."),
+    ], tmp_path / "mehrere_normen.sqlite")
+    index = TriggerIndex.build(graph, tmp_path / "trigger_mehrere.sqlite")
+    try:
+        marken = index.detektiere("Die Aufzeichnungen fehlen.", idf_min=0, top_normen=2)
+        assert len(marken) == 1
+        # § 146 liefert Überschrift- und Text-Beleg. Vorher verdrängte der
+        # zweite §-146-Beleg den ebenfalls passenden § 257 aus den zwei Slots.
+        assert [n["norm_id"] for n in marken[0]["normen"]] == ["norm:AO:146", "norm:HGB:257"]
+        assert all(n["geprueft"] is False for n in marken[0]["normen"])
+        index.bestaetige("norm:AO:146", "aufzeichnungen")
+        geprueft = index.detektiere("Aufzeichnungen", idf_min=0, nur_geprueft=True)
+        assert [n["norm_id"] for n in geprueft[0]["normen"]] == ["norm:AO:146"]
+        assert geprueft[0]["normen"][0]["geprueft"] is True
+    finally:
+        index.close()
+        graph.close()

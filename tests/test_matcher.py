@@ -5,7 +5,8 @@ from dataclasses import dataclass
 import pytest
 
 from risk_layer import ingest as ing
-from risk_layer.catalog import lade_katalog
+from risk_layer.catalog import Katalog, lade_katalog
+from risk_layer.models import Katalogeintrag
 from risk_layer.matcher import Schicht1Matcher, entferne_enthaltene_spans
 
 
@@ -75,6 +76,27 @@ def test_mal_und_geteiltzeichen_sind_wortgrenzen(matcher):
     assert "ust_finanzielle_eingliederung" in ids2
 
 
+@pytest.mark.parametrize("strich", ["‐", "‑"])
+def test_typografische_bindestriche_erkennen_katalogbegriff(matcher, strich):
+    text = f"Eine Kassen{strich}Nachschau ist vorgesehen."
+    treffer = [t for t in matcher.match(ing.ingest(text))
+               if t.begriff_id == "ao_buchfuehrungs_kassenmangel"]
+    assert len(treffer) == 1
+    assert treffer[0].matched_text == f"Kassen{strich}Nachschau"
+    assert text[treffer[0].start:treffer[0].end] == treffer[0].matched_text
+
+
+@pytest.mark.parametrize("strich", ["-", "‐", "‑"])
+def test_bindestrich_im_katalog_und_text_nutzen_gleiche_trenner(strich):
+    matcher = Schicht1Matcher(Katalog("test", [
+        Katalogeintrag(id="nachschau", begriff_kanonisch=f"Kassen{strich}Nachschau"),
+    ]))
+    for variante in ["Kassen-Nachschau", "Kassen‐Nachschau", "Kassen‑Nachschau", "Kassen Nachschau"]:
+        assert _ids(matcher, variante) == ["nachschau"]
+    # Echte Zusammenschreibung bleibt ein eigener kuratierter Alias.
+    assert _ids(matcher, "KassenNachschau") == []
+
+
 # --- gemeinsamer Containment-Kern (auch vom Unknown-Gate genutzt) -------------
 
 @dataclass
@@ -102,3 +124,17 @@ def test_entferne_enthaltene_spans_identische_bleiben():
     # nur ECHTES Enthaltensein verwirft – gleich lange Spans bleiben beide
     d1, d2 = _Span(0, 4), _Span(0, 4)
     assert entferne_enthaltene_spans([d1, d2]) == [d1, d2]
+
+
+@pytest.mark.parametrize("gruppe", [None, lambda s: s.gruppe, lambda s: [s.gruppe]])
+def test_enthaltene_spans_entsprechen_direktvergleich_in_eingabereihenfolge(gruppe):
+    from random import Random
+
+    zufall = Random(53)
+    items = [_Span(start, ende, g) for start in range(7) for ende in range(start, 9)
+             for g in ("a", "b")] + [_Span(0, 8), _Span(10, 10), _Span(10, 11)]
+    zufall.shuffle(items)
+    erwartet = [b for b in items if not any(
+        (gruppe is None or gruppe(a) == gruppe(b)) and a.start <= b.start <= b.end <= a.end
+        and (a.start < b.start or a.end > b.end) for a in items)]
+    assert [id(item) for item in entferne_enthaltene_spans(items, gruppe=gruppe)] == list(map(id, erwartet))
